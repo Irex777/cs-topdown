@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS Top-Down</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
+
+  /* MENU SCREEN */
+  #menu-screen {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100vh; width: 100vw; position: absolute; z-index: 100;
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
+  }
+  #menu-screen.hidden { display: none; }
+  .menu-title {
+    font-size: 48px; font-weight: 900; letter-spacing: 4px;
+    background: linear-gradient(90deg, #ff6b35, #f7c948, #ff6b35);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: none; margin-bottom: 40px;
+  }
+  .menu-input {
+    padding: 12px 24px; font-size: 18px; border: 2px solid #444; border-radius: 8px;
+    background: #222; color: #eee; width: 300px; text-align: center; margin-bottom: 20px;
+  }
+  .menu-input:focus { outline: none; border-color: #ff6b35; }
+  .menu-btn {
+    padding: 12px 32px; font-size: 16px; font-weight: 700; border: none; border-radius: 8px;
+    cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .btn-connect { background: #ff6b35; color: #fff; margin-bottom: 20px; }
+  .btn-connect:hover { background: #e55a2b; transform: scale(1.05); }
+
+  /* TEAM SELECT */
+  #team-select {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 90; background: rgba(0,0,0,0.9); padding: 40px; border-radius: 16px;
+    text-align: center; min-width: 500px; border: 2px solid #333;
+  }
+  #team-select.show { display: block; }
+  .team-btns { display: flex; gap: 20px; justify-content: center; margin-top: 20px; }
+  .btn-t { background: #d4a537; color: #000; flex: 1; padding: 20px; font-size: 20px; }
+  .btn-t:hover { background: #e0b444; }
+  .btn-ct { background: #4a90d9; color: #fff; flex: 1; padding: 20px; font-size: 20px; }
+  .btn-ct:hover { background: #5aa0e9; }
+  .btn-spec { background: #555; color: #fff; margin-top: 15px; width: 100%; }
+  .team-count { font-size: 14px; opacity: 0.7; margin-top: 5px; }
+  .btn-start { background: #28a745; color: #fff; margin-top: 20px; width: 100%; padding: 16px; font-size: 18px; }
+  .btn-start:hover { background: #218838; }
+
+  /* HUD */
+  #game-canvas { display: block; }
+
+  #hud {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 10;
+  }
+
+  /* Score bar */
+  .score-bar {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 0;
+    background: rgba(0,0,0,0.7); border-radius: 8px; overflow: hidden;
+  }
+  .score-t { background: rgba(212,165,55,0.3); padding: 8px 20px; font-size: 24px; font-weight: 900; color: #d4a537; min-width: 50px; text-align: center; }
+  .score-info { padding: 8px 16px; text-align: center; background: rgba(0,0,0,0.5); }
+  .score-round { font-size: 14px; color: #aaa; }
+  .score-timer { font-size: 20px; font-weight: 700; color: #fff; }
+  .score-ct { background: rgba(74,144,217,0.3); padding: 8px 20px; font-size: 24px; font-weight: 900; color: #4a90d9; min-width: 50px; text-align: center; }
+
+  /* Bottom HUD */
+  .bottom-hud {
+    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 10px; align-items: flex-end;
+  }
+  .hp-bar-container {
+    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .hp-icon { font-size: 24px; }
+  .hp-bar { width: 150px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
+  .hp-fill { height: 100%; background: #4caf50; transition: width 0.2s; border-radius: 4px; }
+  .hp-text { font-size: 18px; font-weight: 700; min-width: 35px; }
+  .armor-bar { width: 150px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
+  .armor-fill { height: 100%; background: #2196f3; transition: width 0.2s; border-radius: 3px; }
+
+  .ammo-display {
+    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 16px;
+    text-align: center;
+  }
+  .ammo-current { font-size: 28px; font-weight: 900; }
+  .ammo-reserve { font-size: 16px; color: #aaa; }
+  .weapon-name { font-size: 11px; color: #888; text-transform: uppercase; }
+
+  .money-display {
+    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 16px;
+    text-align: center;
+  }
+  .money-amount { font-size: 22px; font-weight: 700; color: #4caf50; }
+
+  .grenade-display {
+    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 12px;
+    display: flex; gap: 8px;
+  }
+  .grenade-icon { font-size: 18px; cursor: default; }
+  .grenade-count { font-size: 12px; }
+
+  /* Kill feed */
+  .kill-feed {
+    position: absolute; top: 60px; right: 10px;
+    display: flex; flex-direction: column; gap: 4px;
+    max-width: 350px;
+  }
+  .kill-entry {
+    background: rgba(0,0,0,0.7); padding: 4px 10px; border-radius: 4px;
+    font-size: 13px; display: flex; align-items: center; gap: 6px;
+    animation: fadeOut 4s forwards;
+  }
+  @keyframes fadeOut { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
+  .kill-entry .killer-name { color: #fff; font-weight: 600; }
+  .kill-entry .weapon-icon { color: #ff6b35; }
+  .kill-entry .victim-name { color: #ccc; }
+  .kill-entry .hs-icon { color: #ff0; font-size: 11px; }
+
+  /* Buy menu */
+  #buy-menu {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 80; background: rgba(0,0,0,0.95); padding: 20px; border-radius: 12px;
+    min-width: 600px; border: 1px solid #444; pointer-events: auto;
+  }
+  #buy-menu.show { display: block; }
+  .buy-title { font-size: 20px; font-weight: 700; margin-bottom: 15px; text-align: center; color: #ff6b35; }
+  .buy-section { margin-bottom: 15px; }
+  .buy-section-title { font-size: 12px; text-transform: uppercase; color: #888; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  .buy-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .buy-item {
+    background: #1a1a2e; border: 1px solid #333; border-radius: 6px; padding: 8px;
+    cursor: pointer; text-align: center; transition: all 0.15s;
+  }
+  .buy-item:hover { border-color: #ff6b35; background: #222244; }
+  .buy-item.cant-afford { opacity: 0.4; cursor: not-allowed; }
+  .buy-item.wrong-team { opacity: 0.3; cursor: not-allowed; }
+  .buy-item-name { font-size: 12px; font-weight: 600; }
+  .buy-item-price { font-size: 11px; color: #4caf50; margin-top: 2px; }
+  .buy-item-key { font-size: 10px; color: #666; margin-top: 2px; }
+
+  /* Chat */
+  #chat-box {
+    position: absolute; bottom: 80px; left: 10px; width: 350px;
+    z-index: 20; pointer-events: none;
+  }
+  .chat-msg {
+    background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 3px;
+    font-size: 12px; margin-bottom: 2px;
+    animation: chatFade 8s forwards;
+  }
+  @keyframes chatFade { 0%,80% { opacity: 1; } 100% { opacity: 0; } }
+  .chat-name { font-weight: 600; }
+  .chat-name.t { color: #d4a537; }
+  .chat-name.ct { color: #4a90d9; }
+
+  #chat-input {
+    position: absolute; bottom: 60px; left: 10px; width: 300px;
+    padding: 6px 12px; border: 1px solid #444; border-radius: 4px;
+    background: rgba(0,0,0,0.8); color: #eee; font-size: 13px;
+    z-index: 20; display: none; pointer-events: auto;
+  }
+  #chat-input.show { display: block; }
+
+  /* Center messages */
+  .center-msg {
+    position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
+    font-size: 36px; font-weight: 900; text-align: center; z-index: 30;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    animation: centerPulse 3s forwards;
+  }
+  @keyframes centerPulse { 0% { opacity: 0; transform: translate(-50%,-50%) scale(0.5); } 15% { opacity: 1; transform: translate(-50%,-50%) scale(1.1); } 25% { transform: translate(-50%,-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+
+  /* Minimap */
+  .minimap {
+    position: absolute; top: 60px; left: 10px; z-index: 15;
+    border: 2px solid #444; border-radius: 4px; background: rgba(0,0,0,0.5);
+  }
+
+  /* Crosshair */
+  .crosshair {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 12; pointer-events: none;
+  }
+  .crosshair-line {
+    position: absolute; background: #0f0;
+  }
+  .ch-top { width: 2px; height: 10px; left: -1px; top: -16px; }
+  .ch-bottom { width: 2px; height: 10px; left: -1px; top: 6px; }
+  .ch-left { width: 10px; height: 2px; left: -16px; top: -1px; }
+  .ch-right { width: 10px; height: 2px; left: 6px; top: -1px; }
+
+  /* Round info overlay */
+  .round-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5); z-index: 25; pointer-events: none;
+  }
+  .round-overlay-text {
+    font-size: 48px; font-weight: 900; text-transform: uppercase;
+  }
+
+  /* Spectator */
+  .spectator-bar {
+    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 8px;
+    font-size: 14px; color: #aaa;
+  }
+
+  /* Tab scoreboard */
+  #scoreboard {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 85; background: rgba(0,0,0,0.95); padding: 20px; border-radius: 12px;
+    min-width: 700px; border: 1px solid #444;
+  }
+  #scoreboard.show { display: block; }
+  .sb-header { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+  .sb-team { text-align: center; }
+  .sb-team-t { color: #d4a537; font-size: 28px; font-weight: 900; }
+  .sb-team-ct { color: #4a90d9; font-size: 28px; font-weight: 900; }
+  .sb-team-name { font-size: 12px; color: #888; text-transform: uppercase; }
+  .sb-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+  .sb-table th { font-size: 11px; color: #666; text-transform: uppercase; padding: 4px 8px; text-align: left; }
+  .sb-table td { padding: 4px 8px; font-size: 13px; border-bottom: 1px solid #1a1a2e; }
+  .sb-table .dead { opacity: 0.4; }
+  .sb-row:hover { background: rgba(255,255,255,0.05); }
+
+  /* Flash overlay */
+  #flash-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: white; z-index: 50; opacity: 0; pointer-events: none;
+    transition: opacity 0.1s;
+  }
+
+  /* Damage indicator */
+  .dmg-indicator {
+    position: absolute; top: 50%; left: 50%; width: 200px; height: 200px;
+    transform: translate(-50%, -50%); z-index: 11; pointer-events: none;
+    border: 4px solid transparent; border-radius: 50%;
+  }
+
+  /* Weapon slots */
+  .weapon-slots {
+    position: absolute; bottom: 60px; right: 10px; z-index: 15;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .weapon-slot {
+    background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px;
+    font-size: 12px; border: 1px solid transparent;
+  }
+  .weapon-slot.active { border-color: #ff6b35; background: rgba(255,107,53,0.2); }
+  .slot-key { color: #888; margin-right: 6px; }
+</style>
+</head>
+<body>
+
+<!-- MENU SCREEN -->
+<div id="menu-screen">
+  <div class="menu-title">CS TOP-DOWN</div>
+  <input type="text" class="menu-input" id="name-input" placeholder="Enter your name" maxlength="20" value="">
+  <input type="text" class="menu-input" id="server-input" placeholder="Server IP (default: localhost:3000)" value="">
+  <button class="menu-btn btn-connect" id="connect-btn">CONNECT</button>
+  <div id="menu-status" style="color: #aaa; font-size: 13px;"></div>
+</div>
+
+<!-- TEAM SELECT -->
+<div id="team-select">
+  <h2 style="margin-bottom: 20px; font-size: 24px;">SELECT TEAM</h2>
+  <div class="team-btns">
+    <div style="text-align: center;">
+      <button class="menu-btn btn-t" onclick="joinTeam('T')">TERRORISTS</button>
+      <div class="team-count" id="t-count">0 players</div>
+    </div>
+    <div style="text-align: center;">
+      <button class="menu-btn btn-ct" onclick="joinTeam('CT')">COUNTER-TERRORISTS</button>
+      <div class="team-count" id="ct-count">0 players</div>
+    </div>
+  </div>
+  <button class="menu-btn btn-spec" onclick="joinTeam('SPEC')">SPECTATE</button>
+  <button class="menu-btn btn-start" id="start-btn" onclick="startGame()">START GAME</button>
+</div>
+
+<!-- GAME CANVAS -->
+<canvas id="game-canvas"></canvas>
+
+<!-- HUD -->
+<div id="hud" class="hidden">
+  <!-- Score bar -->
+  <div class="score-bar">
+    <div class="score-t" id="score-t">0</div>
+    <div class="score-info">
+      <div class="score-round" id="round-num">Round 1</div>
+      <div class="score-timer" id="round-timer">1:55</div>
+    </div>
+    <div class="score-ct" id="score-ct">0</div>
+  </div>
+
+  <!-- Bottom HUD -->
+  <div class="bottom-hud">
+    <div class="hp-bar-container">
+      <div>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span class="hp-icon">❤️</span>
+          <span class="hp-text" id="hp-text">100</span>
+          <div class="hp-bar"><div class="hp-fill" id="hp-fill"></div></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+          <span class="hp-icon">🛡️</span>
+          <div class="armor-bar"><div class="armor-fill" id="armor-fill"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="ammo-display">
+      <div class="weapon-name" id="weapon-name">Glock-18</div>
+      <div><span class="ammo-current" id="ammo-current">20</span> <span class="ammo-reserve" id="ammo-reserve">/ 120</span></div>
+    </div>
+    <div class="grenade-display" id="grenade-display">
+      <div class="grenade-icon" title="HE">💣</div>
+      <div class="grenade-count" id="grenade-he">0</div>
+      <div class="grenade-icon" title="Flash">💥</div>
+      <div class="grenade-count" id="grenade-flash">0</div>
+      <div class="grenade-icon" title="Smoke">💨</div>
+      <div class="grenade-count" id="grenade-smoke">0</div>
+    </div>
+    <div class="money-display">
+      <div style="font-size:10px;color:#888;">$</div>
+      <div class="money-amount" id="money-amount">$800</div>
+    </div>
+  </div>
+
+  <!-- Kill feed -->
+  <div class="kill-feed" id="kill-feed"></div>
+
+  <!-- Minimap -->
+  <canvas class="minimap" id="minimap" width="180" height="135"></canvas>
+
+  <!-- Crosshair -->
+  <div class="crosshair">
+    <div class="crosshair-line ch-top"></div>
+    <div class="crosshair-line ch-bottom"></div>
+    <div class="crosshair-line ch-left"></div>
+    <div class="crosshair-line ch-right"></div>
+  </div>
+
+  <!-- Weapon slots -->
+  <div class="weapon-slots" id="weapon-slots"></div>
+
+  <!-- Spectator -->
+  <div class="spectator-bar hidden" id="spectator-bar">SPECTATING - Click to follow players</div>
+</div>
+
+<!-- Buy menu -->
+<div id="buy-menu">
+  <div class="buy-title">BUY MENU <span style="color:#888;font-size:14px;">(B to close)</span></div>
+  <div id="buy-content"></div>
+</div>
+
+<!-- Chat -->
+<div id="chat-box"></div>
+<input type="text" id="chat-input" placeholder="Type message..." maxlength="100">
+
+<!-- Scoreboard -->
+<div id="scoreboard">
+  <div class="sb-header">
+    <div class="sb-team"><div class="sb-team-t" id="sb-t-score">0</div><div class="sb-team-name">Terrorists</div></div>
+    <div style="font-size:12px;color:#666;padding-top:10px;">TAB - SCOREBOARD</div>
+    <div class="sb-team"><div class="sb-team-ct" id="sb-ct-score">0</div><div class="sb-team-name">Counter-Terrorists</div></div>
+  </div>
+  <div id="sb-content"></div>
+</div>
+
+<!-- Flash overlay -->
+<div id="flash-overlay"></div>
+
+<!-- Damage indicator -->
+<div class="dmg-indicator" id="dmg-indicator"></div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/client.js"></script>
+</body>
+</html>
