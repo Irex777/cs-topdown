@@ -99,12 +99,30 @@ document.getElementById('connect-btn').addEventListener('click', connect);
 
 function connect() {
   const name = document.getElementById('name-input').value.trim() || 'Player';
-  let server = document.getElementById('server-input').value.trim() || window.location.host;
-  if (!server.startsWith('http')) server = 'http://' + server;
+  let server = document.getElementById('server-input').value.trim();
+  
+  // If no server entered, connect to same host (works for both LAN and internet)
+  if (!server) {
+    server = window.location.origin;
+  } else if (!server.startsWith('http://') && !server.startsWith('https://')) {
+    // Auto-detect protocol - use https for non-localhost
+    if (server.includes('localhost') || server.startsWith('127.0.0.1') || server.startsWith('192.168.')) {
+      server = 'http://' + server;
+    } else {
+      server = 'https://' + server;
+    }
+  }
 
-  document.getElementById('menu-status').textContent = 'Connecting...';
+  document.getElementById('menu-status').textContent = 'Connecting to ' + server + '...';
 
-  socket = io(server, { query: { name }, transports: ['websocket', 'polling'] });
+  socket = io(server, {
+    query: { name },
+    transports: ['websocket', 'polling'],
+    secure: server.startsWith('https'),
+    reconnection: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+  });
 
   socket.on('connect_error', (err) => {
     document.getElementById('menu-status').textContent = 'Connection failed: ' + err.message;

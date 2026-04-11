@@ -9,7 +9,14 @@ const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfS
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  allowEIO3: true,
+  transports: ['websocket', 'polling'],
+  pingInterval: 10000,
+  pingTimeout: 5000,
+  maxHttpBufferSize: 1e6,
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
