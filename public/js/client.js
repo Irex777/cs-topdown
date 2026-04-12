@@ -424,7 +424,7 @@ function updateHUD() {
   document.getElementById('score-t').textContent = tScore;
   document.getElementById('score-ct').textContent = ctScore;
   document.getElementById('round-num').textContent = 'Round ' + roundNumber;
-  const time = Math.max(0, gameState === 'freeze' ? freezeTimer : roundTimer);
+  const time = gameState === 'waiting' ? 0 : Math.max(0, gameState === 'freeze' ? freezeTimer : roundTimer);
   const m = Math.floor(time/60), s = Math.floor(time%60);
   const timerEl = document.getElementById('round-timer');
   timerEl.textContent = m + ':' + s.toString().padStart(2, '0');
