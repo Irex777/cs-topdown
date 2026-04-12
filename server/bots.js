@@ -25,7 +25,7 @@ function createBot(team, skillLevel = 0.5) {
     aiWaypoint: null,      // {x, y} next movement target
     aiLastSeen: null,      // {x, y, time} last known enemy position
     aiStateTimer: 0,
-    aiReactionTimer: 0,    // simulates reaction time
+    aiReactionTimer: 0.5 + Math.random() * 1.0,    // initial reaction delay 0.5-1.5s
     aiBurstCount: 0,       // shots fired in current burst
     aiSearchPoint: null,   // where to search for enemies
     // Player fields (same as real player)
@@ -128,9 +128,19 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
         bot.aiState = 'defusing';
       }
     } else {
-      // Roam towards random waypoints
-      if (!bot.aiWaypoint || distance(bot, bot.aiWaypoint) < 60) {
-        bot.aiWaypoint = randomMapPoint(gameMap);
+      // Roam: bias toward center or enemy territory to ensure encounters
+      if (!bot.aiWaypoint || distance(bot, bot.aiWaypoint) < 80) {
+        // 60% chance: go toward map center, 40%: random
+        if (Math.random() < 0.6) {
+          const mapCenterX = gameMap[0].length * C.TILE_SIZE / 2;
+          const mapCenterY = gameMap.length * C.TILE_SIZE / 2;
+          bot.aiWaypoint = {
+            x: mapCenterX + (Math.random() - 0.5) * 600,
+            y: mapCenterY + (Math.random() - 0.5) * 600,
+          };
+        } else {
+          bot.aiWaypoint = randomMapPoint(gameMap);
+        }
       }
       moveToward(bot, bot.aiWaypoint.x, bot.aiWaypoint.y, dt);
     }
@@ -186,7 +196,7 @@ function findNearestEnemy(bot, players, gameMap) {
   for (const p of Object.values(players)) {
     if (!p.alive || p.team === bot.team || p.team === C.TEAM_SPEC) continue;
     const dist = distance(bot, p);
-    if (dist < 1200 && dist < nearestDist) { // bots have limited "vision"
+    if (dist < 1800 && dist < nearestDist) { // bots have good awareness
       if (lineOfSight(gameMap, bot.x, bot.y, p.x, p.y)) {
         nearest = p;
         nearestDist = dist;
