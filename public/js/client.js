@@ -333,6 +333,13 @@ function connect() {
 
 function joinTeam(t) { if (socket) socket.emit('join_team', t); }
 function startGame() { if (socket) socket.emit('start_game'); }
+function addBots() {
+  if (!socket) return;
+  socket.emit('add_bots');
+  socket.once('bots_added', (r) => {
+    console.log('Bots added: T=' + r.t + ' CT=' + r.ct);
+  });
+}
 
 // ==================== INPUT ====================
 document.addEventListener('keydown', (e) => {
@@ -898,7 +905,15 @@ function drawPlayer(pl, isMe, isAlly) {
   ctx.font = isMe ? 'bold 10px sans-serif' : '10px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillStyle = isMe ? '#fff' : 'rgba(255,255,255,0.7)';
-  ctx.fillText(pl.name, x, y - PLAYER_RADIUS - 16);
+  const displayName = pl.name;
+  ctx.fillText(displayName, x, y - PLAYER_RADIUS - 16);
+
+  // Bot badge
+  if (pl.isBot) {
+    ctx.font = '8px sans-serif';
+    ctx.fillStyle = 'rgba(100,200,255,0.6)';
+    ctx.fillText('BOT', x, y - PLAYER_RADIUS - 6);
+  }
 
   // HP bar
   const barW = 26, barH = 3;

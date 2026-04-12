@@ -322,7 +322,10 @@
     </div>
   </div>
   <button class="menu-btn btn-spec" onclick="joinTeam('SPEC')">SPECTATE</button>
-  <button class="menu-btn btn-start" id="start-btn" onclick="startGame()">START GAME</button>
+  <div style="display: flex; gap: 12px; justify-content: center; margin-top: 12px;">
+    <button class="menu-btn" style="background: rgba(100,200,255,0.15); color: #88ccff; border: 1px solid rgba(100,200,255,0.3);" onclick="addBots()">+ ADD BOTS</button>
+    <button class="menu-btn btn-start" id="start-btn" onclick="startGame()">START GAME</button>
+  </div>
 </div>
 
 <!-- GAME CANVAS -->

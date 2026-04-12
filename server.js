@@ -6,6 +6,7 @@ const path = require('path');
 const C = require('./shared/constants');
 const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfSight,
   TILE_WALL, TILE_CRATE, TILE_BOMBSITE_A, TILE_BOMBSITE_B, TILE_T_SPAWN, TILE_CT_SPAWN, TILE_DOOR, TILE_EMPTY } = require('./shared/map');
+const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX } = require('./server/bots');
 
 const app = express();
 const server = http.createServer(app);
@@ -122,6 +123,7 @@ function startGame() {
       p.money = C.START_MONEY;
       giveDefaultWeapons(p);
       spawnPlayer(p);
+      if (p.isBot) p._botBought = false;
     }
   }
 
@@ -213,6 +215,7 @@ function endRound(winner, reason) {
       if (p.team !== C.TEAM_SPEC) {
         giveDefaultWeapons(p);
         spawnPlayer(p);
+        if (p.isBot) p._botBought = false;
       }
     }
 
@@ -300,6 +303,7 @@ function update(dt) {
     // Allow free movement and shooting in waiting state
     updatePlayers(dt);
     updateBullets(dt);
+    updateBots(dt);
     return;
   }
 
@@ -309,6 +313,8 @@ function update(dt) {
       startRound();
     }
     updatePlayers(dt);
+    updateBots(dt);
+    botBuyDuringFreeze();
     return;
   }
 
@@ -330,6 +336,7 @@ function update(dt) {
   updateActiveGrenades(dt);
   updateGrenades(dt);
   updateBomb(dt);
+  updateBots(dt);
   checkRoundEnd();
 }
 
@@ -695,6 +702,69 @@ function checkRoundEnd() {
   }
 }
 
+// ==================== BOT MANAGEMENT ====================
+function updateBots(dt) {
+  for (const p of Object.values(players)) {
+    if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
+    updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
+  }
+}
+
+function botBuyDuringFreeze() {
+  for (const p of Object.values(players)) {
+    if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
+    if (p._botBought) continue;
+    const item = addBotBuyLogic(p);
+    if (item) {
+      handleBuy(p, item);
+      // Also buy armor if didn't buy it already
+      if (!item.includes('kevlar') && !item.includes('helmet') && p.money >= 650) {
+        handleBuy(p, p.money >= 1000 ? 'helmet' : 'kevlar');
+      }
+    }
+    p._botBought = true;
+  }
+}
+
+function addBotsToGame() {
+  const tPlayers = Object.values(players).filter(p => p.team === 'T');
+  const ctPlayers = Object.values(players).filter(p => p.team === 'CT');
+  const tBots = tPlayers.filter(p => p.isBot).length;
+  const ctBots = ctPlayers.filter(p => p.isBot).length;
+  
+  // Ensure each team has at least 3 bots
+  const botsToAdd = [];
+  const tNeeded = Math.max(0, 3 - tBots);
+  const ctNeeded = Math.max(0, 3 - ctBots);
+  
+  const tNew = spawnBotsForTeam(players, 'T', tNeeded);
+  const ctNew = spawnBotsForTeam(players, 'CT', ctNeeded);
+  
+  for (const bot of [...tNew, ...ctNew]) {
+    players[bot.id] = bot;
+    giveDefaultWeapons(bot);
+    spawnPlayer(bot);
+    if (gameState === 'playing' || gameState === 'freeze') {
+      bot.money = C.START_MONEY;
+    }
+  }
+  
+  broadcastPlayerList();
+  return { t: tNew.length, ct: ctNew.length };
+}
+
+function removeAllBots() {
+  let count = 0;
+  for (const [id, p] of Object.entries(players)) {
+    if (p.isBot) {
+      delete players[id];
+      count++;
+    }
+  }
+  broadcastPlayerList();
+  return count;
+}
+
 // ==================== NETWORKING ====================
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
@@ -868,8 +938,8 @@ io.on('connection', (socket) => {
     tScore = 0;
     ctScore = 0;
     bombState = null;
-    bullets = [];
-    for (const p of Object.values(players)) {
+    // Keep bots, reset their stats too
+    for (const [id, p] of Object.entries(players)) {
       p.kills = 0;
       p.deaths = 0;
       p.assists = 0;
@@ -877,6 +947,16 @@ io.on('connection', (socket) => {
     }
     io.emit('game_restart');
     io.emit('game_state', { state: gameState, round: 0, tScore: 0, ctScore: 0 });
+  });
+
+  socket.on('add_bots', () => {
+    const result = addBotsToGame();
+    socket.emit('bots_added', result);
+  });
+
+  socket.on('remove_bots', () => {
+    const count = removeAllBots();
+    socket.emit('bots_removed', { count });
   });
 
   socket.on('chat', (msg) => {
@@ -894,10 +974,10 @@ io.on('connection', (socket) => {
       setTimeout(() => {
         delete players[socket.id];
         broadcastPlayerList();
-        // Reset game if no players left
-        const activePlayers = Object.values(players).filter(pp => pp.connected);
-        if (activePlayers.length === 0) {
-          console.log('All players disconnected, resetting game');
+        // Reset game if no human players left (bots don't count)
+        const humanPlayers = Object.values(players).filter(pp => pp.connected && !pp.isBot);
+        if (humanPlayers.length === 0) {
+          console.log('All human players disconnected, resetting game');
           gameState = 'waiting';
           roundNumber = 0;
           tScore = 0;
@@ -934,6 +1014,7 @@ function serializePlayer(p) {
     kills: p.kills,
     deaths: p.deaths,
     assists: p.assists,
+    isBot: p.isBot || false,
   };
 }
 
