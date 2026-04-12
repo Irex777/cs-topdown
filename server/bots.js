@@ -73,6 +73,9 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
   // Find nearest visible enemy
   const enemy = findNearestEnemy(bot, players, gameMap);
   
+  // Always know where enemies roughly are (radar awareness)
+  const nearestEnemyPos = findNearestEnemyPosition(bot, players);
+  
   if (enemy && bot.aiReactionTimer <= 0) {
     // Can see an enemy
     bot.aiLastSeen = { x: enemy.x, y: enemy.y, time: Date.now() / 1000 };
@@ -128,10 +131,16 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
         bot.aiState = 'defusing';
       }
     } else {
-      // Roam: bias toward center or enemy territory to ensure encounters
+      // Roam: prefer moving toward known enemy positions
       if (!bot.aiWaypoint || distance(bot, bot.aiWaypoint) < 80) {
-        // 60% chance: go toward map center, 40%: random
-        if (Math.random() < 0.6) {
+        if (nearestEnemyPos && Math.random() < 0.7) {
+          // Move toward nearest enemy (rough direction)
+          bot.aiWaypoint = {
+            x: nearestEnemyPos.x + (Math.random() - 0.5) * 400,
+            y: nearestEnemyPos.y + (Math.random() - 0.5) * 400,
+          };
+        } else if (Math.random() < 0.5) {
+          // Go toward map center
           const mapCenterX = gameMap[0].length * C.TILE_SIZE / 2;
           const mapCenterY = gameMap.length * C.TILE_SIZE / 2;
           bot.aiWaypoint = {
@@ -201,6 +210,20 @@ function findNearestEnemy(bot, players, gameMap) {
         nearest = p;
         nearestDist = dist;
       }
+    }
+  }
+  return nearest;
+}
+
+function findNearestEnemyPosition(bot, players) {
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const p of Object.values(players)) {
+    if (!p.alive || p.team === bot.team || p.team === C.TEAM_SPEC) continue;
+    const dist = distance(bot, p);
+    if (dist < nearestDist) {
+      nearest = p;
+      nearestDist = dist;
     }
   }
   return nearest;
