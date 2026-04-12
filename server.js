@@ -228,7 +228,7 @@ function endRound(winner, reason) {
 // ==================== BUY SYSTEM ====================
 function handleBuy(player, item) {
   if (!player.alive) return false;
-  if (gameState !== 'freeze' && gameState !== 'waiting') return false;
+  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end') return false;
   const weapon = C.WEAPONS[item];
   if (!weapon) return false;
 
@@ -894,6 +894,19 @@ io.on('connection', (socket) => {
       setTimeout(() => {
         delete players[socket.id];
         broadcastPlayerList();
+        // Reset game if no players left
+        const activePlayers = Object.values(players).filter(pp => pp.connected);
+        if (activePlayers.length === 0) {
+          console.log('All players disconnected, resetting game');
+          gameState = 'waiting';
+          roundNumber = 0;
+          tScore = 0;
+          ctScore = 0;
+          bombState = null;
+          players = {};
+          io.emit('game_restart');
+          io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
+        }
       }, 5000);
     }
     broadcastPlayerList();
