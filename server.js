@@ -227,7 +227,8 @@ function endRound(winner, reason) {
 
 // ==================== BUY SYSTEM ====================
 function handleBuy(player, item) {
-  if (gameState !== 'freeze' || !player.alive) return false;
+  if (!player.alive) return false;
+  if (gameState !== 'freeze' && gameState !== 'waiting') return false;
   const weapon = C.WEAPONS[item];
   if (!weapon) return false;
 
@@ -296,8 +297,9 @@ function handleBuy(player, item) {
 // ==================== GAME PHYSICS ====================
 function update(dt) {
   if (gameState === 'waiting') {
-    // Allow free movement in waiting state (no combat)
-    updatePlayersFrozen(dt);
+    // Allow free movement and shooting in waiting state
+    updatePlayers(dt);
+    updateBullets(dt);
     return;
   }
 
@@ -306,7 +308,7 @@ function update(dt) {
     if (freezeTimer <= 0) {
       startRound();
     }
-    updatePlayersFrozen(dt);
+    updatePlayers(dt);
     return;
   }
 

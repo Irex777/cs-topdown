@@ -350,6 +350,11 @@ document.addEventListener('keydown', (e) => {
     const inp = document.getElementById('chat-input');
     inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
   }
+  if (e.code === 'Escape' && showBuyMenu) {
+    showBuyMenu = false;
+    document.getElementById('buy-menu').classList.remove('show');
+    return;
+  }
   if (chatOpen) return;
   if (e.code === 'KeyB') toggleBuyMenu();
   if (e.code === 'Tab') { e.preventDefault(); document.getElementById('scoreboard').classList.add('show'); }
