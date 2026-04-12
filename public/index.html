@@ -6,273 +6,311 @@
 <title>CS Top-Down</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #1a1a2e; color: #eee; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; user-select: none; }
+  body { background: #0a0a14; color: #eee; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; user-select: none; }
 
   /* MENU SCREEN */
   #menu-screen {
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     height: 100vh; width: 100vw; position: absolute; z-index: 100;
-    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 50%, #0f0f23 100%);
+    background: radial-gradient(ellipse at center, #1a1a3e 0%, #0a0a14 70%);
   }
   #menu-screen.hidden { display: none; }
   .menu-title {
-    font-size: 48px; font-weight: 900; letter-spacing: 4px;
-    background: linear-gradient(90deg, #ff6b35, #f7c948, #ff6b35);
+    font-size: 64px; font-weight: 900; letter-spacing: 8px; text-transform: uppercase;
+    background: linear-gradient(135deg, #ff6b35 0%, #ffd700 30%, #ff6b35 60%, #ffd700 100%);
+    background-size: 200% 200%;
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    text-shadow: none; margin-bottom: 40px;
+    animation: shimmer 3s ease infinite;
+    margin-bottom: 8px; filter: drop-shadow(0 0 30px rgba(255,107,53,0.3));
   }
+  @keyframes shimmer { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+  .menu-subtitle { font-size: 14px; letter-spacing: 12px; color: #666; text-transform: uppercase; margin-bottom: 40px; }
   .menu-input {
-    padding: 12px 24px; font-size: 18px; border: 2px solid #444; border-radius: 8px;
-    background: #222; color: #eee; width: 300px; text-align: center; margin-bottom: 20px;
+    padding: 14px 24px; font-size: 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
+    background: rgba(255,255,255,0.05); color: #eee; width: 320px; text-align: center; margin-bottom: 16px;
+    backdrop-filter: blur(10px); transition: all 0.3s;
   }
-  .menu-input:focus { outline: none; border-color: #ff6b35; }
+  .menu-input:focus { outline: none; border-color: #ff6b35; background: rgba(255,107,53,0.05); box-shadow: 0 0 20px rgba(255,107,53,0.1); }
   .menu-btn {
-    padding: 12px 32px; font-size: 16px; font-weight: 700; border: none; border-radius: 8px;
-    cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px;
+    padding: 14px 40px; font-size: 15px; font-weight: 700; border: none; border-radius: 12px;
+    cursor: pointer; transition: all 0.3s; text-transform: uppercase; letter-spacing: 2px;
+    position: relative; overflow: hidden;
   }
-  .btn-connect { background: #ff6b35; color: #fff; margin-bottom: 20px; }
-  .btn-connect:hover { background: #e55a2b; transform: scale(1.05); }
+  .btn-connect {
+    background: linear-gradient(135deg, #ff6b35, #e04a15); color: #fff;
+    box-shadow: 0 4px 20px rgba(255,107,53,0.3);
+  }
+  .btn-connect:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(255,107,53,0.5); }
 
   /* TEAM SELECT */
   #team-select {
     display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 90; background: rgba(0,0,0,0.9); padding: 40px; border-radius: 16px;
-    text-align: center; min-width: 500px; border: 2px solid #333;
+    z-index: 90; background: rgba(10,10,20,0.95); padding: 40px; border-radius: 20px;
+    text-align: center; min-width: 560px; border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   #team-select.show { display: block; }
   .team-btns { display: flex; gap: 20px; justify-content: center; margin-top: 20px; }
-  .btn-t { background: #d4a537; color: #000; flex: 1; padding: 20px; font-size: 20px; }
-  .btn-t:hover { background: #e0b444; }
-  .btn-ct { background: #4a90d9; color: #fff; flex: 1; padding: 20px; font-size: 20px; }
-  .btn-ct:hover { background: #5aa0e9; }
-  .btn-spec { background: #555; color: #fff; margin-top: 15px; width: 100%; }
-  .team-count { font-size: 14px; opacity: 0.7; margin-top: 5px; }
-  .btn-start { background: #28a745; color: #fff; margin-top: 20px; width: 100%; padding: 16px; font-size: 18px; }
-  .btn-start:hover { background: #218838; }
+  .btn-t {
+    background: linear-gradient(135deg, #c9952d, #a07825); color: #fff; flex: 1; padding: 24px;
+    font-size: 18px; border-radius: 12px; border: 1px solid rgba(212,165,55,0.3);
+    transition: all 0.3s;
+  }
+  .btn-t:hover { background: linear-gradient(135deg, #daa535, #b88a2a); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(212,165,55,0.3); }
+  .btn-ct {
+    background: linear-gradient(135deg, #3a7bc8, #2a5fa0); color: #fff; flex: 1; padding: 24px;
+    font-size: 18px; border-radius: 12px; border: 1px solid rgba(74,144,217,0.3);
+    transition: all 0.3s;
+  }
+  .btn-ct:hover { background: linear-gradient(135deg, #4a8bd8, #3a6fb0); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(74,144,217,0.3); }
+  .btn-spec { background: rgba(255,255,255,0.05); color: #888; margin-top: 15px; width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
+  .btn-spec:hover { background: rgba(255,255,255,0.1); }
+  .team-count { font-size: 12px; opacity: 0.5; margin-top: 6px; }
+  .btn-start {
+    background: linear-gradient(135deg, #28a745, #1e8035); color: #fff; margin-top: 20px;
+    width: 100%; padding: 18px; font-size: 16px; border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(40,167,69,0.3);
+  }
+  .btn-start:hover { transform: translateY(-2px); box-shadow: 0 6px 25px rgba(40,167,69,0.4); }
 
-  /* HUD */
+  /* GAME CANVAS */
   #game-canvas { display: block; }
 
+  /* HUD */
   #hud {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 10;
   }
+  #hud.hidden { display: none; }
 
   /* Score bar */
   .score-bar {
-    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    display: flex; align-items: center; gap: 0;
-    background: rgba(0,0,0,0.7); border-radius: 8px; overflow: hidden;
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: stretch; overflow: hidden; border-radius: 10px;
+    background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.06);
+    backdrop-filter: blur(10px);
   }
-  .score-t { background: rgba(212,165,55,0.3); padding: 8px 20px; font-size: 24px; font-weight: 900; color: #d4a537; min-width: 50px; text-align: center; }
-  .score-info { padding: 8px 16px; text-align: center; background: rgba(0,0,0,0.5); }
-  .score-round { font-size: 14px; color: #aaa; }
-  .score-timer { font-size: 20px; font-weight: 700; color: #fff; }
-  .score-ct { background: rgba(74,144,217,0.3); padding: 8px 20px; font-size: 24px; font-weight: 900; color: #4a90d9; min-width: 50px; text-align: center; }
+  .score-t {
+    background: linear-gradient(135deg, rgba(212,165,55,0.2), rgba(212,165,55,0.05));
+    padding: 8px 24px; font-size: 28px; font-weight: 900; color: #d4a537;
+    min-width: 55px; text-align: center; text-shadow: 0 0 10px rgba(212,165,55,0.3);
+  }
+  .score-info {
+    padding: 6px 18px; text-align: center; background: rgba(0,0,0,0.3);
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .score-round { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+  .score-timer { font-size: 22px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
+  .score-ct {
+    background: linear-gradient(135deg, rgba(74,144,217,0.2), rgba(74,144,217,0.05));
+    padding: 8px 24px; font-size: 28px; font-weight: 900; color: #4a90d9;
+    min-width: 55px; text-align: center; text-shadow: 0 0 10px rgba(74,144,217,0.3);
+  }
 
   /* Bottom HUD */
   .bottom-hud {
-    position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
-    display: flex; gap: 10px; align-items: flex-end;
+    position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; align-items: flex-end;
   }
-  .hp-bar-container {
-    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 12px;
-    display: flex; align-items: center; gap: 10px;
+  .hud-panel {
+    background: rgba(0,0,0,0.6); border-radius: 10px; padding: 10px 14px;
+    border: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(10px);
   }
-  .hp-icon { font-size: 24px; }
-  .hp-bar { width: 150px; height: 8px; background: #333; border-radius: 4px; overflow: hidden; }
-  .hp-fill { height: 100%; background: #4caf50; transition: width 0.2s; border-radius: 4px; }
-  .hp-text { font-size: 18px; font-weight: 700; min-width: 35px; }
-  .armor-bar { width: 150px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; }
-  .armor-fill { height: 100%; background: #2196f3; transition: width 0.2s; border-radius: 3px; }
+  .hp-panel { display: flex; align-items: center; gap: 10px; }
+  .hp-icon { font-size: 20px; filter: drop-shadow(0 0 4px rgba(255,0,0,0.3)); }
+  .hp-text { font-size: 22px; font-weight: 900; min-width: 30px; font-variant-numeric: tabular-nums; }
+  .bar-track { width: 120px; height: 6px; background: rgba(255,255,255,0.06); border-radius: 3px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 3px; transition: width 0.15s ease-out; }
+  .hp-fill { background: linear-gradient(90deg, #4caf50, #66bb6a); }
+  .hp-fill.low { background: linear-gradient(90deg, #f44336, #ff5722); }
+  .hp-fill.mid { background: linear-gradient(90deg, #ff9800, #ffb74d); }
+  .armor-fill { background: linear-gradient(90deg, #2196f3, #42a5f5); }
 
-  .ammo-display {
-    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 16px;
-    text-align: center;
-  }
-  .ammo-current { font-size: 28px; font-weight: 900; }
-  .ammo-reserve { font-size: 16px; color: #aaa; }
-  .weapon-name { font-size: 11px; color: #888; text-transform: uppercase; }
+  .ammo-display { text-align: center; }
+  .weapon-name { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+  .ammo-row { display: flex; align-items: baseline; justify-content: center; gap: 4px; }
+  .ammo-current { font-size: 28px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  .ammo-sep { font-size: 16px; color: #444; }
+  .ammo-reserve { font-size: 16px; color: #666; font-variant-numeric: tabular-nums; }
 
-  .money-display {
-    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 16px;
-    text-align: center;
-  }
-  .money-amount { font-size: 22px; font-weight: 700; color: #4caf50; }
+  .grenade-display { display: flex; gap: 10px; align-items: center; }
+  .grenade-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .grenade-icon { font-size: 16px; }
+  .grenade-count { font-size: 11px; font-weight: 700; color: #aaa; }
+  .grenade-count.zero { color: #333; }
 
-  .grenade-display {
-    background: rgba(0,0,0,0.7); border-radius: 8px; padding: 8px 12px;
-    display: flex; gap: 8px;
-  }
-  .grenade-icon { font-size: 18px; cursor: default; }
-  .grenade-count { font-size: 12px; }
+  .money-display { text-align: center; }
+  .money-label { font-size: 9px; color: #444; text-transform: uppercase; letter-spacing: 1px; }
+  .money-amount { font-size: 20px; font-weight: 900; color: #4caf50; text-shadow: 0 0 8px rgba(76,175,80,0.2); font-variant-numeric: tabular-nums; }
 
   /* Kill feed */
   .kill-feed {
-    position: absolute; top: 60px; right: 10px;
-    display: flex; flex-direction: column; gap: 4px;
-    max-width: 350px;
+    position: absolute; top: 60px; right: 12px;
+    display: flex; flex-direction: column; gap: 3px;
+    max-width: 380px;
   }
   .kill-entry {
-    background: rgba(0,0,0,0.7); padding: 4px 10px; border-radius: 4px;
-    font-size: 13px; display: flex; align-items: center; gap: 6px;
-    animation: fadeOut 4s forwards;
+    background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 6px;
+    font-size: 12px; display: flex; align-items: center; gap: 8px;
+    border: 1px solid rgba(255,255,255,0.04);
+    animation: killSlide 0.3s ease-out, killFade 5s 1s forwards;
+    backdrop-filter: blur(4px);
   }
-  @keyframes fadeOut { 0%,70% { opacity: 1; } 100% { opacity: 0; } }
-  .kill-entry .killer-name { color: #fff; font-weight: 600; }
-  .kill-entry .weapon-icon { color: #ff6b35; }
-  .kill-entry .victim-name { color: #ccc; }
-  .kill-entry .hs-icon { color: #ff0; font-size: 11px; }
+  @keyframes killSlide { from { transform: translateX(50px); opacity: 0; } to { transform: none; opacity: 1; } }
+  @keyframes killFade { to { opacity: 0; transform: translateX(20px); } }
+  .kill-entry .killer-name { font-weight: 700; }
+  .kill-entry .weapon-icon { color: #ff6b35; font-size: 11px; opacity: 0.7; }
+  .kill-entry .victim-name { color: #aaa; }
+  .kill-entry .hs-icon { color: #ffd700; font-size: 10px; font-weight: 900; }
 
   /* Buy menu */
   #buy-menu {
     display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 80; background: rgba(0,0,0,0.95); padding: 20px; border-radius: 12px;
-    min-width: 600px; border: 1px solid #444; pointer-events: auto;
+    z-index: 80; background: rgba(10,10,20,0.95); padding: 24px; border-radius: 16px;
+    min-width: 640px; border: 1px solid rgba(255,255,255,0.06); pointer-events: auto;
+    backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   #buy-menu.show { display: block; }
-  .buy-title { font-size: 20px; font-weight: 700; margin-bottom: 15px; text-align: center; color: #ff6b35; }
-  .buy-section { margin-bottom: 15px; }
-  .buy-section-title { font-size: 12px; text-transform: uppercase; color: #888; margin-bottom: 8px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  .buy-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; text-align: center; color: #ff6b35; letter-spacing: 2px; }
+  .buy-section { margin-bottom: 12px; }
+  .buy-section-title { font-size: 10px; text-transform: uppercase; color: #555; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 4px; letter-spacing: 2px; }
   .buy-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .buy-item {
-    background: #1a1a2e; border: 1px solid #333; border-radius: 6px; padding: 8px;
-    cursor: pointer; text-align: center; transition: all 0.15s;
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px;
+    cursor: pointer; text-align: center; transition: all 0.2s;
   }
-  .buy-item:hover { border-color: #ff6b35; background: #222244; }
-  .buy-item.cant-afford { opacity: 0.4; cursor: not-allowed; }
-  .buy-item.wrong-team { opacity: 0.3; cursor: not-allowed; }
-  .buy-item-name { font-size: 12px; font-weight: 600; }
-  .buy-item-price { font-size: 11px; color: #4caf50; margin-top: 2px; }
-  .buy-item-key { font-size: 10px; color: #666; margin-top: 2px; }
+  .buy-item:hover { border-color: #ff6b35; background: rgba(255,107,53,0.08); transform: translateY(-1px); }
+  .buy-item.cant-afford { opacity: 0.3; cursor: not-allowed; }
+  .buy-item.cant-afford:hover { border-color: rgba(255,255,255,0.06); background: rgba(255,255,255,0.03); transform: none; }
+  .buy-item.wrong-team { opacity: 0.2; cursor: not-allowed; }
+  .buy-item-name { font-size: 11px; font-weight: 600; }
+  .buy-item-price { font-size: 11px; color: #4caf50; margin-top: 3px; }
 
   /* Chat */
   #chat-box {
-    position: absolute; bottom: 80px; left: 10px; width: 350px;
+    position: absolute; bottom: 80px; left: 12px; width: 350px;
     z-index: 20; pointer-events: none;
   }
   .chat-msg {
-    background: rgba(0,0,0,0.6); padding: 3px 8px; border-radius: 3px;
-    font-size: 12px; margin-bottom: 2px;
-    animation: chatFade 8s forwards;
+    background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 6px;
+    font-size: 12px; margin-bottom: 3px; border-left: 2px solid transparent;
+    animation: chatFade 8s 2s forwards; backdrop-filter: blur(4px);
   }
-  @keyframes chatFade { 0%,80% { opacity: 1; } 100% { opacity: 0; } }
+  @keyframes chatFade { to { opacity: 0; } }
   .chat-name { font-weight: 600; }
-  .chat-name.t { color: #d4a537; }
-  .chat-name.ct { color: #4a90d9; }
+  .chat-name.T { color: #d4a537; border-left-color: #d4a537; }
+  .chat-name.CT { color: #4a90d9; border-left-color: #4a90d9; }
 
   #chat-input {
-    position: absolute; bottom: 60px; left: 10px; width: 300px;
-    padding: 6px 12px; border: 1px solid #444; border-radius: 4px;
+    position: absolute; bottom: 64px; left: 12px; width: 300px;
+    padding: 8px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
     background: rgba(0,0,0,0.8); color: #eee; font-size: 13px;
     z-index: 20; display: none; pointer-events: auto;
+    backdrop-filter: blur(10px);
   }
   #chat-input.show { display: block; }
 
-  /* Center messages */
-  .center-msg {
-    position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%);
-    font-size: 36px; font-weight: 900; text-align: center; z-index: 30;
-    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
-    animation: centerPulse 3s forwards;
-  }
-  @keyframes centerPulse { 0% { opacity: 0; transform: translate(-50%,-50%) scale(0.5); } 15% { opacity: 1; transform: translate(-50%,-50%) scale(1.1); } 25% { transform: translate(-50%,-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
-
   /* Minimap */
-  .minimap {
-    position: absolute; top: 60px; left: 10px; z-index: 15;
-    border: 2px solid #444; border-radius: 4px; background: rgba(0,0,0,0.5);
+  .minimap-container {
+    position: absolute; top: 60px; left: 12px; z-index: 15;
+    border-radius: 8px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .minimap-label {
+    position: absolute; top: 4px; left: 6px; font-size: 8px; color: #444;
+    text-transform: uppercase; letter-spacing: 2px; z-index: 2;
   }
 
   /* Crosshair */
   .crosshair {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 12; pointer-events: none;
+    z-index: 12; pointer-events: none; mix-blend-mode: difference;
   }
-  .crosshair-line {
-    position: absolute; background: #0f0;
-  }
-  .ch-top { width: 2px; height: 10px; left: -1px; top: -16px; }
-  .ch-bottom { width: 2px; height: 10px; left: -1px; top: 6px; }
-  .ch-left { width: 10px; height: 2px; left: -16px; top: -1px; }
-  .ch-right { width: 10px; height: 2px; left: 6px; top: -1px; }
+  .crosshair-line { position: absolute; background: #0f0; }
+  .ch-top { width: 2px; height: 8px; left: -1px; top: -14px; }
+  .ch-bottom { width: 2px; height: 8px; left: -1px; top: 6px; }
+  .ch-left { width: 8px; height: 2px; left: -14px; top: -1px; }
+  .ch-right { width: 8px; height: 2px; left: 6px; top: -1px; }
+  .ch-dot { width: 2px; height: 2px; left: -1px; top: -1px; position: absolute; background: #0f0; border-radius: 50%; }
 
-  /* Round info overlay */
-  .round-overlay {
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    display: flex; align-items: center; justify-content: center;
-    background: rgba(0,0,0,0.5); z-index: 25; pointer-events: none;
+  /* Weapon slots */
+  .weapon-slots {
+    position: absolute; bottom: 70px; right: 12px; z-index: 15;
+    display: flex; flex-direction: column; gap: 3px;
   }
-  .round-overlay-text {
-    font-size: 48px; font-weight: 900; text-transform: uppercase;
+  .weapon-slot {
+    background: rgba(0,0,0,0.5); padding: 5px 12px; border-radius: 6px;
+    font-size: 11px; border: 1px solid rgba(255,255,255,0.04);
+    backdrop-filter: blur(4px); transition: all 0.15s;
   }
-
-  /* Spectator */
-  .spectator-bar {
-    position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.7); padding: 8px 20px; border-radius: 8px;
-    font-size: 14px; color: #aaa;
-  }
+  .weapon-slot.active { border-color: #ff6b35; background: rgba(255,107,53,0.1); color: #fff; }
+  .slot-key { color: #555; margin-right: 6px; font-weight: 700; }
 
   /* Tab scoreboard */
   #scoreboard {
     display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-    z-index: 85; background: rgba(0,0,0,0.95); padding: 20px; border-radius: 12px;
-    min-width: 700px; border: 1px solid #444;
+    z-index: 85; background: rgba(10,10,20,0.95); padding: 24px; border-radius: 16px;
+    min-width: 750px; border: 1px solid rgba(255,255,255,0.06);
+    backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   #scoreboard.show { display: block; }
-  .sb-header { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #333; }
+  .sb-header { display: flex; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
   .sb-team { text-align: center; }
-  .sb-team-t { color: #d4a537; font-size: 28px; font-weight: 900; }
-  .sb-team-ct { color: #4a90d9; font-size: 28px; font-weight: 900; }
-  .sb-team-name { font-size: 12px; color: #888; text-transform: uppercase; }
-  .sb-table { width: 100%; border-collapse: collapse; margin-top: 5px; }
-  .sb-table th { font-size: 11px; color: #666; text-transform: uppercase; padding: 4px 8px; text-align: left; }
-  .sb-table td { padding: 4px 8px; font-size: 13px; border-bottom: 1px solid #1a1a2e; }
-  .sb-table .dead { opacity: 0.4; }
-  .sb-row:hover { background: rgba(255,255,255,0.05); }
+  .sb-team-t { color: #d4a537; font-size: 32px; font-weight: 900; text-shadow: 0 0 15px rgba(212,165,55,0.3); }
+  .sb-team-ct { color: #4a90d9; font-size: 32px; font-weight: 900; text-shadow: 0 0 15px rgba(74,144,217,0.3); }
+  .sb-team-name { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 2px; }
+  .sb-table { width: 100%; border-collapse: collapse; }
+  .sb-table th { font-size: 9px; color: #444; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; text-align: left; }
+  .sb-table td { padding: 5px 8px; font-size: 13px; }
+  .sb-table .dead { opacity: 0.3; }
+  .sb-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
 
   /* Flash overlay */
   #flash-overlay {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: white; z-index: 50; opacity: 0; pointer-events: none;
+    transition: opacity 0.05s;
+  }
+
+  /* Hit marker */
+  #hit-marker {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 13; pointer-events: none; opacity: 0;
+    transition: opacity 0.05s;
+  }
+  #hit-marker.show { opacity: 1; }
+  .hm-line { position: absolute; background: #fff; }
+  .hm-1 { width: 2px; height: 10px; transform: rotate(45deg); left: -8px; top: -8px; }
+  .hm-2 { width: 2px; height: 10px; transform: rotate(-45deg); left: 6px; top: -8px; }
+  .hm-3 { width: 2px; height: 10px; transform: rotate(135deg); left: -8px; top: 6px; }
+  .hm-4 { width: 2px; height: 10px; transform: rotate(-135deg); left: 6px; top: 6px; }
+  .hm-kill .hm-line { background: #ff3333; }
+
+  /* Damage vignette */
+  #damage-vignette {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 11; pointer-events: none; opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.4) 100%);
     transition: opacity 0.1s;
   }
-
-  /* Damage indicator */
-  .dmg-indicator {
-    position: absolute; top: 50%; left: 50%; width: 200px; height: 200px;
-    transform: translate(-50%, -50%); z-index: 11; pointer-events: none;
-    border: 4px solid transparent; border-radius: 50%;
-  }
-
-  /* Weapon slots */
-  .weapon-slots {
-    position: absolute; bottom: 60px; right: 10px; z-index: 15;
-    display: flex; flex-direction: column; gap: 4px;
-  }
-  .weapon-slot {
-    background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 4px;
-    font-size: 12px; border: 1px solid transparent;
-  }
-  .weapon-slot.active { border-color: #ff6b35; background: rgba(255,107,53,0.2); }
-  .slot-key { color: #888; margin-right: 6px; }
 </style>
 </head>
 <body>
 
 <!-- MENU SCREEN -->
 <div id="menu-screen">
-  <div class="menu-title">CS TOP-DOWN</div>
-  <input type="text" class="menu-input" id="name-input" placeholder="Enter your name" maxlength="20" value="">
-  <input type="text" class="menu-input" id="server-input" placeholder="Leave empty for this server, or enter IP:port" value="">
+  <div class="menu-title">CS TOPDOWN</div>
+  <div class="menu-subtitle">Tactical Shooter</div>
+  <input type="text" class="menu-input" id="name-input" placeholder="Your name" maxlength="20" value="">
+  <input type="text" class="menu-input" id="server-input" placeholder="Leave empty for this server" value="">
   <button class="menu-btn btn-connect" id="connect-btn">CONNECT</button>
-  <div id="menu-status" style="color: #aaa; font-size: 13px;"></div>
+  <div id="menu-status" style="color: #555; font-size: 12px; margin-top: 8px;"></div>
 </div>
 
 <!-- TEAM SELECT -->
 <div id="team-select">
-  <h2 style="margin-bottom: 20px; font-size: 24px;">SELECT TEAM</h2>
+  <h2 style="margin-bottom: 24px; font-size: 22px; letter-spacing: 2px; color: #888;">SELECT TEAM</h2>
   <div class="team-btns">
     <div style="text-align: center;">
       <button class="menu-btn btn-t" onclick="joinTeam('T')">TERRORISTS</button>
@@ -292,7 +330,6 @@
 
 <!-- HUD -->
 <div id="hud" class="hidden">
-  <!-- Score bar -->
   <div class="score-bar">
     <div class="score-t" id="score-t">0</div>
     <div class="score-info">
@@ -302,63 +339,60 @@
     <div class="score-ct" id="score-ct">0</div>
   </div>
 
-  <!-- Bottom HUD -->
   <div class="bottom-hud">
-    <div class="hp-bar-container">
+    <div class="hud-panel hp-panel">
       <div>
-        <div style="display:flex;align-items:center;gap:6px;">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
           <span class="hp-icon">❤️</span>
           <span class="hp-text" id="hp-text">100</span>
-          <div class="hp-bar"><div class="hp-fill" id="hp-fill"></div></div>
+          <div class="bar-track"><div class="bar-fill hp-fill" id="hp-fill" style="width:100%"></div></div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
-          <span class="hp-icon">🛡️</span>
-          <div class="armor-bar"><div class="armor-fill" id="armor-fill"></div></div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="font-size:16px;filter:drop-shadow(0 0 4px rgba(33,150,243,0.3));">🛡️</span>
+          <div class="bar-track"><div class="bar-fill armor-fill" id="armor-fill" style="width:0%"></div></div>
         </div>
       </div>
     </div>
-    <div class="ammo-display">
-      <div class="weapon-name" id="weapon-name">Glock-18</div>
-      <div><span class="ammo-current" id="ammo-current">20</span> <span class="ammo-reserve" id="ammo-reserve">/ 120</span></div>
+    <div class="hud-panel ammo-display">
+      <div class="weapon-name" id="weapon-name">GLOCK-18</div>
+      <div class="ammo-row">
+        <span class="ammo-current" id="ammo-current">20</span>
+        <span class="ammo-sep">/</span>
+        <span class="ammo-reserve" id="ammo-reserve">120</span>
+      </div>
     </div>
-    <div class="grenade-display" id="grenade-display">
-      <div class="grenade-icon" title="HE">💣</div>
-      <div class="grenade-count" id="grenade-he">0</div>
-      <div class="grenade-icon" title="Flash">💥</div>
-      <div class="grenade-count" id="grenade-flash">0</div>
-      <div class="grenade-icon" title="Smoke">💨</div>
-      <div class="grenade-count" id="grenade-smoke">0</div>
+    <div class="hud-panel grenade-display" id="grenade-display">
+      <div class="grenade-slot"><span class="grenade-icon">💣</span><span class="grenade-count" id="grenade-he">0</span></div>
+      <div class="grenade-slot"><span class="grenade-icon">💥</span><span class="grenade-count" id="grenade-flash">0</span></div>
+      <div class="grenade-slot"><span class="grenade-icon">💨</span><span class="grenade-count" id="grenade-smoke">0</span></div>
     </div>
-    <div class="money-display">
-      <div style="font-size:10px;color:#888;">$</div>
+    <div class="hud-panel money-display">
+      <div class="money-label">cash</div>
       <div class="money-amount" id="money-amount">$800</div>
     </div>
   </div>
 
-  <!-- Kill feed -->
   <div class="kill-feed" id="kill-feed"></div>
 
-  <!-- Minimap -->
-  <canvas class="minimap" id="minimap" width="180" height="135"></canvas>
+  <div class="minimap-container">
+    <div class="minimap-label">radar</div>
+    <canvas id="minimap" width="200" height="150"></canvas>
+  </div>
 
-  <!-- Crosshair -->
   <div class="crosshair">
     <div class="crosshair-line ch-top"></div>
     <div class="crosshair-line ch-bottom"></div>
     <div class="crosshair-line ch-left"></div>
     <div class="crosshair-line ch-right"></div>
+    <div class="ch-dot"></div>
   </div>
 
-  <!-- Weapon slots -->
   <div class="weapon-slots" id="weapon-slots"></div>
-
-  <!-- Spectator -->
-  <div class="spectator-bar hidden" id="spectator-bar">SPECTATING - Click to follow players</div>
 </div>
 
 <!-- Buy menu -->
 <div id="buy-menu">
-  <div class="buy-title">BUY MENU <span style="color:#888;font-size:14px;">(B to close)</span></div>
+  <div class="buy-title">BUY MENU <span style="color:#444;font-size:12px;">[B]</span></div>
   <div id="buy-content"></div>
 </div>
 
@@ -370,7 +404,7 @@
 <div id="scoreboard">
   <div class="sb-header">
     <div class="sb-team"><div class="sb-team-t" id="sb-t-score">0</div><div class="sb-team-name">Terrorists</div></div>
-    <div style="font-size:12px;color:#666;padding-top:10px;">TAB - SCOREBOARD</div>
+    <div style="font-size:10px;color:#333;padding-top:15px;letter-spacing:2px;">SCOREBOARD</div>
     <div class="sb-team"><div class="sb-team-ct" id="sb-ct-score">0</div><div class="sb-team-name">Counter-Terrorists</div></div>
   </div>
   <div id="sb-content"></div>
@@ -379,8 +413,16 @@
 <!-- Flash overlay -->
 <div id="flash-overlay"></div>
 
-<!-- Damage indicator -->
-<div class="dmg-indicator" id="dmg-indicator"></div>
+<!-- Hit marker -->
+<div id="hit-marker">
+  <div class="hm-line hm-1"></div>
+  <div class="hm-line hm-2"></div>
+  <div class="hm-line hm-3"></div>
+  <div class="hm-line hm-4"></div>
+</div>
+
+<!-- Damage vignette -->
+<div id="damage-vignette"></div>
 
 <script src="/socket.io/socket.io.js"></script>
 <script src="js/client.js"></script>
