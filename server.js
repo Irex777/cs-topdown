@@ -295,6 +295,12 @@ function handleBuy(player, item) {
 
 // ==================== GAME PHYSICS ====================
 function update(dt) {
+  if (gameState === 'waiting') {
+    // Allow free movement in waiting state (no combat)
+    updatePlayersFrozen(dt);
+    return;
+  }
+
   if (gameState === 'freeze') {
     freezeTimer -= dt;
     if (freezeTimer <= 0) {
@@ -726,9 +732,12 @@ io.on('connection', (socket) => {
     p.team = team;
     if (team !== 'SPEC') {
       giveDefaultWeapons(p);
-      if (gameState === 'playing' || gameState === 'freeze') {
+      // Always spawn the player so they can move on the map
+      if (p.x === 0 && p.y === 0) {
         spawnPlayer(p);
-        p.money = Math.min(C.START_MONEY, p.money);
+        if (gameState === 'playing' || gameState === 'freeze') {
+          p.money = Math.min(C.START_MONEY, p.money);
+        }
       }
     }
 
