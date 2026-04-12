@@ -238,37 +238,42 @@ function moveToward(bot, tx, ty, dt) {
   // Set angle toward target
   bot.angle = Math.atan2(dy, dx);
 
-  // Set movement input
-  if (Math.abs(dx) > Math.abs(dy)) {
-    if (dx > 0) bot.input.right = true;
-    else bot.input.left = true;
-    if (Math.abs(dy) > 20) {
-      if (dy > 0) bot.input.down = true;
-      else bot.input.up = true;
-    }
-  } else {
-    if (dy > 0) bot.input.down = true;
-    else bot.input.up = true;
-    if (Math.abs(dx) > 20) {
-      if (dx > 0) bot.input.right = true;
-      else bot.input.left = true;
-    }
-  }
-
-  // Wall avoidance - if stuck, try perpendicular direction
+  // Wall avoidance - if stuck, try different angles
+  if (bot._stuckCounter === undefined) bot._stuckCounter = 0;
   if (bot._lastX !== undefined) {
     const moved = Math.abs(bot.x - bot._lastX) + Math.abs(bot.y - bot._lastY);
-    if (moved < 1) {
-      // Stuck - random direction
-      const r = Math.random();
-      bot.input.up = r < 0.25;
-      bot.input.down = r >= 0.25 && r < 0.5;
-      bot.input.left = r >= 0.5 && r < 0.75;
-      bot.input.right = r >= 0.75;
+    if (moved < 2) {
+      bot._stuckCounter++;
+    } else {
+      bot._stuckCounter = 0;
     }
   }
   bot._lastX = bot.x;
   bot._lastY = bot.y;
+
+  // If stuck for multiple frames, try perpendicular/alternate directions
+  let moveAngle = Math.atan2(dy, dx);
+  if (bot._stuckCounter > 5) {
+    // Try 90 degree offsets to find a clear path
+    const offsets = [Math.PI/2, -Math.PI/2, Math.PI/4, -Math.PI/4, Math.PI*3/4, -Math.PI*3/4];
+    const offset = offsets[bot._stuckCounter % offsets.length];
+    moveAngle = moveAngle + offset;
+    bot.angle = moveAngle; // also face the new direction
+    if (bot._stuckCounter > 30) bot._stuckCounter = 0; // reset cycle
+  }
+
+  const mx = Math.cos(moveAngle);
+  const my = Math.sin(moveAngle);
+  
+  // Set movement input based on angle
+  if (Math.abs(mx) > 0.3) {
+    if (mx > 0) bot.input.right = true;
+    else bot.input.left = true;
+  }
+  if (Math.abs(my) > 0.3) {
+    if (my > 0) bot.input.down = true;
+    else bot.input.up = true;
+  }
 }
 
 function randomMapPoint(gameMap) {
