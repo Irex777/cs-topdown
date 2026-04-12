@@ -666,9 +666,13 @@ function render(timestamp) {
   if (Math.abs(camera.shakeY) < 0.5) camera.shakeY = 0;
 
   const p = players[myId];
-  if (p && p.alive) {
+  if (p && p.alive && (p.x !== 0 || p.y !== 0)) {
     camera.x = p.x - canvas.width / 2;
     camera.y = p.y - canvas.height / 2;
+  } else if (mapOffscreen) {
+    // Center camera on the map when player hasn't spawned yet
+    camera.x = mapWidthPx / 2 - canvas.width / 2;
+    camera.y = mapHeightPx / 2 - canvas.height / 2;
   }
 
   // Clear
@@ -911,6 +915,7 @@ function drawPlayer(pl, isMe, isAlly) {
 }
 
 function drawShadows() {
+  if (!mapData) return;
   // Cast simple shadows from walls
   ctx.save();
   ctx.globalAlpha = 0.12;
