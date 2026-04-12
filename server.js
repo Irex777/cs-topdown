@@ -6,7 +6,7 @@ const path = require('path');
 const C = require('./shared/constants');
 const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfSight,
   TILE_WALL, TILE_CRATE, TILE_BOMBSITE_A, TILE_BOMBSITE_B, TILE_T_SPAWN, TILE_CT_SPAWN, TILE_DOOR, TILE_EMPTY } = require('./shared/map');
-const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX } = require('./server/bots');
+const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint } = require('./server/bots');
 
 const app = express();
 const server = http.createServer(app);
@@ -744,6 +744,10 @@ function addBotsToGame() {
     players[bot.id] = bot;
     giveDefaultWeapons(bot);
     spawnPlayer(bot);
+    // Override spawn position with open map position to avoid spawn room walls
+    const openPos = randomMapPoint(gameMap);
+    bot.x = openPos.x;
+    bot.y = openPos.y;
     if (gameState === 'playing' || gameState === 'freeze') {
       bot.money = C.START_MONEY;
     }

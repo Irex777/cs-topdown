@@ -279,9 +279,10 @@ function moveToward(bot, tx, ty, dt) {
 function randomMapPoint(gameMap) {
   const H = gameMap.length;
   const W = gameMap[0].length;
-  for (let attempts = 0; attempts < 20; attempts++) {
-    const x = (5 + Math.random() * (W - 10)) * C.TILE_SIZE;
-    const y = (5 + Math.random() * (H - 10)) * C.TILE_SIZE;
+  for (let attempts = 0; attempts < 50; attempts++) {
+    // Bias toward center area for better encounters
+    const x = (10 + Math.random() * (W - 20)) * C.TILE_SIZE;
+    const y = (10 + Math.random() * (H - 20)) * C.TILE_SIZE;
     if (!isWall(gameMap, x, y)) return { x, y };
   }
   return { x: W * C.TILE_SIZE / 2, y: H * C.TILE_SIZE / 2 };
