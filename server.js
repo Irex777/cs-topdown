@@ -978,16 +978,15 @@ io.on('connection', (socket) => {
       setTimeout(() => {
         delete players[socket.id];
         broadcastPlayerList();
-        // Reset game if no human players left (bots don't count)
-        const humanPlayers = Object.values(players).filter(pp => pp.connected && !pp.isBot);
-        if (humanPlayers.length === 0) {
-          console.log('All human players disconnected, resetting game');
+        // Reset game if no players left at all (bots get cleared too)
+        const remaining = Object.keys(players).length;
+        if (remaining === 0) {
+          console.log('All players disconnected, resetting game');
           gameState = 'waiting';
           roundNumber = 0;
           tScore = 0;
           ctScore = 0;
           bombState = null;
-          players = {};
           io.emit('game_restart');
           io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
         }
