@@ -42,11 +42,12 @@ let roundTimer = 0, freezeTimer = 0;
 let camera = { x: 0, y: 0, shakeX: 0, shakeY: 0 };
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
-let showBuyMenu = false, chatOpen = false;
+let showBuyMenu = false, chatOpen = false, escMenuOpen = false;
 let flashTimer = 0;
 let mapWidth = 80, mapHeight = 60;
 let mapOffscreen = null;
 let mapWidthPx, mapHeightPx;
+let fogCanvas = null, fogCtx = null;
 
 // ==================== PARTICLE SYSTEM ====================
 class Particle {
@@ -219,6 +220,8 @@ function spawnDeathEffect(x, y) {
 }
 
 // ==================== RESIZE ====================
+const FOG_VISIBILITY_RADIUS = 600;  // Must match server VISIBILITY_RADIUS
+
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -342,18 +345,32 @@ function addBots() {
   });
 }
 
+// ==================== ESC MENU ====================
+function closeEscMenu() {
+  escMenuOpen = false;
+  document.getElementById('esc-menu').classList.remove('show');
+}
+
+function escSwitchTeam(team) {
+  if (!socket) return;
+  socket.emit('switch_team', team);
+  closeEscMenu();
+}
+
+function escSpectate() {
+  if (!socket) return;
+  socket.emit('switch_team', 'SPEC');
+  closeEscMenu();
+}
+
+function escDisconnect() {
+  if (socket) socket.disconnect();
+  closeEscMenu();
+}
+
 // ==================== INPUT ====================
 document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
-  if (e.code === 'Enter' && !chatOpen) {
-    chatOpen = true; const inp = document.getElementById('chat-input');
-    inp.classList.add('show'); inp.focus(); return;
-  }
-  if (e.code === 'Enter' && chatOpen) {
-    const inp = document.getElementById('chat-input');
-    if (inp.value.trim() && socket) socket.emit('chat', inp.value.trim());
-    inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
-  }
   if (e.code === 'Escape' && chatOpen) {
     const inp = document.getElementById('chat-input');
     inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
@@ -363,7 +380,27 @@ document.addEventListener('keydown', (e) => {
     document.getElementById('buy-menu').classList.remove('show');
     return;
   }
-  if (chatOpen) return;
+  if (e.code === 'Escape') {
+    // Toggle ESC menu
+    escMenuOpen = !escMenuOpen;
+    const escMenu = document.getElementById('esc-menu');
+    if (escMenuOpen) {
+      escMenu.classList.add('show');
+    } else {
+      escMenu.classList.remove('show');
+    }
+    return;
+  }
+  if (e.code === 'Enter' && !chatOpen && !escMenuOpen) {
+    chatOpen = true; const inp = document.getElementById('chat-input');
+    inp.classList.add('show'); inp.focus(); return;
+  }
+  if (e.code === 'Enter' && chatOpen) {
+    const inp = document.getElementById('chat-input');
+    if (inp.value.trim() && socket) socket.emit('chat', inp.value.trim());
+    inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
+  }
+  if (chatOpen || escMenuOpen) return;
   if (e.code === 'KeyB') toggleBuyMenu();
   if (e.code === 'Tab') { e.preventDefault(); document.getElementById('scoreboard').classList.add('show'); }
   if (e.code === 'Digit1') socket?.emit('switch_weapon', 0);
@@ -390,7 +427,7 @@ canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // Input sending
 setInterval(() => {
-  if (!socket || !myPlayer || chatOpen) return;
+  if (!socket || !myPlayer || chatOpen || escMenuOpen) return;
   const p = players[myId];
   if (!p || !p.alive) return;
   const wmx = mouse.x - canvas.width / 2;
@@ -398,9 +435,10 @@ setInterval(() => {
   socket.emit('update_input', {
     up: keys['KeyW']||false, down: keys['KeyS']||false,
     left: keys['KeyA']||false, right: keys['KeyD']||false,
+    shoot: mouse.down && !showBuyMenu,
+    sprint: keys['ShiftLeft'] || keys['ShiftRight'] || false,
   });
   socket.emit('update_angle', Math.atan2(wmy, wmx));
-  if (mouse.down && !showBuyMenu) socket.emit('shoot');
 }, 1000/30);
 
 // ==================== BUY MENU ====================
@@ -699,6 +737,42 @@ function render(timestamp) {
   // Map
   if (mapOffscreen) ctx.drawImage(mapOffscreen, 0, 0);
 
+  // ---- FOG OF WAR OVERLAY ----
+  if (p && p.alive && p.team !== 'SPEC' && mapOffscreen) {
+    const playerScreenX = p.x;
+    const playerScreenY = p.y;
+    const fogRadius = FOG_VISIBILITY_RADIUS;
+
+    // Create an offscreen fog canvas the size of the viewport
+    if (!fogCanvas) {
+      fogCanvas = document.createElement('canvas');
+      fogCtx = fogCanvas.getContext('2d');
+    }
+    fogCanvas.width = canvas.width;
+    fogCanvas.height = canvas.height;
+
+    // Fill fog canvas with dark color
+    fogCtx.fillStyle = 'rgba(0, 0, 10, 0.82)';
+    fogCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Cut a radial hole at the player's screen position
+    fogCtx.globalCompositeOperation = 'destination-out';
+    const cx = playerScreenX - camera.x + camera.shakeX;
+    const cy = playerScreenY - camera.y + camera.shakeY;
+    const fogGrad = fogCtx.createRadialGradient(cx, cy, fogRadius * 0.25, cx, cy, fogRadius);
+    fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
+    fogGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    fogCtx.fillStyle = fogGrad;
+    fogCtx.beginPath();
+    fogCtx.arc(cx, cy, fogRadius, 0, Math.PI * 2);
+    fogCtx.fill();
+    fogCtx.globalCompositeOperation = 'source-over';
+
+    // Draw the fog overlay onto the main canvas
+    ctx.drawImage(fogCanvas, camera.x - camera.shakeX, camera.y - camera.shakeY);
+  }
+
   // Shadow layer for players and objects
   drawShadows();
 
@@ -799,6 +873,8 @@ function render(timestamp) {
     if (!pl.alive || pl.team === 'SPEC') continue;
     const isMe = id === myId;
     const isAlly = pl.team === p?.team;
+    // Noise-visible enemies are only shown on minimap, not in main view
+    if (pl.noiseVisible && !isMe && !isAlly) continue;
     drawPlayer(pl, isMe, isAlly);
   }
 
@@ -991,7 +1067,16 @@ function drawMinimap() {
   for (const [id, pl] of Object.entries(players)) {
     if (!pl.alive || pl.team === 'SPEC') continue;
     const isAlly = pl.team === me?.team;
-    if (!isAlly && id !== myId) continue;
+    if (!isAlly && id !== myId) {
+      // Enemy: only show if noiseVisible (heard) – server already hides unseen enemies
+      if (!pl.noiseVisible) continue;
+      // Draw as a dimmed dot
+      minimapCtx.beginPath();
+      minimapCtx.arc(pl.x * sx, pl.y * sy, 2, 0, Math.PI * 2);
+      minimapCtx.fillStyle = 'rgba(255, 100, 100, 0.4)';
+      minimapCtx.fill();
+      continue;
+    }
     minimapCtx.beginPath();
     minimapCtx.arc(pl.x * sx, pl.y * sy, id === myId ? 3 : 2, 0, Math.PI*2);
     minimapCtx.fillStyle = pl.team === 'T' ? '#d4a537' : '#4a90d9';

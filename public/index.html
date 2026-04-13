@@ -294,6 +294,36 @@
     background: radial-gradient(ellipse at center, transparent 50%, rgba(255,0,0,0.4) 100%);
     transition: opacity 0.1s;
   }
+
+  /* ESC Menu */
+  #esc-menu {
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    z-index: 95; background: rgba(10,10,20,0.95); padding: 32px 40px; border-radius: 16px;
+    min-width: 340px; border: 1px solid rgba(255,255,255,0.08);
+    backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    text-align: center; pointer-events: auto;
+  }
+  #esc-menu.show { display: block; }
+  .esc-title {
+    font-size: 20px; font-weight: 900; letter-spacing: 3px; color: #888;
+    text-transform: uppercase; margin-bottom: 24px;
+  }
+  .esc-btn {
+    display: block; width: 100%; padding: 14px 20px; margin-bottom: 8px;
+    font-size: 14px; font-weight: 700; border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px; background: rgba(255,255,255,0.04); color: #ccc;
+    cursor: pointer; transition: all 0.2s; text-transform: uppercase; letter-spacing: 1px;
+  }
+  .esc-btn:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.12); transform: translateY(-1px); }
+  .esc-btn-resume { background: rgba(255,107,53,0.1); border-color: rgba(255,107,53,0.3); color: #ff6b35; }
+  .esc-btn-resume:hover { background: rgba(255,107,53,0.2); border-color: #ff6b35; }
+  .esc-btn-t { background: rgba(212,165,55,0.08); border-color: rgba(212,165,55,0.2); color: #d4a537; }
+  .esc-btn-t:hover { background: rgba(212,165,55,0.15); border-color: #d4a537; }
+  .esc-btn-ct { background: rgba(74,144,217,0.08); border-color: rgba(74,144,217,0.2); color: #4a90d9; }
+  .esc-btn-ct:hover { background: rgba(74,144,217,0.15); border-color: #4a90d9; }
+  .esc-btn-spec { color: #888; }
+  .esc-btn-disconnect { color: #ff4444; border-color: rgba(255,68,68,0.15); margin-top: 16px; }
+  .esc-btn-disconnect:hover { background: rgba(255,68,68,0.1); border-color: rgba(255,68,68,0.3); }
 </style>
 </head>
 <body>
@@ -422,6 +452,16 @@
   <div class="hm-line hm-2"></div>
   <div class="hm-line hm-3"></div>
   <div class="hm-line hm-4"></div>
+</div>
+
+<!-- ESC Menu -->
+<div id="esc-menu">
+  <div class="esc-title">PAUSED</div>
+  <button class="esc-btn esc-btn-resume" onclick="closeEscMenu()">Resume</button>
+  <button class="esc-btn esc-btn-t" onclick="escSwitchTeam('T')">Switch to Terrorists</button>
+  <button class="esc-btn esc-btn-ct" onclick="escSwitchTeam('CT')">Switch to Counter-Terrorists</button>
+  <button class="esc-btn esc-btn-spec" onclick="escSpectate()">Spectate</button>
+  <button class="esc-btn esc-btn-disconnect" onclick="escDisconnect()">Disconnect</button>
 </div>
 
 <!-- Damage vignette -->

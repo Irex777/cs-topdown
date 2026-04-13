@@ -66,8 +66,11 @@ function createPlayer(id, name) {
     deaths: 0,
     assists: 0,
     lastDamageBy: null,
-    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false },
+    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false },
     lastShot: 0,
+    shotsFired: 0,
+    lastShotTime: 0,
+    prevShoot: false,
     reloading: false,
     reloadTimer: 0,
     sprinting: false,
@@ -377,7 +380,16 @@ function updatePlayers(dt) {
     // Shooting
     if (p.input.shoot && !p.reloading) {
       shoot(p);
+    } else if (!p.input.shoot) {
+      // Track when player stops shooting for recoil reset
+      const now = Date.now() / 1000;
+      if (p.lastShotTime > 0 && now - p.lastShotTime > 0.2) {
+        p.shotsFired = 0;
+      }
     }
+
+    // Track shoot state for semi-auto rising-edge detection
+    p.prevShoot = p.input.shoot;
   }
 }
 
@@ -398,7 +410,7 @@ function applyMovement(p, dt) {
   dx /= len;
   dy /= len;
 
-  const speed = p.sprinting ? C.PLAYER_SPRINT_SPEED : C.PLAYER_SPEED;
+  const speed = p.input.sprint ? C.PLAYER_SPRINT_SPEED : C.PLAYER_SPEED;
   const newX = p.x + dx * speed * dt;
   const newY = p.y + dy * speed * dt;
 
@@ -437,12 +449,45 @@ function shoot(p) {
     return;
   }
 
+  // Fire mode check
+  const fireMode = wep.data.fireMode || 'auto';
+  if (fireMode === 'semi') {
+    // Only fire on rising edge (shoot just pressed this frame)
+    if (p.prevShoot) return;
+  }
+  // bolt and pump are naturally limited by their slow fireRate — no extra logic needed
+
   p.lastShot = now;
+
+  // Reset shotsFired if player stopped shooting for 200ms
+  if (p.lastShotTime > 0 && now - p.lastShotTime > 0.2) {
+    p.shotsFired = 0;
+  }
+  p.lastShotTime = now;
+  p.shotsFired++;
+
   ammo.mag--;
 
-  // Calculate spread
+  // Calculate spread: base + movement penalty + recoil penalty
   const moving = Math.abs(p.vx) > 10 || Math.abs(p.vy) > 10;
-  const spread = moving ? wep.data.moveSpread : wep.data.spread;
+  const sprinting = p.input.sprint && moving;
+
+  let baseSpread;
+  if (!moving) {
+    baseSpread = wep.data.spread;                          // Standing still
+  } else if (sprinting) {
+    baseSpread = wep.data.moveSpread * 1.5;                // Sprinting
+  } else {
+    baseSpread = wep.data.moveSpread;                      // Walking
+  }
+
+  // Recoil escalation for auto weapons
+  let recoilPenalty = 0;
+  if (fireMode === 'auto' && p.shotsFired > 1) {
+    recoilPenalty = p.shotsFired * 0.005;
+  }
+
+  const spread = baseSpread + recoilPenalty;
 
   // Shotgun pellets
   const pellets = wep.data.pellets || 1;
@@ -828,6 +873,12 @@ io.on('connection', (socket) => {
     if (!p) return;
     if (team !== 'T' && team !== 'CT' && team !== 'SPEC') return;
 
+    // Block mid-match team switching via join_team (use switch_team instead)
+    if (gameState === 'playing' && p.team !== C.TEAM_SPEC && p.team !== team) {
+      socket.emit('error', 'Cannot switch teams during a round. Use ESC menu.');
+      return;
+    }
+
     // Auto-balance: limit to 10 per team
     const teamCount = Object.values(players).filter(pl => pl.team === team).length;
     if (team !== 'SPEC' && teamCount >= 10) {
@@ -852,6 +903,37 @@ io.on('connection', (socket) => {
       id: socket.id, name: p.name, team,
     });
     // Send current game state to the joining player
+    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
+  });
+
+  // Explicit mid-match team switch (from ESC menu)
+  socket.on('switch_team', (team) => {
+    const p = players[socket.id];
+    if (!p) return;
+    if (team !== 'T' && team !== 'CT' && team !== 'SPEC') return;
+    if (p.team === team) return; // already on this team
+
+    // Kill the player if alive
+    if (p.alive) {
+      p.alive = false;
+      p.hp = 0;
+    }
+
+    p.team = team;
+    p.vx = 0;
+    p.vy = 0;
+    p.input = { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false };
+
+    if (team === 'SPEC') {
+      p.weapons = [];
+      p.currentWeapon = -1;
+    } else {
+      giveDefaultWeapons(p);
+      // Player respawns next round
+    }
+
+    broadcastPlayerList();
+    io.emit('player_joined_team', { id: socket.id, name: p.name, team });
     socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
   });
 
@@ -1057,6 +1139,9 @@ function broadcastPlayerList() {
 }
 
 // ==================== GAME LOOP ====================
+const HEAR_RANGE = 500;  // px – enemies shooting within this range are "heard"
+const VISIBILITY_RADIUS = 600; // px – max view distance for fog-of-war
+
 let lastTime = Date.now();
 setInterval(() => {
   const now = Date.now();
@@ -1065,8 +1150,8 @@ setInterval(() => {
 
   update(Math.min(dt, 0.05)); // cap dt
 
-  // Send state to all clients
-  const state = {
+  // Build base state (non-player data shared to everyone)
+  const baseState = {
     players: {},
     bullets,
     grenades: grenades.map(g => ({ type: g.type, x: g.x, y: g.y, radius: g.radius, timer: g.timer })),
@@ -1080,11 +1165,64 @@ setInterval(() => {
     ctScore,
   };
 
-  for (const [id, p] of Object.entries(players)) {
-    state.players[id] = serializePlayer(p);
-  }
+  // Find all connected sockets
+  const connectedSockets = io.sockets.sockets;
 
-  io.emit('game_state_update', state);
+  // Send state to each client with fog-of-war filtering
+  for (const [socketId, socket] of connectedSockets) {
+    const me = players[socketId];
+    if (!me) continue;
+
+    const myState = { ...baseState, players: {} };
+
+    for (const [id, p] of Object.entries(players)) {
+      // Always include self
+      if (id === socketId) {
+        myState.players[id] = serializePlayer(p);
+        continue;
+      }
+
+      // Always include teammates (full visibility)
+      if (p.team === me.team) {
+        myState.players[id] = serializePlayer(p);
+        continue;
+      }
+
+      // Spectators see everyone
+      if (me.team === C.TEAM_SPEC) {
+        myState.players[id] = serializePlayer(p);
+        continue;
+      }
+
+      // Skip dead / spec enemies
+      if (!p.alive || p.team === C.TEAM_SPEC) continue;
+
+      // Enemy – check visibility
+      const dx = p.x - me.x;
+      const dy = p.y - me.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      // Check line of sight (and within view distance)
+      const canSee = dist <= VISIBILITY_RADIUS && lineOfSight(gameMap, me.x, me.y, p.x, p.y);
+
+      // Check if enemy is making noise (shot within last 0.5s) and within hearing range
+      const shootingNow = (now / 1000) - (p.lastShotTime || 0) < 0.5;
+      const canHear = shootingNow && dist <= HEAR_RANGE;
+
+      if (canSee) {
+        myState.players[id] = serializePlayer(p);
+      } else if (canHear) {
+        // Heard but not seen – send limited data + flag
+        myState.players[id] = {
+          ...serializePlayer(p),
+          noiseVisible: true,  // client shows as dimmed minimap dot
+        };
+      }
+      // Otherwise enemy is completely hidden – do not include
+    }
+
+    socket.emit('game_state_update', myState);
+  }
 }, 1000 / C.TICK_RATE);
 
 // ==================== START SERVER ====================

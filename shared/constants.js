@@ -12,6 +12,7 @@ module.exports = {
   PLAYER_SPRINT_SPEED: 280,
   PLAYER_MAX_HP: 100,
   PLAYER_MAX_ARMOR: 100,
+  PLAYER_CROUCH_SPEED: 120, // future use
 
   // Teams
   TEAM_T: 'T',
@@ -49,7 +50,7 @@ module.exports = {
       name: 'P250',
       type: 'pistol',
       price: 300,
-      damage: 26,
+      damage: 28,
       fireRate: 6.67,       // rounds/sec
       reloadTime: 2.2,
       magSize: 13,
@@ -58,12 +59,24 @@ module.exports = {
       range: 800,
       moveSpread: 0.06,
       reward: 150,
+      fireMode: 'semi',
+      recoilPattern: [
+        { x: 0, y: -1.5 },
+        { x: 0.3, y: -2.0 },
+        { x: -0.3, y: -2.5 },
+        { x: 0.5, y: -2.0 },
+        { x: -0.4, y: -1.8 },
+      ],
+      movementInaccuracy: 0.06,
+      standInaccuracy: 0.015,
+      crouchBonus: 0.6,
+      armorPenetration: 0.8,
     },
     glock: {
       name: 'Glock-18',
       type: 'pistol',
       price: 0,             // T default
-      damage: 22,
+      damage: 24,
       fireRate: 6.67,
       reloadTime: 2.2,
       magSize: 20,
@@ -72,6 +85,18 @@ module.exports = {
       range: 600,
       moveSpread: 0.08,
       reward: 150,
+      fireMode: 'semi',       // future: burst mode toggle
+      recoilPattern: [
+        { x: 0, y: -1.0 },
+        { x: 0.4, y: -1.5 },
+        { x: -0.4, y: -2.0 },
+        { x: 0.3, y: -1.8 },
+        { x: -0.3, y: -1.5 },
+      ],
+      movementInaccuracy: 0.08,
+      standInaccuracy: 0.02,
+      crouchBonus: 0.65,
+      burstMode: false,       // future: toggle to burst (3-round burst)
     },
     usp: {
       name: 'USP-S',
@@ -86,12 +111,24 @@ module.exports = {
       range: 700,
       moveSpread: 0.05,
       reward: 150,
+      fireMode: 'semi',
+      recoilPattern: [
+        { x: 0, y: -1.2 },
+        { x: 0.2, y: -1.8 },
+        { x: -0.2, y: -2.0 },
+        { x: 0.3, y: -1.6 },
+        { x: -0.2, y: -1.4 },
+      ],
+      movementInaccuracy: 0.05,
+      standInaccuracy: 0.01,
+      crouchBonus: 0.6,
+      suppressor: true,
     },
     deagle: {
       name: 'Desert Eagle',
       type: 'pistol',
       price: 700,
-      damage: 53,
+      damage: 55,
       fireRate: 3.33,
       reloadTime: 2.2,
       magSize: 7,
@@ -100,6 +137,20 @@ module.exports = {
       range: 900,
       moveSpread: 0.12,
       reward: 150,
+      fireMode: 'semi',
+      recoilPattern: [
+        { x: 0, y: -3.0 },     // first shot very accurate
+        { x: 1.5, y: -5.0 },   // then goes wild
+        { x: -2.0, y: -6.0 },
+        { x: 2.5, y: -5.5 },
+        { x: -1.8, y: -4.5 },
+        { x: 1.0, y: -4.0 },
+        { x: -0.8, y: -3.5 },
+      ],
+      movementInaccuracy: 0.12,
+      standInaccuracy: 0.01,    // first shot accurate when still
+      crouchBonus: 0.5,
+      armorPenetration: 0.93,
     },
 
     // SMGs
@@ -116,6 +167,20 @@ module.exports = {
       range: 600,
       moveSpread: 0.10,
       reward: 600,
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -1.2 },
+        { x: 0.5, y: -2.0 },
+        { x: -0.4, y: -2.5 },
+        { x: 0.6, y: -2.2 },
+        { x: -0.5, y: -2.8 },
+        { x: 0.3, y: -2.5 },
+        { x: -0.6, y: -2.0 },
+        { x: 0.4, y: -2.3 },
+      ],
+      movementInaccuracy: 0.10,
+      standInaccuracy: 0.03,
+      crouchBonus: 0.7,
     },
     mac10: {
       name: 'MAC-10',
@@ -130,6 +195,20 @@ module.exports = {
       range: 500,
       moveSpread: 0.12,
       reward: 600,
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -1.0 },
+        { x: 0.8, y: -1.8 },
+        { x: -0.7, y: -2.5 },
+        { x: 1.0, y: -2.0 },
+        { x: -0.8, y: -3.0 },
+        { x: 0.5, y: -2.8 },
+        { x: -1.0, y: -2.2 },
+        { x: 0.6, y: -2.5 },
+      ],
+      movementInaccuracy: 0.12,
+      standInaccuracy: 0.04,
+      crouchBonus: 0.7,
     },
     p90: {
       name: 'P90',
@@ -144,6 +223,22 @@ module.exports = {
       range: 700,
       moveSpread: 0.09,
       reward: 300,
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -0.8 },
+        { x: 0.3, y: -1.5 },
+        { x: -0.3, y: -2.0 },
+        { x: 0.4, y: -1.8 },
+        { x: -0.4, y: -2.2 },
+        { x: 0.2, y: -2.0 },
+        { x: -0.3, y: -1.8 },
+        { x: 0.3, y: -2.1 },
+        { x: -0.2, y: -1.9 },
+        { x: 0.1, y: -2.0 },
+      ],
+      movementInaccuracy: 0.09,
+      standInaccuracy: 0.03,
+      crouchBonus: 0.7,
     },
 
     // Rifles
@@ -161,6 +256,24 @@ module.exports = {
       moveSpread: 0.10,
       reward: 300,
       team: 'T',
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -2.5 },     // first shot accurate
+        { x: 0, y: -4.0 },
+        { x: 0.5, y: -4.5 },
+        { x: -0.5, y: -5.0 },
+        { x: 1.0, y: -4.0 },
+        { x: -1.2, y: -3.5 },
+        { x: 1.5, y: -3.0 },
+        { x: -1.5, y: -4.0 },
+        { x: 0.8, y: -3.5 },
+        { x: -0.5, y: -4.2 },
+      ],
+      movementInaccuracy: 0.10,
+      standInaccuracy: 0.0,
+      crouchBonus: 0.5,
+      armorPenetration: 0.775,
+      oneTapHeadshot: true,    // can one-tap headshot even through helmet
     },
     m4a4: {
       name: 'M4A4',
@@ -176,6 +289,24 @@ module.exports = {
       moveSpread: 0.08,
       reward: 300,
       team: 'CT',
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -2.0 },
+        { x: 0, y: -3.5 },
+        { x: 0.4, y: -3.8 },
+        { x: -0.4, y: -4.0 },
+        { x: 0.8, y: -3.5 },
+        { x: -0.8, y: -3.0 },
+        { x: 1.0, y: -2.8 },
+        { x: -1.0, y: -3.2 },
+        { x: 0.5, y: -3.0 },
+        { x: -0.3, y: -3.5 },
+      ],
+      movementInaccuracy: 0.08,
+      standInaccuracy: 0.0,
+      crouchBonus: 0.5,
+      armorPenetration: 0.70,
+      oneTapHeadshot: false,   // cannot one-tap through helmet
     },
     galil: {
       name: 'Galil AR',
@@ -191,6 +322,20 @@ module.exports = {
       moveSpread: 0.09,
       reward: 300,
       team: 'T',
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -1.8 },
+        { x: 0.3, y: -3.0 },
+        { x: -0.4, y: -3.5 },
+        { x: 0.6, y: -3.2 },
+        { x: -0.7, y: -3.8 },
+        { x: 0.8, y: -3.0 },
+        { x: -0.5, y: -3.5 },
+        { x: 0.4, y: -3.2 },
+      ],
+      movementInaccuracy: 0.09,
+      standInaccuracy: 0.01,
+      crouchBonus: 0.5,
     },
     famas: {
       name: 'FAMAS',
@@ -206,6 +351,20 @@ module.exports = {
       moveSpread: 0.08,
       reward: 300,
       team: 'CT',
+      fireMode: 'auto',
+      recoilPattern: [
+        { x: 0, y: -1.5 },
+        { x: 0.3, y: -2.8 },
+        { x: -0.3, y: -3.2 },
+        { x: 0.5, y: -3.0 },
+        { x: -0.5, y: -3.5 },
+        { x: 0.4, y: -2.8 },
+        { x: -0.4, y: -3.0 },
+        { x: 0.2, y: -3.2 },
+      ],
+      movementInaccuracy: 0.08,
+      standInaccuracy: 0.01,
+      crouchBonus: 0.5,
     },
 
     // Snipers
@@ -222,6 +381,14 @@ module.exports = {
       range: 2000,
       moveSpread: 0.25,
       reward: 100,
+      fireMode: 'bolt',
+      recoilPattern: [
+        { x: 0, y: -8.0 },      // massive single-shot kick
+      ],
+      movementInaccuracy: 0.25,
+      standInaccuracy: 0.0,
+      crouchBonus: 0.5,
+      armorPenetration: 0.975,
     },
     ssg08: {
       name: 'SSG 08',
@@ -236,6 +403,14 @@ module.exports = {
       range: 1800,
       moveSpread: 0.20,
       reward: 100,
+      fireMode: 'bolt',
+      recoilPattern: [
+        { x: 0, y: -5.0 },
+      ],
+      movementInaccuracy: 0.20,
+      standInaccuracy: 0.0,
+      crouchBonus: 0.5,
+      armorPenetration: 0.85,
     },
 
     // Shotguns
@@ -243,7 +418,7 @@ module.exports = {
       name: 'Nova',
       type: 'shotgun',
       price: 1050,
-      damage: 12,           // per pellet
+      damage: 12,           // per pellet, 8 pellets * 12 = 96 max
       pellets: 8,
       fireRate: 1.33,
       reloadTime: 4.0,
@@ -253,6 +428,14 @@ module.exports = {
       range: 400,
       moveSpread: 0.15,
       reward: 900,
+      fireMode: 'pump',
+      recoilPattern: [
+        { x: 0, y: -6.0 },      // heavy pump kick
+      ],
+      movementInaccuracy: 0.15,
+      standInaccuracy: 0.05,
+      crouchBonus: 0.7,
+      damageFalloff: true,       // damage drops sharply with distance
     },
 
     // Equipment
