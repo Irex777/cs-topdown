@@ -350,4 +350,5 @@ module.exports = {
   getCurrentWeapon,
   BOT_PREFIX,
   nextBotId,
+  randomMapPoint,
 };
