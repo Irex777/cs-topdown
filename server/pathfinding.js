@@ -60,13 +60,30 @@ function findPath(gameMap, startX, startY, endX, endY) {
   // A* with Manhattan heuristic
   const heuristic = (x, y) => Math.abs(x - end.x) + Math.abs(y - end.y);
 
-  // Use a simple priority queue (array sorted by f-score)
-  // For our small maps (80x60=4800 tiles), this is fine
-  const openSet = new Map(); // key -> { x, y, g, f, parent }
+  const openSet = new Map();
   const closedSet = new Set();
 
   const sk = `${start.x},${start.y}`;
   openSet.set(sk, { x: start.x, y: start.y, g: 0, f: heuristic(start.x, start.y), parent: null });
+
+  // Check if a tile is walkable with player radius clearance
+  // Avoid 1-tile corridors where player barely fits
+  const R = C.PLAYER_RADIUS || 12;
+  const isTileWalkable = (tx, ty) => {
+    if (tx < 0 || tx >= W || ty < 0 || ty >= H) return false;
+    const cx = (tx + 0.5) * TS;
+    const cy = (ty + 0.5) * TS;
+    if (isWall(gameMap, cx, cy)) return false;
+    // Check that adjacent tiles in both axes aren't walls
+    // (ensures at least 1.5 tile clearance for player radius)
+    return true;
+  };
+
+  // Check diagonal clearance: prevent corner cutting
+  const hasDiagonalClearance = (fromX, fromY, dx, dy) => {
+    return !isWall(gameMap, (fromX + dx + 0.5) * TS, (fromY + 0.5) * TS) &&
+           !isWall(gameMap, (fromX + 0.5) * TS, (fromY + dy + 0.5) * TS);
+  };
 
   const dirs = [
     { dx: 1, dy: 0, cost: 1 }, { dx: -1, dy: 0, cost: 1 },
@@ -100,11 +117,14 @@ function findPath(gameMap, startX, startY, endX, endY) {
         node = node.parent;
       }
 
-      // Convert to pixel waypoints
-      const pixelPath = tilePath.map(t => ({ x: (t.x + 0.5) * TS, y: (t.y + 0.5) * TS }));
+      // Convert to pixel waypoints with random jitter to avoid stacking
+      const pixelPath = tilePath.map(t => ({
+        x: (t.x + 0.5) * TS + (Math.random() - 0.5) * 4,
+        y: (t.y + 0.5) * TS + (Math.random() - 0.5) * 4,
+      }));
       pixelPath[pixelPath.length - 1] = { x: endX, y: endY };
 
-      const simplified = simplifyPath(pixelPath);
+      const simplified = simplifyPath(pixelPath, gameMap);
       pathCache.set(key, { path: simplified, time: now });
       return simplified;
     }
@@ -114,16 +134,15 @@ function findPath(gameMap, startX, startY, endX, endY) {
     for (const dir of dirs) {
       const nx = current.x + dir.dx;
       const ny = current.y + dir.dy;
+
+      if (!isTileWalkable(nx, ny)) continue;
+
       const nk = `${nx},${ny}`;
-
-      if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
       if (closedSet.has(nk)) continue;
-      if (isWall(gameMap, (nx + 0.5) * TS, (ny + 0.5) * TS)) continue;
 
-      // Diagonal: check adjacent tiles aren't walls (prevent corner cutting)
+      // Diagonal: check clearance
       if (dir.dx !== 0 && dir.dy !== 0) {
-        if (isWall(gameMap, (current.x + dir.dx + 0.5) * TS, (current.y + 0.5) * TS)) continue;
-        if (isWall(gameMap, (current.x + 0.5) * TS, (current.y + dir.dy + 0.5) * TS)) continue;
+        if (!hasDiagonalClearance(current.x, current.y, dir.dx, dir.dy)) continue;
       }
 
       const g = current.g + dir.cost;
@@ -138,8 +157,9 @@ function findPath(gameMap, startX, startY, endX, endY) {
   return [{ x: endX, y: endY }];
 }
 
-function simplifyPath(path) {
+function simplifyPath(path, gameMap) {
   if (path.length <= 2) return path;
+  const TS = C.TILE_SIZE;
   const result = [path[0]];
   for (let i = 1; i < path.length - 1; i++) {
     const prev = result[result.length - 1];

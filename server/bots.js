@@ -77,6 +77,26 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
   bot.input.right = false;
   bot.input.shoot = false;
 
+  // Stuck detection - if position hasn't changed, increment stuck counter
+  if (!bot._lastPos) bot._lastPos = { x: bot.x, y: bot.y, stuck: 0 };
+  const moved = Math.abs(bot.x - bot._lastPos.x) + Math.abs(bot.y - bot._lastPos.y);
+  if (moved < 1) {
+    bot._lastPos.stuck++;
+  } else {
+    bot._lastPos.stuck = 0;
+    bot._lastPos.x = bot.x;
+    bot._lastPos.y = bot.y;
+  }
+
+  // If stuck for too long, force repath with new random target
+  if (bot._lastPos.stuck > 60) {
+    bot._path = null;
+    bot._pathIdx = 0;
+    bot.aiSearchPoint = null;
+    bot.aiWaypoint = null;
+    bot._lastPos.stuck = 0;
+  }
+
   // Find nearest visible enemy
   const enemy = findNearestEnemy(bot, players, gameMap);
   const nearestEnemyPos = findNearestEnemyPosition(bot, players);
@@ -207,11 +227,12 @@ function setMovementToward(bot, tx, ty) {
   const mx = Math.cos(moveAngle);
   const my = Math.sin(moveAngle);
 
-  if (Math.abs(mx) > 0.3) {
+  // Use low threshold so bot always moves in both needed directions
+  if (Math.abs(mx) > 0.1) {
     if (mx > 0) bot.input.right = true;
     else bot.input.left = true;
   }
-  if (Math.abs(my) > 0.3) {
+  if (Math.abs(my) > 0.1) {
     if (my > 0) bot.input.down = true;
     else bot.input.up = true;
   }

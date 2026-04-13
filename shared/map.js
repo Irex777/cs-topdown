@@ -126,12 +126,35 @@ function generateMap() {
   // Opening from tunnels to B
   map[43][40] = TILE_EMPTY;
   map[44][40] = TILE_EMPTY;
+  // Open corridor between tunnel walls so y=43-45 area is reachable
+  // B tunnel upper wall is y=42-43, lower wall is y=45-46. Punch through BOTH rows.
+  map[42][28] = TILE_EMPTY;
+  map[43][28] = TILE_EMPTY;
+  map[44][28] = TILE_EMPTY;
+  map[45][28] = TILE_EMPTY;
+  map[46][28] = TILE_EMPTY;
+  map[44][27] = TILE_EMPTY;
+  map[44][29] = TILE_EMPTY;
+  map[44][30] = TILE_EMPTY;
 
   // Connector from mid to B (through upper corridor)
   buildRect(map, 35, 35, 10, 2, TILE_WALL);
   buildRect(map, 35, 38, 10, 2, TILE_WALL);
   map[36][40] = TILE_EMPTY;
   map[37][40] = TILE_EMPTY;
+  // Punch through connector bottom wall (y=38-39, both rows) to reach corridor below
+  map[38][37] = TILE_EMPTY;
+  map[39][37] = TILE_EMPTY;
+  map[38][38] = TILE_EMPTY;
+  map[39][38] = TILE_EMPTY;
+  map[38][39] = TILE_EMPTY;
+  map[39][39] = TILE_EMPTY;
+  map[38][40] = TILE_EMPTY;
+  map[39][40] = TILE_EMPTY;
+  map[38][41] = TILE_EMPTY;
+  map[39][41] = TILE_EMPTY;
+  map[38][42] = TILE_EMPTY;
+  map[39][42] = TILE_EMPTY;
 
   // === ADDITIONAL COVER ===
   // More crates scattered around for tactical cover

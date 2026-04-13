@@ -231,7 +231,9 @@ function endRound(winner, reason) {
 // ==================== BUY SYSTEM ====================
 function handleBuy(player, item) {
   if (!player.alive) return false;
-  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end') return false;
+  // Allow buying during freeze, waiting, round_end, and first 15 seconds of round
+  const buyTimeLeft = C.ROUND_TIME - roundTimer;
+  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > 15) return false;
   const weapon = C.WEAPONS[item];
   if (!weapon) return false;
 
