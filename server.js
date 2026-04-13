@@ -151,6 +151,7 @@ function startRound() {
 }
 
 function endRound(winner, reason) {
+  if (gameState === 'round_end' || gameState === 'game_over') return; // Prevent double-call
   gameState = 'round_end';
 
   // Calculate rewards
@@ -1108,8 +1109,18 @@ function autoStartGame() {
 (function patchEndRound() {
   const orig = endRound;
   endRound = function(winner, reason) {
+    // Check if this will trigger game_over BEFORE calling orig
+    let willBeGameOver = false;
+    if (winner === 'T') {
+      willBeGameOver = (tScore + 1) >= C.ROUNDS_TO_WIN;
+    } else {
+      willBeGameOver = (ctScore + 1) >= C.ROUNDS_TO_WIN;
+    }
+    
     orig(winner, reason);
-    if (gameState === 'game_over') {
+    
+    if (willBeGameOver) {
+      // Wait for the game_over state to be set (3s from orig's setTimeout) + 5s display
       setTimeout(() => {
         console.log('Auto-restarting game after game_over');
         // Remove old bots
@@ -1129,7 +1140,7 @@ function autoStartGame() {
         setTimeout(() => {
           autoStartGame();
         }, 1500);
-      }, 5000);
+      }, 10000); // 3s (round_end display) + 7s (game_over display)
     }
   };
 })();
