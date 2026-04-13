@@ -13,7 +13,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
   allowEIO3: true,
-  transports: ['websocket', 'polling'],
+  transports: ['polling', 'websocket'],
   pingInterval: 10000,
   pingTimeout: 5000,
   maxHttpBufferSize: 1e6,
@@ -835,17 +835,21 @@ io.on('connection', (socket) => {
     p.team = team;
     if (team !== 'SPEC') {
       giveDefaultWeapons(p);
-      // Always spawn the player so they can move on the map
-      if (p.x === 0 && p.y === 0) {
-        spawnPlayer(p);
-        if (gameState === 'playing' || gameState === 'freeze') {
-          p.money = Math.min(C.START_MONEY, p.money);
-        }
+      spawnPlayer(p);
+      // If joining mid-game, give starting money and mark as alive
+      if (gameState === 'playing') {
+        p.money = Math.min(p.money, C.START_MONEY);
+        // Player will be alive but join the current round
+        // If all enemies are dead, they'll be in the next round
       }
     }
 
     broadcastPlayerList();
-    io.emit('player_joined_team', { id: socket.id, name: p.name, team });
+    io.emit('player_joined_team', { 
+      id: socket.id, name: p.name, team,
+    });
+    // Send current game state to the joining player
+    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
   });
 
   socket.on('update_input', (input) => {
@@ -1098,27 +1102,18 @@ function autoStartGame() {
   console.log('Auto-started game with bots');
 }
 
-// After game_over, auto-restart after a delay
-const originalEndRound = endRound;
-// We need to patch the endRound to detect game_over and restart
-const _origEndRound = endRound;
-// Override: wrap endRound to add auto-restart
+// Patch endRound to auto-restart after game_over
 (function patchEndRound() {
   const orig = endRound;
   endRound = function(winner, reason) {
     orig(winner, reason);
-    // If the game ended (score reached), auto-restart after delay
     if (gameState === 'game_over') {
       setTimeout(() => {
         console.log('Auto-restarting game after game_over');
-        // Reset all players/bots
-        const botIds = [];
-        for (const [id, p] of Object.entries(players)) {
-          if (p.isBot) botIds.push(id);
-        }
         // Remove old bots
-        for (const id of botIds) delete players[id];
-        // Reset scores
+        for (const [id, p] of Object.entries(players)) {
+          if (p.isBot) delete players[id];
+        }
         gameState = 'waiting';
         roundNumber = 0;
         tScore = 0;
@@ -1128,11 +1123,11 @@ const _origEndRound = endRound;
         consecutiveLosses = { T: 0, CT: 0 };
         io.emit('game_restart');
         io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
-        // Re-add bots and start fresh
+        // Re-add bots and start fresh after short delay
         setTimeout(() => {
           autoStartGame();
-        }, 2000);
-      }, 7000);
+        }, 1500);
+      }, 5000);
     }
   };
 })();
