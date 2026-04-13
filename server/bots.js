@@ -119,16 +119,23 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
     if (bot.team === 'T' && gameState === 'playing' && bombState && !bombState.planted) {
       // T bot: go to a bombsite
       if (!bot.aiSearchPoint || distance(bot, bot.aiSearchPoint) < 80) {
-        const site = bombsites[Math.floor(Math.random() * bombsites.length)];
-        bot.aiSearchPoint = { x: site.x * C.TILE_SIZE + C.TILE_SIZE / 2, y: site.y * C.TILE_SIZE + C.TILE_SIZE / 2 };
+        const siteKeys = Object.keys(bombsites || {});
+        const siteKey = siteKeys[Math.floor(Math.random() * siteKeys.length)];
+        const site = bombsites[siteKey];
+        if (site) {
+          bot.aiSearchPoint = { x: site.centerX || site.x, y: site.centerY || site.y };
+        }
       }
-      moveToward(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, dt);
+      if (bot.aiSearchPoint) moveToward(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, dt);
     } else if (bot.team === 'CT' && gameState === 'playing' && bombState && bombState.planted) {
       // CT bot: go to bomb to defuse
       moveToward(bot, bombState.x, bombState.y, dt);
-      if (distance(bot, bombState) < 40) {
-        // Return defuse signal
+      if (distance(bot, bombState) < 60 && !bombState.defuser) {
+        // Auto-defuse
         bot.aiState = 'defusing';
+        const defuseTime = bot.hasDefuseKit ? 2.5 : 5;
+        bombState.defuser = bot.id;
+        bombState.defuseTimer = defuseTime;
       }
     } else {
       // Roam: prefer moving toward known enemy positions

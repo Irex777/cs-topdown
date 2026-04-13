@@ -708,6 +708,33 @@ function updateBots(dt) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
   }
+  // Bot auto-plant bomb (server-side since bots can't emit socket events)
+  if (gameState === 'playing' && (!bombState || !bombState.planted)) {
+    for (const p of Object.values(players)) {
+      if (!p.isBot || !p.alive || p.team !== 'T') continue;
+      let site = null;
+      if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
+      else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
+      if (site && Math.random() < 0.02 * dt * 30) { // ~2% chance per tick when on site
+        bombState = {
+          site,
+          x: bombsites[site].centerX,
+          y: bombsites[site].centerY,
+          planter: p.id,
+          timer: C.BOMB_TIMER,
+          defuser: null,
+          defuseTimer: 0,
+          planted: true,
+          exploded: false,
+          defused: false,
+          plantProgress: 0,
+        };
+        p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
+        io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER });
+        break;
+      }
+    }
+  }
 }
 
 function botBuyDuringFreeze() {
@@ -973,26 +1000,10 @@ io.on('connection', (socket) => {
     console.log(`Player disconnected: ${socket.id}`);
     const p = players[socket.id];
     if (p) {
-      p.connected = false;
-      p.alive = false;
-      setTimeout(() => {
-        delete players[socket.id];
-        broadcastPlayerList();
-        // Reset game if no players left at all (bots get cleared too)
-        const remaining = Object.keys(players).length;
-        if (remaining === 0) {
-          console.log('All players disconnected, resetting game');
-          gameState = 'waiting';
-          roundNumber = 0;
-          tScore = 0;
-          ctScore = 0;
-          bombState = null;
-          io.emit('game_restart');
-          io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
-        }
-      }, 5000);
+      delete players[socket.id];
+      broadcastPlayerList();
+      // Game keeps running even without real players — bots play on
     }
-    broadcastPlayerList();
   });
 });
 
@@ -1074,4 +1085,54 @@ const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`CS Top-Down server running on port ${PORT}`);
   console.log(`Open http://localhost:${PORT} in your browser`);
+  // Auto-start: add bots and kick off the game immediately
+  autoStartGame();
 });
+
+// ==================== AUTO-RUN (like real CS) ====================
+function autoStartGame() {
+  // Add bots to both teams
+  addBotsToGame();
+  // Start the match
+  startGame();
+  console.log('Auto-started game with bots');
+}
+
+// After game_over, auto-restart after a delay
+const originalEndRound = endRound;
+// We need to patch the endRound to detect game_over and restart
+const _origEndRound = endRound;
+// Override: wrap endRound to add auto-restart
+(function patchEndRound() {
+  const orig = endRound;
+  endRound = function(winner, reason) {
+    orig(winner, reason);
+    // If the game ended (score reached), auto-restart after delay
+    if (gameState === 'game_over') {
+      setTimeout(() => {
+        console.log('Auto-restarting game after game_over');
+        // Reset all players/bots
+        const botIds = [];
+        for (const [id, p] of Object.entries(players)) {
+          if (p.isBot) botIds.push(id);
+        }
+        // Remove old bots
+        for (const id of botIds) delete players[id];
+        // Reset scores
+        gameState = 'waiting';
+        roundNumber = 0;
+        tScore = 0;
+        ctScore = 0;
+        bombState = null;
+        lossBonus = { T: 0, CT: 0 };
+        consecutiveLosses = { T: 0, CT: 0 };
+        io.emit('game_restart');
+        io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
+        // Re-add bots and start fresh
+        setTimeout(() => {
+          autoStartGame();
+        }, 2000);
+      }, 7000);
+    }
+  };
+})();

@@ -243,9 +243,10 @@ function connect() {
   }
   document.getElementById('menu-status').textContent = 'Connecting...';
   socket = io(server, {
-    query: { name }, transports: ['websocket', 'polling'],
+    query: { name }, transports: ['polling', 'websocket'],
     secure: server.startsWith('https'), reconnection: true,
     reconnectionAttempts: 10, reconnectionDelay: 1000,
+    upgrade: true,
   });
 
   socket.on('connect_error', (err) => {
