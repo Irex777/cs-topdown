@@ -66,7 +66,7 @@ function createPlayer(id, name) {
     deaths: 0,
     assists: 0,
     lastDamageBy: null,
-    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false },
+    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, use: false },
     lastShot: 0,
     shotsFired: 0,
     lastShotTime: 0,
@@ -74,6 +74,11 @@ function createPlayer(id, name) {
     reloading: false,
     reloadTimer: 0,
     sprinting: false,
+    // Plant / defuse progress
+    plantProgress: 0,
+    plantSite: null,
+    defusing: false,
+    lastMoveTime: 0,
     connected: true,
     ping: 0,
   };
@@ -81,9 +86,15 @@ function createPlayer(id, name) {
 
 function spawnPlayer(player) {
   const spawns = player.team === 'T' ? tSpawns : ctSpawns;
-  const sp = spawns[Math.floor(Math.random() * spawns.length)];
-  player.x = sp.x + (Math.random() - 0.5) * 30;
-  player.y = sp.y + (Math.random() - 0.5) * 30;
+  if (!spawns || spawns.length === 0) {
+    console.warn('[spawnPlayer] no spawns for team', player.team, '- using map center');
+    player.x = C.MAP_WIDTH * C.TILE_SIZE / 2;
+    player.y = C.MAP_HEIGHT * C.TILE_SIZE / 2;
+  } else {
+    const sp = spawns[Math.floor(Math.random() * spawns.length)];
+    player.x = sp.x + (Math.random() - 0.5) * 30;
+    player.y = sp.y + (Math.random() - 0.5) * 30;
+  }
   player.hp = C.PLAYER_MAX_HP;
   player.alive = true;
   player.reloading = false;
@@ -91,6 +102,8 @@ function spawnPlayer(player) {
   player.lastDamageBy = null;
   player.vx = 0;
   player.vy = 0;
+  // Defensive: reset angle if bogus
+  if (!Number.isFinite(player.angle)) player.angle = 0;
 }
 
 function resetPlayerRound(player) {
@@ -341,9 +354,90 @@ function update(dt) {
   updateBullets(dt);
   updateActiveGrenades(dt);
   updateGrenades(dt);
+  processPlantDefuse(dt);
   updateBomb(dt);
   updateBots(dt);
   checkRoundEnd();
+}
+
+// Plant/defuse progression driven by player input ('use' = E held)
+function processPlantDefuse(dt) {
+  for (const p of Object.values(players)) {
+    if (!p.alive || p.team === C.TEAM_SPEC) continue;
+    const holdingUse = !!p.input.use;
+
+    // ----- PLANTING (T only, bomb not planted) -----
+    if (p.team === 'T' && (!bombState || !bombState.planted)) {
+      let site = null;
+      if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
+      else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
+
+      // Only one planter at a time — first come, first serve
+      const alreadyPlanting = Object.values(players)
+        .some(o => o !== p && o.team === 'T' && o.plantProgress > 0);
+
+      if (holdingUse && site && !alreadyPlanting) {
+        p.plantSite = site;
+        p.plantProgress += dt;
+        if (p.plantProgress >= C.BOMB_PLANT_TIME) {
+          // Plant the bomb
+          bombState = {
+            site,
+            x: bombsites[site].centerX,
+            y: bombsites[site].centerY,
+            planter: p.id,
+            timer: C.BOMB_TIMER,
+            defuser: null,
+            defuseTimer: 0,
+            defuseTotalTime: 0,
+            planted: true,
+            exploded: false,
+            defused: false,
+            plantProgress: 0,
+          };
+          p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
+          p.plantProgress = 0;
+          p.plantSite = null;
+          io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER });
+        }
+      } else {
+        p.plantProgress = 0;
+        p.plantSite = null;
+      }
+    } else if (p.plantProgress > 0) {
+      p.plantProgress = 0;
+      p.plantSite = null;
+    }
+
+    // ----- DEFUSING (CT only, bomb planted) -----
+    if (p.team === 'CT' && bombState && bombState.planted) {
+      const dx = p.x - bombState.x;
+      const dy = p.y - bombState.y;
+      const inRange = (dx * dx + dy * dy) < (60 * 60);
+      const currentDefuser = bombState.defuser;
+      const canDefuse = inRange && holdingUse &&
+        (!currentDefuser || currentDefuser === p.id);
+
+      if (canDefuse) {
+        if (bombState.defuser !== p.id) {
+          bombState.defuser = p.id;
+          const defuseTime = p.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
+          bombState.defuseTimer = defuseTime;
+          bombState.defuseTotalTime = defuseTime;
+          io.emit('bomb_defusing', { defuser: p.id, time: defuseTime });
+        }
+        p.defusing = true;
+      } else {
+        if (bombState.defuser === p.id) {
+          bombState.defuser = null;
+          bombState.defuseTimer = 0;
+        }
+        p.defusing = false;
+      }
+    } else {
+      p.defusing = false;
+    }
+  }
 }
 
 function updatePlayersFrozen(dt) {
@@ -438,6 +532,9 @@ function shoot(p) {
   const wep = getCurrentWeapon(p);
   if (!wep) return;
 
+  // Defensive: don't fire if player state is bogus
+  if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.angle)) return;
+
   const now = Date.now() / 1000;
   const fireInterval = 1 / wep.data.fireRate;
   if (now - p.lastShot < fireInterval) return;
@@ -476,16 +573,25 @@ function shoot(p) {
   if (!moving) {
     baseSpread = wep.data.spread;                          // Standing still
   } else if (sprinting) {
-    baseSpread = wep.data.moveSpread * 1.5;                // Sprinting
+    baseSpread = wep.data.moveSpread * 1.8;                // Sprinting — severe
   } else {
     baseSpread = wep.data.moveSpread;                      // Walking
   }
 
-  // Recoil escalation for auto weapons
-  let recoilPenalty = 0;
-  if (fireMode === 'auto' && p.shotsFired > 1) {
-    recoilPenalty = p.shotsFired * 0.005;
-  }
+  // Recoil escalation — accumulates per shot, decays over time between shots.
+  // Apply to all fire modes so mindless spam is always punished.
+  const maxRecoil = wep.data.type === 'sniper' ? 0.04
+    : wep.data.type === 'rifle' ? 0.18
+    : wep.data.type === 'smg' ? 0.20
+    : wep.data.type === 'shotgun' ? 0.10
+    : 0.14; // pistols
+  const perShot = wep.data.type === 'sniper' ? 0.02
+    : wep.data.type === 'rifle' ? 0.011
+    : wep.data.type === 'smg' ? 0.009
+    : wep.data.type === 'shotgun' ? 0.05
+    : 0.010;
+  // First shot is always accurate
+  const recoilPenalty = Math.min(maxRecoil, Math.max(0, p.shotsFired - 1) * perShot);
 
   const spread = baseSpread + recoilPenalty;
 
@@ -506,6 +612,8 @@ function shoot(p) {
       range: wep.data.range,
       dist: 0,
       team: p.team,
+      armorPen: wep.data.armorPenetration != null ? wep.data.armorPenetration : 0.5,
+      weaponKey: wep.key,
     });
   }
 }
@@ -522,6 +630,11 @@ function startReload(p) {
 function updateBullets(dt) {
   const newBullets = [];
   for (const b of bullets) {
+    // Defensive: drop any bullet with invalid data
+    if (!Number.isFinite(b.x) || !Number.isFinite(b.y) ||
+        !Number.isFinite(b.vx) || !Number.isFinite(b.vy)) {
+      continue;
+    }
     const newX = b.x + b.vx * dt;
     const newY = b.y + b.vy * dt;
     const moveDist = Math.sqrt((newX - b.x) ** 2 + (newY - b.y) ** 2);
@@ -546,22 +659,36 @@ function updateBullets(dt) {
       if (dist < C.PLAYER_RADIUS) {
         // Hit!
         let damage = b.damage;
-        // Headshot detection (top 30% of player circle)
-        const isHeadshot = dy < -C.PLAYER_RADIUS * 0.4;
+
+        // Damage falloff — shots past 60% of effective range start losing power
+        // (gradient from 100% to 60% damage at max range)
+        const falloffStart = b.range * 0.6;
+        if (b.dist > falloffStart) {
+          const excess = (b.dist - falloffStart) / (b.range - falloffStart);
+          damage *= 1 - excess * 0.4;
+        }
+
+        // Headshot detection — in top-down, a "headshot" is a near-center hit.
+        // Tight center cluster (~35% of radius) is considered a head hit.
+        const isHeadshot = dist < C.PLAYER_RADIUS * 0.35;
         if (isHeadshot && !p.helmet) {
-          damage *= 2.5; // Instant kill for most weapons
+          damage *= 2.5; // Instant kill for most rifles
         } else if (isHeadshot && p.helmet) {
           damage *= 1.5;
           p.helmet = false; // Helmet absorbs first HS
         }
 
-        // Armor damage reduction
+        // Armor damage reduction — rifles with armor penetration hurt more through kevlar
         if (p.armor > 0) {
-          const absorbed = damage * 0.5;
+          const ap = b.armorPen != null ? b.armorPen : 0.5;
+          const absorbed = damage * (1 - ap);
           const armorDmg = Math.min(p.armor, absorbed);
           p.armor -= armorDmg;
           damage -= armorDmg;
         }
+
+        // Never deal negative damage
+        damage = Math.max(1, damage);
 
         p.hp -= damage;
         p.lastDamageBy = b.owner;
@@ -590,7 +717,7 @@ function updateBullets(dt) {
             victimName: p.name,
             killer: b.owner,
             killerName: killer?.name || 'Unknown',
-            weapon: getCurrentWeapon(killer || {})?.key || 'unknown',
+            weapon: b.weaponKey || getCurrentWeapon(killer || {})?.key || 'unknown',
             headshot: isHeadshot,
           });
         }
@@ -612,20 +739,27 @@ function updateBullets(dt) {
 function updateActiveGrenades(dt) {
   const newActive = [];
   for (const g of activeGrenades) {
-    g.x += g.vx * dt;
-    g.y += g.vy * dt;
-    g.vx *= 0.95;
-    g.vy *= 0.95;
-    g.timer -= dt;
+    // Step X and Y independently so walls properly block one axis at a time
+    const nextX = g.x + g.vx * dt;
+    const nextY = g.y + g.vy * dt;
 
-    // Bounce off walls
-    if (isWall(gameMap, g.x, g.y)) {
-      g.vx *= -0.5;
-      g.vy *= -0.5;
-      g.x += g.vx * dt * 2;
-      g.y += g.vy * dt * 2;
+    if (!isWall(gameMap, nextX, g.y)) {
+      g.x = nextX;
+    } else {
+      g.vx = -g.vx * 0.55;                 // bounce X
+    }
+    if (!isWall(gameMap, g.x, nextY)) {
+      g.y = nextY;
+    } else {
+      g.vy = -g.vy * 0.55;                 // bounce Y
     }
 
+    // Air drag
+    g.vx *= 0.97;
+    g.vy *= 0.97;
+    g.timer -= dt;
+
+    // HE grenades hurt when they detonate mid-flight; flash/smoke just need to land
     if (g.timer <= 0) {
       detonateGrenade(g);
     } else {
@@ -705,22 +839,23 @@ function updateBomb(dt) {
     return;
   }
 
-  // Defusing
+  // Defusing — only tick down while the committed defuser is alive AND still at the bomb
   if (bombState.defuser) {
     const defuser = players[bombState.defuser];
-    if (defuser && defuser.alive) {
+    const stillDefusing = defuser && defuser.alive && defuser.defusing;
+    if (stillDefusing) {
       bombState.defuseTimer -= dt;
       if (bombState.defuseTimer <= 0) {
         bombState.planted = false;
         bombState.defused = true;
-        if (defuser) {
-          defuser.money = Math.min(C.MAX_MONEY, defuser.money + C.BOMB_DEFUSE_REWARD);
-        }
+        defuser.money = Math.min(C.MAX_MONEY, defuser.money + C.BOMB_DEFUSE_REWARD);
         io.emit('bomb_defused', { site: bombState.site, defuser: bombState.defuser });
         endRound('CT', 'defuse');
       }
     } else {
+      // Defuser left the bomb or died — reset progress
       bombState.defuser = null;
+      bombState.defuseTimer = 0;
     }
   }
 }
@@ -755,32 +890,13 @@ function updateBots(dt) {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
-  }
-  // Bot auto-plant bomb (server-side since bots can't emit socket events)
-  if (gameState === 'playing' && (!bombState || !bombState.planted)) {
-    for (const p of Object.values(players)) {
-      if (!p.isBot || !p.alive || p.team !== 'T') continue;
-      let site = null;
-      if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
-      else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
-      if (site && Math.random() < 0.02 * dt * 30) { // ~2% chance per tick when on site
-        bombState = {
-          site,
-          x: bombsites[site].centerX,
-          y: bombsites[site].centerY,
-          planter: p.id,
-          timer: C.BOMB_TIMER,
-          defuser: null,
-          defuseTimer: 0,
-          planted: true,
-          exploded: false,
-          defused: false,
-          plantProgress: 0,
-        };
-        p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
-        io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER });
-        break;
+
+    // Collect any grenades the bot decided to throw this tick
+    if (p._pendingGrenades && p._pendingGrenades.length) {
+      for (const g of p._pendingGrenades) {
+        activeGrenades.push(g);
       }
+      p._pendingGrenades.length = 0;
     }
   }
 }
@@ -789,13 +905,13 @@ function botBuyDuringFreeze() {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     if (p._botBought) continue;
-    const item = addBotBuyLogic(p);
-    if (item) {
-      handleBuy(p, item);
-      // Also buy armor if didn't buy it already
-      if (!item.includes('kevlar') && !item.includes('helmet') && p.money >= 650) {
-        handleBuy(p, p.money >= 1000 ? 'helmet' : 'kevlar');
+    const items = addBotBuyLogic(p);
+    if (Array.isArray(items)) {
+      for (const item of items) {
+        handleBuy(p, item);
       }
+    } else if (typeof items === 'string') {
+      handleBuy(p, items);
     }
     p._botBought = true;
   }
@@ -946,6 +1062,7 @@ io.on('connection', (socket) => {
   socket.on('update_angle', (angle) => {
     const p = players[socket.id];
     if (!p) return;
+    if (!Number.isFinite(angle)) return;
     p.angle = angle;
   });
 
@@ -976,46 +1093,15 @@ io.on('connection', (socket) => {
     socket.emit('player_update', serializePlayer(p));
   });
 
+  // Legacy plant/defuse events — kept for backward compat, now route to `use` input.
   socket.on('plant_bomb', () => {
     const p = players[socket.id];
-    if (!p || p.team !== 'T' || !p.alive || bombState?.planted) return;
-
-    // Check if on bombsite
-    let site = null;
-    if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
-    else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
-    if (!site) return;
-
-    bombState = {
-      site,
-      x: bombsites[site].centerX,
-      y: bombsites[site].centerY,
-      planter: p.id,
-      timer: C.BOMB_TIMER,
-      defuser: null,
-      defuseTimer: 0,
-      planted: true,
-      exploded: false,
-      defused: false,
-      plantProgress: 0,
-    };
-
-    p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
-    io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER });
+    if (p) p.input.use = true;
   });
 
   socket.on('defuse_bomb', () => {
     const p = players[socket.id];
-    if (!p || p.team !== 'CT' || !p.alive || !bombState?.planted) return;
-
-    const dx = p.x - bombState.x;
-    const dy = p.y - bombState.y;
-    if (Math.sqrt(dx * dx + dy * dy) > 60) return;
-
-    const defuseTime = p.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
-    bombState.defuser = p.id;
-    bombState.defuseTimer = defuseTime;
-    io.emit('bomb_defusing', { defuser: p.id, time: defuseTime });
+    if (p) p.input.use = true;
   });
 
   socket.on('throw_grenade', (type) => {
@@ -1114,9 +1200,12 @@ function serializePlayer(p) {
     hasDefuseKit: p.hasDefuseKit,
     angle: p.angle,
     reloading: p.reloading,
+    reloadTimer: p.reloadTimer,
     kills: p.kills,
     deaths: p.deaths,
     assists: p.assists,
+    plantProgress: p.plantProgress || 0,
+    defusing: p.defusing || false,
     isBot: p.isBot || false,
   };
 }
@@ -1205,9 +1294,16 @@ setInterval(() => {
       // Check line of sight (and within view distance)
       const canSee = dist <= VISIBILITY_RADIUS && lineOfSight(gameMap, me.x, me.y, p.x, p.y);
 
-      // Check if enemy is making noise (shot within last 0.5s) and within hearing range
+      // Check if enemy is making noise:
+      //  - shooting (loud — heard at HEAR_RANGE)
+      //  - sprinting running (heard at FOOTSTEP_RANGE)
+      //  - walking (heard at closer range)
       const shootingNow = (now / 1000) - (p.lastShotTime || 0) < 0.5;
-      const canHear = shootingNow && dist <= HEAR_RANGE;
+      const enemyMoving = (Math.abs(p.vx) + Math.abs(p.vy)) > 20;
+      const enemySprinting = enemyMoving && p.input && p.input.sprint;
+      const footstepRange = enemySprinting ? 400 : (enemyMoving ? 220 : 0);
+      const canHear = (shootingNow && dist <= HEAR_RANGE)
+                    || (enemyMoving && dist <= footstepRange);
 
       if (canSee) {
         myState.players[id] = serializePlayer(p);
