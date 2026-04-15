@@ -411,10 +411,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyG') socket?.emit('throw_grenade', 'he');
   if (e.code === 'KeyF') socket?.emit('throw_grenade', 'flash');
   if (e.code === 'KeyC') socket?.emit('throw_grenade', 'smoke');
-  if (e.code === 'KeyE') {
-    if (myPlayer?.team === 'T') socket?.emit('plant_bomb');
-    else if (myPlayer?.team === 'CT') socket?.emit('defuse_bomb');
-  }
+  // E is handled via the held 'use' input below — no need to emit on press.
 });
 document.addEventListener('keyup', (e) => {
   keys[e.code] = false;
@@ -437,6 +434,7 @@ setInterval(() => {
     left: keys['KeyA']||false, right: keys['KeyD']||false,
     shoot: mouse.down && !showBuyMenu,
     sprint: keys['ShiftLeft'] || keys['ShiftRight'] || false,
+    use: (keys['KeyE']||false) && !showBuyMenu,
   });
   socket.emit('update_angle', Math.atan2(wmy, wmx));
 }, 1000/30);
@@ -910,6 +908,31 @@ function render(timestamp) {
     ctx.fillRect(bx, by, bw * (1 - (p.reloadTimer || 0) / 3), bh);
     ctx.font = '11px sans-serif'; ctx.fillStyle = '#aaa'; ctx.textAlign = 'center';
     ctx.fillText('RELOADING', canvas.width/2, by + 16);
+  }
+
+  // Plant progress bar (T)
+  const BOMB_PLANT_TIME = 3.2;
+  if (p && p.plantProgress > 0) {
+    const bw = 220, bh = 8;
+    const bx = canvas.width/2 - bw/2, by = canvas.height/2 + 60;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx-2, by-2, bw+4, bh+4);
+    ctx.fillStyle = '#ff3333';
+    ctx.fillRect(bx, by, bw * Math.min(1, p.plantProgress / BOMB_PLANT_TIME), bh);
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#ffcc44'; ctx.textAlign = 'center';
+    ctx.fillText('PLANTING THE BOMB', canvas.width/2, by - 6);
+  }
+
+  // Defuse progress bar (CT)
+  if (p && p.defusing && bomb && bomb.planted) {
+    const total = (bomb.defuseTotalTime || 10);
+    const pct = Math.max(0, Math.min(1, 1 - (bomb.defuseTimer || 0) / total));
+    const bw = 220, bh = 8;
+    const bx = canvas.width/2 - bw/2, by = canvas.height/2 + 60;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx-2, by-2, bw+4, bh+4);
+    ctx.fillStyle = '#4caf50';
+    ctx.fillRect(bx, by, bw * pct, bh);
+    ctx.font = 'bold 13px sans-serif'; ctx.fillStyle = '#88ddff'; ctx.textAlign = 'center';
+    ctx.fillText(p.hasDefuseKit ? 'DEFUSING (KIT)' : 'DEFUSING', canvas.width/2, by - 6);
   }
 
   // Minimap
