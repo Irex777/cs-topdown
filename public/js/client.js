@@ -1036,7 +1036,18 @@ function updateHUD() {
   const m = Math.floor(time/60), s = Math.floor(time%60);
   const timerEl = document.getElementById('round-timer');
   timerEl.textContent = m + ':' + s.toString().padStart(2, '0');
-  timerEl.style.color = time < 10 ? '#ff4444' : time < 30 ? '#ffaa00' : '#fff';
+  if (time < 10) {
+    timerEl.style.color = '#ff4444';
+    timerEl.classList.add('timer-critical');
+    timerEl.classList.remove('timer-warning');
+  } else if (time < 30) {
+    timerEl.style.color = '#ffaa00';
+    timerEl.classList.remove('timer-critical');
+    timerEl.classList.add('timer-warning');
+  } else {
+    timerEl.style.color = '#fff';
+    timerEl.classList.remove('timer-critical', 'timer-warning');
+  }
 
   // HP/Armor
   document.getElementById('hp-text').textContent = Math.ceil(p.hp);
@@ -1050,11 +1061,26 @@ function updateHUD() {
   if (p.weapons?.length && p.currentWeapon >= 0 && p.ammo) {
     const wk = p.weapons[p.currentWeapon], am = p.ammo[wk], w = WEAPONS[wk];
     document.getElementById('weapon-name').textContent = w ? w.name.toUpperCase() : wk;
-    document.getElementById('ammo-current').textContent = am ? am.mag : 0;
+    const ammoEl = document.getElementById('ammo-current');
+    ammoEl.textContent = am ? am.mag : 0;
+    // Low ammo warning: flash red when mag <= 25% of magSize
+    if (w && w.magSize && am && am.mag <= Math.ceil(w.magSize * 0.25) && am.mag > 0) {
+      ammoEl.classList.add('ammo-low');
+      ammoEl.style.color = '#ff4444';
+    } else if (am && am.mag === 0) {
+      ammoEl.classList.remove('ammo-low');
+      ammoEl.style.color = '#ff2222';
+    } else {
+      ammoEl.classList.remove('ammo-low');
+      ammoEl.style.color = '';
+    }
     document.getElementById('ammo-reserve').textContent = am ? am.reserve : 0;
   } else if (p.currentWeapon === -1) {
     document.getElementById('weapon-name').textContent = 'KNIFE';
-    document.getElementById('ammo-current').textContent = '\u221E';
+    const ammoEl = document.getElementById('ammo-current');
+    ammoEl.textContent = '\u221E';
+    ammoEl.classList.remove('ammo-low');
+    ammoEl.style.color = '';
     document.getElementById('ammo-reserve').textContent = '';
   }
 
@@ -1259,26 +1285,25 @@ function preRenderMap() {
           mc.fillRect(px+2, py+TILE_SIZE-4, TILE_SIZE-4, 2);
           break;
         case TILE_BS_A:
-          // Bombsite A - visible colored zone
-          mc.fillStyle = '#1e1e2a';
+          // Bombsite A - visible colored zone with stronger tint
+          mc.fillStyle = '#1e1a1a';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          // Colored zone overlay with checker pattern
-          const aAlpha = 0.06 + Math.random()*0.03;
+          const aAlpha = 0.12 + Math.random()*0.04;
           mc.fillStyle = `rgba(255,80,60,${aAlpha})`;
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           // Subtle zone border marking
-          mc.fillStyle = `rgba(255,80,60,0.08)`;
+          mc.fillStyle = `rgba(255,80,60,0.12)`;
           mc.fillRect(px, py, 2, TILE_SIZE);
           mc.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
           break;
         case TILE_BS_B:
-          // Bombsite B - visible colored zone
-          mc.fillStyle = '#1e1e2a';
+          // Bombsite B - visible colored zone with stronger tint
+          mc.fillStyle = '#1a1a1e';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          const bAlpha = 0.06 + Math.random()*0.03;
+          const bAlpha = 0.12 + Math.random()*0.04;
           mc.fillStyle = `rgba(60,80,255,${bAlpha})`;
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = `rgba(60,80,255,0.08)`;
+          mc.fillStyle = `rgba(60,80,255,0.12)`;
           mc.fillRect(px, py, 2, TILE_SIZE);
           mc.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
           break;
@@ -1286,14 +1311,14 @@ function preRenderMap() {
           // T Spawn - warm highlight
           mc.fillStyle = '#221e18';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = 'rgba(212,165,55,0.04)';
+          mc.fillStyle = 'rgba(212,165,55,0.07)';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           break;
         case TILE_CT_SPAWN:
           // CT Spawn - cool highlight
           mc.fillStyle = '#181e24';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = 'rgba(74,144,217,0.04)';
+          mc.fillStyle = 'rgba(74,144,217,0.07)';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           break;
         case TILE_DOOR:
@@ -1324,7 +1349,7 @@ function preRenderMap() {
       }
       // Subtle grid lines on non-solid tiles
       if (t !== TILE_WALL && t !== TILE_CRATE) {
-        mc.strokeStyle = 'rgba(255,255,255,0.015)';
+        mc.strokeStyle = 'rgba(255,255,255,0.03)';
         mc.lineWidth = 0.5;
         mc.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
       }
@@ -1383,15 +1408,72 @@ function preRenderMap() {
   if (bombsites) {
     mc.font = 'bold 52px sans-serif'; mc.textAlign = 'center'; mc.textBaseline = 'middle';
     if (bombsites.A) {
-      mc.fillStyle = 'rgba(255,80,60,0.15)';
+      // Large semi-transparent floor zone for site A
+      if (bombsites.A.tiles && bombsites.A.tiles.length > 0) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const t of bombsites.A.tiles) {
+          if (t.x < minX) minX = t.x; if (t.y < minY) minY = t.y;
+          if (t.x > maxX) maxX = t.x; if (t.y > maxY) maxY = t.y;
+        }
+        mc.fillStyle = 'rgba(255,60,40,0.08)';
+        mc.fillRect(minX * TILE_SIZE, minY * TILE_SIZE, (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
+        // Inner glow
+        const aGrad = mc.createRadialGradient(
+          bombsites.A.centerX, bombsites.A.centerY, 0,
+          bombsites.A.centerX, bombsites.A.centerY, 200
+        );
+        aGrad.addColorStop(0, 'rgba(255,60,40,0.1)');
+        aGrad.addColorStop(1, 'rgba(255,60,40,0)');
+        mc.fillStyle = aGrad;
+        mc.fillRect(minX * TILE_SIZE, minY * TILE_SIZE, (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
+      }
+      mc.fillStyle = 'rgba(255,80,60,0.2)';
       mc.fillText('A', bombsites.A.centerX, bombsites.A.centerY);
-      drawBombsiteOutline(mc, bombsites.A, 'rgba(255,80,60,0.2)');
+      drawBombsiteOutline(mc, bombsites.A, 'rgba(255,80,60,0.3)');
     }
     if (bombsites.B) {
-      mc.fillStyle = 'rgba(60,80,255,0.15)';
+      // Large semi-transparent floor zone for site B
+      if (bombsites.B.tiles && bombsites.B.tiles.length > 0) {
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const t of bombsites.B.tiles) {
+          if (t.x < minX) minX = t.x; if (t.y < minY) minY = t.y;
+          if (t.x > maxX) maxX = t.x; if (t.y > maxY) maxY = t.y;
+        }
+        mc.fillStyle = 'rgba(40,60,255,0.08)';
+        mc.fillRect(minX * TILE_SIZE, minY * TILE_SIZE, (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
+        // Inner glow
+        const bGrad = mc.createRadialGradient(
+          bombsites.B.centerX, bombsites.B.centerY, 0,
+          bombsites.B.centerX, bombsites.B.centerY, 200
+        );
+        bGrad.addColorStop(0, 'rgba(40,60,255,0.1)');
+        bGrad.addColorStop(1, 'rgba(40,60,255,0)');
+        mc.fillStyle = bGrad;
+        mc.fillRect(minX * TILE_SIZE, minY * TILE_SIZE, (maxX - minX + 1) * TILE_SIZE, (maxY - minY + 1) * TILE_SIZE);
+      }
+      mc.fillStyle = 'rgba(60,80,255,0.2)';
       mc.fillText('B', bombsites.B.centerX, bombsites.B.centerY);
-      drawBombsiteOutline(mc, bombsites.B, 'rgba(60,80,255,0.2)');
+      drawBombsiteOutline(mc, bombsites.B, 'rgba(60,80,255,0.3)');
     }
+  }
+
+  // Spawn area labels
+  mc.font = 'bold 28px sans-serif'; mc.textAlign = 'center'; mc.textBaseline = 'middle';
+  let tSX = 0, tSY = 0, tC = 0, ctSX = 0, ctSY = 0, ctC = 0;
+  for (let sy = 0; sy < mapHeight; sy++) {
+    for (let sx = 0; sx < mapWidth; sx++) {
+      const cx = (sx + 0.5) * TILE_SIZE, cy = (sy + 0.5) * TILE_SIZE;
+      if (mapData[sy][sx] === TILE_T_SPAWN) { tSX += cx; tSY += cy; tC++; }
+      if (mapData[sy][sx] === TILE_CT_SPAWN) { ctSX += cx; ctSY += cy; ctC++; }
+    }
+  }
+  if (tC > 0) {
+    mc.fillStyle = 'rgba(212,165,55,0.12)';
+    mc.fillText('T SPAWN', tSX / tC, tSY / tC);
+  }
+  if (ctC > 0) {
+    mc.fillStyle = 'rgba(74,144,217,0.12)';
+    mc.fillText('CT SPAWN', ctSX / ctC, ctSY / ctC);
   }
 
   // Initialize free cam pos
@@ -1979,6 +2061,26 @@ function render(timestamp) {
     ctx.arc(da.x, da.y, PLAYER_RADIUS * 0.8, 0, Math.PI * 2);
     ctx.fillStyle = da.team === 'T' ? '#c9952d' : '#3a7bc8';
     ctx.fill();
+    // Red X dead marker
+    ctx.globalAlpha = alpha * 0.8;
+    ctx.strokeStyle = '#ff2222';
+    ctx.lineWidth = 2.5;
+    ctx.lineCap = 'round';
+    const xSize = 6;
+    ctx.beginPath();
+    ctx.moveTo(da.x - xSize, da.y - xSize);
+    ctx.lineTo(da.x + xSize, da.y + xSize);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(da.x + xSize, da.y - xSize);
+    ctx.lineTo(da.x - xSize, da.y + xSize);
+    ctx.stroke();
+    // Dead player name
+    ctx.globalAlpha = alpha * 0.5;
+    ctx.font = '9px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#ff6666';
+    ctx.fillText(da.name, da.x, da.y - 18);
     ctx.restore();
   }
 
@@ -2199,15 +2301,24 @@ function drawPlayer(pl, isMe, isAlly, dt) {
   const bodyDark = isT ? '#8a6a20' : '#2a5590';
   const outlineColor = isMe ? '#fff' : isAlly ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
 
-  const radius = isCrouching ? PLAYER_RADIUS * 0.82 : PLAYER_RADIUS;
+  const radius = isCrouching ? PLAYER_RADIUS * 0.8 : PLAYER_RADIUS;
 
   ctx.save();
   ctx.translate(x, y);
 
-  // Player shadow
+  // Team glow ring (subtle colored aura)
+  const glowColor = isT ? 'rgba(255,140,30,' : 'rgba(60,130,220,';
+  const time = Date.now() / 1000;
+  const glowPulse = 0.08 + Math.sin(time * 2.5 + (pl.name || '').charCodeAt(0)) * 0.03;
+  ctx.beginPath(); ctx.arc(0, 0, radius + 5, 0, Math.PI * 2);
+  ctx.strokeStyle = glowColor + glowPulse + ')';
+  ctx.lineWidth = 4;
+  ctx.stroke();
+
+  // Player shadow (dark semi-transparent ellipse below)
   ctx.save();
-  ctx.globalAlpha = 0.25;
-  ctx.beginPath(); ctx.ellipse(2, 3, radius + 2, radius, 0, 0, Math.PI*2);
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath(); ctx.ellipse(3, 4, radius + 1, radius * 0.7, 0.15, 0, Math.PI * 2);
   ctx.fillStyle = '#000'; ctx.fill();
   ctx.restore();
 
@@ -2221,23 +2332,52 @@ function drawPlayer(pl, isMe, isAlly, dt) {
   ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.fillStyle = bodyGrad; ctx.fill();
 
-  // Crouching indicator: darker ring
+  // Darker outline around body (2px)
+  ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2);
+  ctx.strokeStyle = bodyDark;
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Crouching indicator: brighter ring
   if (isCrouching) {
-    ctx.beginPath(); ctx.arc(0, 0, radius + 1, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.beginPath(); ctx.arc(0, 0, radius + 2, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // Crouch chevron
+    ctx.beginPath();
+    ctx.moveTo(-4, -radius - 4); ctx.lineTo(0, -radius - 7); ctx.lineTo(4, -radius - 4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1; ctx.stroke();
   }
 
-  // Outline
+  // White outline for identification
   ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2);
   ctx.strokeStyle = outlineColor;
   ctx.lineWidth = isMe ? 2.5 : 1.5;
   ctx.stroke();
 
-  // Weapon shape (determine current weapon)
+  // Weapon barrel line pointing in aim direction
   let weaponKey = null;
   if (pl.weapons && pl.currentWeapon >= 0 && pl.currentWeapon < pl.weapons.length) {
     weaponKey = pl.weapons[pl.currentWeapon];
   }
+  const wInfo = WEAPONS[weaponKey];
+  if (wInfo) {
+    const barrelLens = { rifle: 28, smg: 22, pistol: 16, knife: 12, sniper: 32, shotgun: 20 };
+    const barrelLen = barrelLens[wInfo.type] || 18;
+    // Barrel line from player edge outward
+    ctx.beginPath();
+    ctx.moveTo(radius - 2, 0);
+    ctx.lineTo(radius - 2 + barrelLen, 0);
+    ctx.strokeStyle = 'rgba(80,80,80,0.7)';
+    ctx.lineWidth = wInfo.type === 'sniper' ? 2.5 : wInfo.type === 'rifle' ? 2.2 : wInfo.type === 'shotgun' ? 2.5 : 1.8;
+    ctx.stroke();
+    // Barrel tip highlight
+    ctx.beginPath();
+    ctx.arc(radius - 2 + barrelLen, 0, 1.5, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(180,180,180,0.6)';
+    ctx.fill();
+  }
+
+  // Weapon shape (determine current weapon)
   drawWeaponShape(ctx, weaponKey, isMe, 0);
 
   // Face direction indicator
@@ -2259,7 +2399,9 @@ function drawPlayer(pl, isMe, isAlly, dt) {
   ctx.save();
   ctx.font = isMe ? 'bold 10px sans-serif' : '10px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillStyle = isMe ? '#fff' : 'rgba(255,255,255,0.7)';
+  // Show name for all players - enemies slightly dimmer, allies/me brighter
+  const nameAlpha = isMe ? 1.0 : isAlly ? 0.85 : 0.65;
+  ctx.fillStyle = `rgba(255,255,255,${nameAlpha})`;
   ctx.fillText(pl.name, x, y - radius - 16);
 
   // Bot badge
