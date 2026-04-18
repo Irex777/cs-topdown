@@ -100,6 +100,7 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
   bot.input.shoot = false;
   bot.input.use = false;
   bot.input.sprint = false;
+  bot.input.crouch = false;
 
   // Stuck detection - if position hasn't changed, increment stuck counter
   if (!bot._lastPos) bot._lastPos = { x: bot.x, y: bot.y, stuck: 0 };
@@ -112,13 +113,23 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
     bot._lastPos.y = bot.y;
   }
 
-  // If stuck for too long, force repath with new random target
-  if (bot._lastPos.stuck > 60) {
+  // If stuck for too long, pick a completely new random target away from current position
+  if (bot._lastPos.stuck > 30) { // 30 ticks = ~0.5s — faster recovery
     bot._path = null;
     bot._pathIdx = 0;
     bot.aiSearchPoint = null;
     bot.aiWaypoint = null;
+    bot.aiHoldSite = null;
     bot._lastPos.stuck = 0;
+    // Pick a new random target far from current position
+    const angle = Math.random() * Math.PI * 2;
+    const dist = 200 + Math.random() * 400;
+    const mapW = gameMap[0].length * C.TILE_SIZE;
+    const mapH = gameMap.length * C.TILE_SIZE;
+    bot.aiWaypoint = {
+      x: Math.max(C.TILE_SIZE * 3, Math.min(mapW - C.TILE_SIZE * 3, bot.x + Math.cos(angle) * dist)),
+      y: Math.max(C.TILE_SIZE * 3, Math.min(mapH - C.TILE_SIZE * 3, bot.y + Math.sin(angle) * dist)),
+    };
   }
 
   // Auto-switch from knife-only / empty weapon to something that shoots
@@ -161,6 +172,7 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
     if (!bot._wasTrackingEnemy) {
       bot.aiReactionTimer = 0.2 + (1 - bot.skill) * 0.4; // 200-600ms reaction
       bot._wasTrackingEnemy = true;
+      botSay(bot, 'enemySpotted', null); // call out contact
     }
     if (bot.aiReactionTimer > 0) {
       // During reaction time, aim toward enemy but don't shoot yet
@@ -220,6 +232,16 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
     handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsites, nearestEnemyPos);
   }
 
+  // When roaming/idle, periodically scan around to detect enemies
+  if (bot.aiState === 'roaming' && !enemy) {
+    if (!bot._scanTimer) bot._scanTimer = 0;
+    bot._scanTimer -= dt;
+    if (bot._scanTimer <= 0) {
+      bot._scanTimer = 1.5 + Math.random() * 2; // scan every 1.5-3.5s
+      bot.angle = Math.random() * Math.PI * 2; // look in random direction
+    }
+  }
+
   // Auto reload when mag is low and not actively engaging
   const wep = getCurrentWeapon(bot);
   if (wep && bot.ammo[wep.key] && !bot.reloading) {
@@ -255,6 +277,7 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
         const siteKey = siteKeys[Math.floor(Math.random() * siteKeys.length)];
         const site = bombsites[siteKey];
         bot.aiSearchPoint = { x: site.centerX || site.x, y: site.centerY || site.y };
+        botSay(bot, 'rushing', { site: siteKey });
       }
     }
     if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
@@ -266,9 +289,11 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
     // Sprint to bomb site when planted
     navigateTo(bot, bombState.x, bombState.y, gameMap, dt);
     bot.input.sprint = true;
-    if (distance(bot, bombState) < 55) {
-      // Close enough — request defuse via 'use'
+    const distToBomb = distance(bot, bombState);
+    if (distToBomb < 80) {
       bot.input.use = true;
+      bot.input.sprint = false;
+      bot.input.crouch = true; // Crouch for better defuse speed with kit
     }
     return;
   }
@@ -290,10 +315,17 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
             y: (site.centerY || site.y) + (Math.random() - 0.5) * 160,
           };
           bot._path = null;
+          botSay(bot, 'siteHolding', { site: siteKey });
         }
       }
     }
     if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
+    // Face toward likely enemy approach (center of map)
+    if (!nearestEnemyPos) {
+      const toCenterX = gameMap[0].length * C.TILE_SIZE / 2 - bot.x;
+      const toCenterY = gameMap.length * C.TILE_SIZE / 2 - bot.y;
+      bot.angle = Math.atan2(toCenterY, toCenterX) + (Math.random() - 0.5) * 1.0;
+    }
     return;
   }
 
@@ -727,7 +759,42 @@ module.exports = {
   nextBotId,
   randomMapPoint,
   lineBlockedBySmoke,
+  botSay,
 };
+
+// ==================== BOT COMMUNICATION ====================
+const BOT_MESSAGES = {
+  // T messages
+  bombPlanting: ['Planting at {site}!', 'Planting bomb!', 'Bomb going down!'],
+  rushing: ['Rushing {site}!', 'Push {site}!', 'Let\'s go {site}!'],
+  // CT messages
+  bombPlanted: ['Bomb planted at {site}!', 'They planted {site}!', 'Bomb down {site}!'],
+  defusing: ['Defusing!', 'Defusing the bomb!', 'Kit out, defusing!'],
+  enemySpotted: ['Enemy spotted!', 'Contact!', 'I see one!'],
+  siteHolding: ['Holding {site}', 'Watching {site}', '{site} is covered'],
+  needBackup: ['Need backup!', 'Help {site}!', 'They\'re pushing {site}!'],
+  lowHp: ['I\'m low!', 'Taking damage!', 'Need healing!'],
+};
+
+function botSay(bot, category, replacements) {
+  if (!bot._chatCooldown) bot._chatCooldown = 0;
+  const now = Date.now() / 1000;
+  if (now - bot._chatCooldown < 5) return; // 5 second cooldown between messages
+  bot._chatCooldown = now;
+
+  const messages = BOT_MESSAGES[category];
+  if (!messages || messages.length === 0) return;
+
+  let msg = messages[Math.floor(Math.random() * messages.length)];
+  if (replacements) {
+    for (const [key, val] of Object.entries(replacements)) {
+      msg = msg.replace(`{${key}}`, val);
+    }
+  }
+
+  if (!bot._pendingChat) bot._pendingChat = [];
+  bot._pendingChat.push({ message: msg, teamOnly: true });
+}
 
 // ==================== SMOKE LINE OF SIGHT CHECK ====================
 // Check if a line from (x1,y1) to (x2,y2) passes through any smoke grenade

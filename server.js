@@ -8,7 +8,7 @@ const path = require('path');
 const C = require('./shared/constants');
 const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfSight,
   TILE_WALL, TILE_CRATE, TILE_BOMBSITE_A, TILE_BOMBSITE_B, TILE_T_SPAWN, TILE_CT_SPAWN, TILE_DOOR, TILE_EMPTY } = require('./shared/map');
-const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint, lineBlockedBySmoke } = require('./server/bots');
+const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint, lineBlockedBySmoke, botSay } = require('./server/bots');
 
 // ==================== KNIFE WEAPON DEFINITION ====================
 // Knife is slot 0, always available, melee range, fast attack
@@ -1408,6 +1408,15 @@ function updateBots(dt) {
       checkWeaponPickup(p);
     }
 
+    // Process bot pending chat messages
+    if (p._pendingChat && p._pendingChat.length > 0) {
+      for (const chat of p._pendingChat) {
+        const chatData = { name: p.name, team: p.team, message: chat.message, teamOnly: chat.teamOnly };
+        io.emit('chat', chatData);
+      }
+      p._pendingChat = [];
+    }
+
     // Bot defuse bomb (server-side since bots can't emit socket events)
     if (p.team === 'CT' && bombState && bombState.planted && !bombState.defused && !bombState.exploded && p.input.use) {
       const dx = p.x - bombState.x;
@@ -1419,6 +1428,7 @@ function updateBots(dt) {
         bombState.defuseTimer = defuseTime;
         p.defusingBomb = true;
         io.emit('bomb_defusing', { defuser: p.id, progress: 0, timeLeft: defuseTime });
+        botSay(p, 'defusing', null);
       }
     }
   }
@@ -1429,7 +1439,7 @@ function updateBots(dt) {
       let site = null;
       if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
       else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
-      if (site && Math.random() < 0.02 * dt * 30) { // ~2% chance per tick when on site
+      if (site) { // Plant immediately when on site — no random delay
         bombState = {
           site,
           x: bombsites[site].centerX,
@@ -1446,6 +1456,13 @@ function updateBots(dt) {
         };
         p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
         io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER, planter: p.id });
+        // Bot communication — a random CT calls it out
+        for (const ct of Object.values(players)) {
+          if (ct.isBot && ct.alive && ct.team === 'CT') {
+            botSay(ct, 'bombPlanted', { site });
+            break;
+          }
+        }
         break;
       }
     }
