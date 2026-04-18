@@ -372,7 +372,7 @@ module.exports = {
       name: 'AWP',
       type: 'sniper',
       price: 4750,
-      damage: 115,
+      damage: 120,
       fireRate: 0.75,
       reloadTime: 3.7,
       magSize: 10,
@@ -389,6 +389,7 @@ module.exports = {
       standInaccuracy: 0.0,
       crouchBonus: 0.5,
       armorPenetration: 0.975,
+      oneShotBody: true,    // one-shots body regardless of armor
     },
     ssg08: {
       name: 'SSG 08',
@@ -418,8 +419,8 @@ module.exports = {
       name: 'Nova',
       type: 'shotgun',
       price: 1050,
-      damage: 12,           // per pellet, 8 pellets * 12 = 96 max
-      pellets: 8,
+      damage: 14,           // per pellet, 9 pellets * 14 = 126 max
+      pellets: 9,
       fireRate: 1.33,
       reloadTime: 4.0,
       magSize: 8,

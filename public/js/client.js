@@ -45,6 +45,7 @@ let players = {};
 let bullets = [];
 let serverGrenades = [];
 let activeGrenades = [];
+let droppedWeapons = [];
 let bomb = null;
 let tScore = 0, ctScore = 0, roundNumber = 0;
 let roundTimer = 0, freezeTimer = 0;
@@ -97,21 +98,43 @@ function initMenuParticles() {
   menuCanvas.width = window.innerWidth;
   menuCanvas.height = window.innerHeight;
   menuParticles = [];
-  for (let i = 0; i < 60; i++) {
+  for (let i = 0; i < 80; i++) {
     menuParticles.push({
       x: Math.random() * menuCanvas.width,
       y: Math.random() * menuCanvas.height,
-      vx: (Math.random() - 0.5) * 20,
-      vy: (Math.random() - 0.5) * 20,
-      size: 1 + Math.random() * 2,
-      alpha: 0.1 + Math.random() * 0.3,
-      color: Math.random() > 0.5 ? '#ff6b35' : '#ffd700',
+      vx: (Math.random() - 0.5) * 30,
+      vy: (Math.random() - 0.5) * 30,
+      size: 1 + Math.random() * 3,
+      alpha: 0.05 + Math.random() * 0.25,
+      color: ['#ff6b35','#ffd700','#4a90d9','#d4a537','#ff4444','#44ff88'][Math.floor(Math.random() * 6)],
     });
   }
 }
 function updateMenuParticles() {
   if (!menuCtx || document.getElementById('menu-screen').classList.contains('hidden')) return;
   menuCtx.clearRect(0, 0, menuCanvas.width, menuCanvas.height);
+
+  // Animated gradient background
+  const time = Date.now() / 1000;
+  const grad = menuCtx.createRadialGradient(
+    menuCanvas.width * (0.5 + Math.sin(time * 0.3) * 0.2),
+    menuCanvas.height * (0.5 + Math.cos(time * 0.2) * 0.2),
+    0,
+    menuCanvas.width / 2, menuCanvas.height / 2,
+    menuCanvas.width * 0.8
+  );
+  grad.addColorStop(0, 'rgba(255,107,53,0.06)');
+  grad.addColorStop(0.5, 'rgba(74,144,217,0.03)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  menuCtx.fillStyle = grad;
+  menuCtx.fillRect(0, 0, menuCanvas.width, menuCanvas.height);
+
+  // Scanline effect
+  menuCtx.fillStyle = 'rgba(0,0,0,0.03)';
+  for (let y = 0; y < menuCanvas.height; y += 4) {
+    menuCtx.fillRect(0, y, menuCanvas.width, 1);
+  }
+
   for (const p of menuParticles) {
     p.x += p.vx * 0.016;
     p.y += p.vy * 0.016;
@@ -129,8 +152,8 @@ function updateMenuParticles() {
     for (const q of menuParticles) {
       const dx = p.x - q.x, dy = p.y - q.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 120 && dist > 0) {
-        menuCtx.globalAlpha = (1 - dist / 120) * 0.08;
+      if (dist < 100 && dist > 0) {
+        menuCtx.globalAlpha = (1 - dist / 100) * 0.06;
         menuCtx.strokeStyle = p.color;
         menuCtx.lineWidth = 0.5;
         menuCtx.beginPath();
@@ -141,6 +164,22 @@ function updateMenuParticles() {
     }
     menuCtx.restore();
   }
+
+  // Draw team logos (subtle background emblems)
+  const logoAlpha = 0.04 + Math.sin(time) * 0.01;
+  menuCtx.save();
+  menuCtx.globalAlpha = logoAlpha;
+  menuCtx.font = 'bold 180px sans-serif';
+  menuCtx.textAlign = 'center';
+  menuCtx.textBaseline = 'middle';
+  // T logo
+  menuCtx.fillStyle = '#d4a537';
+  menuCtx.fillText('T', menuCanvas.width * 0.2, menuCanvas.height * 0.4);
+  // CT logo
+  menuCtx.fillStyle = '#4a90d9';
+  menuCtx.fillText('CT', menuCanvas.width * 0.8, menuCanvas.height * 0.6);
+  menuCtx.restore();
+
   requestAnimationFrame(updateMenuParticles);
 }
 
@@ -479,9 +518,11 @@ function connect() {
   socket.on('game_state_update', (state) => {
     players = state.players; bullets = state.bullets;
     serverGrenades = state.grenades; activeGrenades = state.activeGrenades;
+    droppedWeapons = state.droppedWeapons || [];
     bomb = state.bomb; roundTimer = state.roundTimer; freezeTimer = state.freezeTimer;
     gameState = state.gameState; roundNumber = state.round;
     tScore = state.tScore; ctScore = state.ctScore;
+    if (state.roundHistory) { roundHistory = state.roundHistory; updateRoundHistory(); }
     if (players[myId]) myPlayer = players[myId];
     // Update action progress from state
     if (state.plantProgress !== undefined && state.plantProgress > 0) {
@@ -904,7 +945,7 @@ function updateHUD() {
   if (p.reloading && p.reloadTimer !== undefined) {
     reloadBar.style.display = 'block';
     const wk = p.currentWeapon >= 0 && p.weapons ? p.weapons[p.currentWeapon] : null;
-    const reloadTimes = {pistol:2.2,glock:2.2,usp:2.2,deagle:2.2,mp9:2.0,mac10:2.0,p90:2.4,ak47:2.5,m4a4:3.1,galil:2.5,famas:2.4,awp:3.7,ssg08:3.7,nova:3.0};
+    const reloadTimes = {pistol:2.2,glock:2.2,usp:2.2,deagle:2.2,mp9:3.1,mac10:3.1,p90:3.3,ak47:2.5,m4a4:3.1,galil:2.5,famas:3.1,awp:3.7,ssg08:3.7,nova:4.0};
     const maxReload = wk ? (reloadTimes[wk] || 2.5) : 2.5;
     const progress = 1 - Math.max(0, p.reloadTimer) / maxReload;
     reloadFill.style.width = (progress * 100) + '%';
@@ -1401,6 +1442,22 @@ function drawWeaponShape(ctx, weaponKey, isMe, angle) {
   ctx.restore();
 }
 
+// ==================== roundRect POLYFILL ====================
+function drawRoundRect(ctx, x, y, w, h, r) {
+  if (w <= 0 || h <= 0) return;
+  r = Math.min(r, w / 2, h / 2);
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+}
+
 // ==================== MAIN RENDER LOOP ====================
 let lastTime = 0;
 let muzzleFlashTimers = {};
@@ -1605,6 +1662,54 @@ function render(timestamp) {
     ctx.restore();
     particles.push(new Particle(g.x, g.y, (Math.random()-0.5)*10, (Math.random()-0.5)*10,
       0.2, 2, 'rgba(200,200,200,0.3)', 0, 0.9, true, 0));
+  }
+
+  // Dropped weapons on the ground
+  for (const dw of droppedWeapons) {
+    const wInfo = WEAPONS[dw.weaponKey];
+    if (!wInfo) continue;
+    const time = Date.now() / 1000;
+    // Floating glow
+    const pulse = Math.sin(time * 2 + dw.id) * 0.3 + 0.7;
+    ctx.save();
+    ctx.globalAlpha = 0.5 * pulse;
+    ctx.shadowColor = '#ffd700';
+    ctx.shadowBlur = 6;
+    ctx.beginPath(); ctx.arc(dw.x, dw.y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,215,0,0.15)';
+    ctx.fill();
+    ctx.restore();
+    // Weapon icon dot
+    ctx.save();
+    ctx.fillStyle = wInfo.type === 'rifle' ? '#ff8844' : wInfo.type === 'smg' ? '#44aaff' : wInfo.type === 'sniper' ? '#aa44ff' : wInfo.type === 'shotgun' ? '#ff4444' : '#88cc44';
+    ctx.beginPath(); ctx.arc(dw.x, dw.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+    // Weapon name label
+    ctx.save();
+    ctx.globalAlpha = 0.7;
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#fff';
+    ctx.fillText(wInfo.name, dw.x, dw.y - 12);
+    ctx.restore();
+    // Pickup hint for nearby player
+    if (p && p.alive) {
+      const pdx = p.x - dw.x, pdy = p.y - dw.y;
+      const pdist = Math.sqrt(pdx * pdx + pdy * pdy);
+      if (pdist < 50) {
+        ctx.save();
+        ctx.globalAlpha = 0.8 * pulse;
+        ctx.font = 'bold 10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffd700';
+        ctx.fillText('[E] Pick up ' + wInfo.name, dw.x, dw.y - 22);
+        ctx.restore();
+      }
+    }
   }
 
   // Bomb
@@ -1816,13 +1921,15 @@ function render(timestamp) {
     const bx = canvas.width/2 - bw/2, by = canvas.height/2 + 40;
     ctx.fillStyle = 'rgba(0,0,0,0.5)';
     ctx.beginPath();
-    ctx.roundRect(bx - 1, by - 1, bw + 2, bh + 2, 3);
+    drawRoundRect(ctx, bx - 1, by - 1, bw + 2, bh + 2, 3);
     ctx.fill();
-    const maxReload = 3;
+    const wk = p.currentWeapon >= 0 && p.weapons ? p.weapons[p.currentWeapon] : null;
+    const reloadTimes = {pistol:2.2,glock:2.2,usp:2.2,deagle:2.2,mp9:3.1,mac10:3.1,p90:3.3,ak47:2.5,m4a4:3.1,galil:2.5,famas:3.1,awp:3.7,ssg08:3.7,nova:4.0};
+    const maxReload = wk ? (reloadTimes[wk] || 2.5) : 2.5;
     const progress = 1 - Math.max(0, p.reloadTimer || 0) / maxReload;
     ctx.fillStyle = '#ff6b35';
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw * progress, bh, 2);
+    drawRoundRect(ctx, bx, by, bw * progress, bh, 2);
     ctx.fill();
     ctx.font = '11px sans-serif'; ctx.fillStyle = '#aaa'; ctx.textAlign = 'center';
     ctx.fillText('RELOADING', canvas.width/2, by + 20);

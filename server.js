@@ -8,7 +8,7 @@ const path = require('path');
 const C = require('./shared/constants');
 const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfSight,
   TILE_WALL, TILE_CRATE, TILE_BOMBSITE_A, TILE_BOMBSITE_B, TILE_T_SPAWN, TILE_CT_SPAWN, TILE_DOOR, TILE_EMPTY } = require('./shared/map');
-const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint } = require('./server/bots');
+const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint, lineBlockedBySmoke } = require('./server/bots');
 
 // ==================== KNIFE WEAPON DEFINITION ====================
 // Knife is slot 0, always available, melee range, fast attack
@@ -992,6 +992,11 @@ function updateBullets(dt) {
           damage -= armorDmg;
         }
 
+        // AWP one-shot body: ensure minimum 100 damage after armor
+        if (weaponData && weaponData.oneShotBody && !isHeadshot && damage < 100) {
+          damage = 100;
+        }
+
         p.hp -= damage;
         p.lastDamageBy = b.owner;
 
@@ -1319,7 +1324,7 @@ function cycleSpectateTarget(p, direction) {
 function updateBots(dt) {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
-    updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
+    updateBot(p, dt, players, gameMap, gameState, bombState, bombsites, grenades);
 
     // Process bot pending grenades
     if (p._pendingGrenades && p._pendingGrenades.length > 0) {
@@ -1903,7 +1908,7 @@ setInterval(() => {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       // Check line of sight (and within view distance)
-      const canSee = dist <= VISIBILITY_RADIUS && lineOfSight(gameMap, me.x, me.y, p.x, p.y);
+      const canSee = dist <= VISIBILITY_RADIUS && lineOfSight(gameMap, me.x, me.y, p.x, p.y) && !lineBlockedBySmoke(me.x, me.y, p.x, p.y, grenades);
 
       // Check if enemy is making noise (shot within last 0.5s) and within hearing range
       const shootingNow = (now / 1000) - (p.lastShotTime || 0) < 0.5;

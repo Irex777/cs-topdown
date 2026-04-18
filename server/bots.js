@@ -57,16 +57,29 @@ function createBot(team, skillLevel = 0.5) {
     lastDamageBy: null,
     input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, use: false },
     lastShot: 0,
+    shotsFired: 0,
+    lastShotTime: 0,
+    prevShoot: false,
     reloading: false,
     reloadTimer: 0,
     sprinting: false,
+    crouching: false,
+    crouchTransition: 0,
+    plantingBomb: false,
+    plantProgress: 0,
+    defusingBomb: false,
+    defuseProgress: 0,
+    footstepTimer: 0,
     connected: true,
     ping: 0,
+    specTarget: null,
+    specX: 0,
+    specY: 0,
   };
 }
 
 // ==================== BOT AI UPDATE ====================
-function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
+function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, smokeGrenades) {
   if (!bot.alive || bot.team === C.TEAM_SPEC) return;
 
   bot.aiStateTimer -= dt;
@@ -108,7 +121,7 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites) {
   pickBestWeapon(bot);
 
   // Find nearest visible enemy
-  const enemy = findNearestEnemy(bot, players, gameMap);
+  const enemy = findNearestEnemy(bot, players, gameMap, smokeGrenades);
   const nearestEnemyPos = findNearestEnemyPosition(bot, players);
 
   // Reset burst count when losing sight of enemy
@@ -428,7 +441,7 @@ function teammateInLineOfFire(bot, target, players) {
   return false;
 }
 
-function findNearestEnemy(bot, players, gameMap) {
+function findNearestEnemy(bot, players, gameMap, smokeGrenades) {
   let nearest = null;
   let nearestDist = Infinity;
 
@@ -436,7 +449,7 @@ function findNearestEnemy(bot, players, gameMap) {
     if (!p.alive || p.team === bot.team || p.team === C.TEAM_SPEC) continue;
     const dist = distance(bot, p);
     if (dist < 1800 && dist < nearestDist) {
-      if (lineOfSight(gameMap, bot.x, bot.y, p.x, p.y)) {
+      if (lineOfSight(gameMap, bot.x, bot.y, p.x, p.y) && !lineBlockedBySmoke(bot.x, bot.y, p.x, p.y, smokeGrenades)) {
         nearest = p;
         nearestDist = dist;
       }
@@ -560,4 +573,27 @@ module.exports = {
   BOT_PREFIX,
   nextBotId,
   randomMapPoint,
+  lineBlockedBySmoke,
 };
+
+// ==================== SMOKE LINE OF SIGHT CHECK ====================
+// Check if a line from (x1,y1) to (x2,y2) passes through any smoke grenade
+function lineBlockedBySmoke(x1, y1, x2, y2, smokeGrenades) {
+  if (!smokeGrenades || smokeGrenades.length === 0) return false;
+  const dx = x2 - x1, dy = y2 - y1;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return false;
+  const len = Math.sqrt(lenSq);
+
+  for (const g of smokeGrenades) {
+    if (g.type !== 'smoke') continue;
+    // Find closest point on line segment to smoke center
+    const t = Math.max(0, Math.min(1, ((g.x - x1) * dx + (g.y - y1) * dy) / lenSq));
+    const closestX = x1 + t * dx;
+    const closestY = y1 + t * dy;
+    const distSq = (closestX - g.x) * (closestX - g.x) + (closestY - g.y) * (closestY - g.y);
+    const smokeRadius = g.radius || 100;
+    if (distSq < smokeRadius * smokeRadius) return true;
+  }
+  return false;
+}
