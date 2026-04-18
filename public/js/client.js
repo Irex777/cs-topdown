@@ -863,6 +863,22 @@ function renderBuyMenu() {
   const p = players[myId]; if (!p) return;
   // Update money display
   document.getElementById('buy-money').textContent = '$' + p.money;
+
+  // Buy availability feedback
+  const buyTimeLeft = 115 - roundTimer;
+  const canBuy = gameState === 'freeze' || gameState === 'waiting' || gameState === 'round_end' || buyTimeLeft <= 15;
+  const statusEl = document.querySelector('.buy-title');
+  if (statusEl) {
+    if (gameState === 'playing' && buyTimeLeft > 15) {
+      statusEl.innerHTML = 'BUY MENU <span style="color:#ff4444;font-size:11px;">[BUY TIME EXPIRED]</span>';
+    } else if (gameState === 'freeze') {
+      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[FREEZE TIME]</span>';
+    } else if (gameState === 'round_end') {
+      statusEl.innerHTML = 'BUY MENU <span style="color:#ffaa00;font-size:11px;">[ROUND OVER]</span>';
+    } else {
+      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[' + Math.max(0, 15 - Math.floor(buyTimeLeft)) + 's left]</span>';
+    }
+  }
   // Show current loadout
   const loadoutEl = document.getElementById('buy-loadout-items');
   let loadoutHtml = '';
@@ -1935,6 +1951,18 @@ function render(timestamp) {
     ctx.fillText('RELOADING', canvas.width/2, by + 20);
   }
 
+  // Update sound indicators lifecycle (moved here so dt is in scope)
+  for (let i = soundIndicators.length - 1; i >= 0; i--) {
+    const s = soundIndicators[i];
+    s.life -= dt;
+    if (s.life <= 0) { soundIndicators.splice(i, 1); continue; }
+    s.alpha = s.life / s.maxLife;
+  }
+
+  // Cap effects and particles to prevent runaway growth
+  if (effects.length > 50) effects.splice(0, effects.length - 50);
+  if (particles.length > 200) particles.splice(0, particles.length - 200);
+
   // Minimap
   drawMinimap();
 
@@ -2192,12 +2220,8 @@ function drawMinimap() {
     }
   }
 
-  // Sound indicators on minimap
-  for (let i = soundIndicators.length - 1; i >= 0; i--) {
-    const s = soundIndicators[i];
-    s.life -= dt;
-    if (s.life <= 0) { soundIndicators.splice(i, 1); continue; }
-    s.alpha = s.life / s.maxLife;
+  // Sound indicators on minimap (render only - lifecycle updated in render())
+  for (const s of soundIndicators) {
     const mx = s.x * sx, my = s.y * sy;
     let color = 'rgba(255,255,255,';
     if (s.type === 'gunshot') color = 'rgba(255,150,50,';
@@ -2207,7 +2231,7 @@ function drawMinimap() {
     else if (s.type === 'player_death' || s.type === 'headshot') color = 'rgba(255,0,0,';
     minimapCtx.beginPath();
     minimapCtx.arc(mx, my, 3, 0, Math.PI * 2);
-    minimapCtx.fillStyle = color + (s.alpha * 0.8) + ')';
+    minimapCtx.fillStyle = color + ((s.alpha || 0) * 0.8) + ')';
     minimapCtx.fill();
   }
 
