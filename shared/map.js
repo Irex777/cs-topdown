@@ -1,4 +1,4 @@
-// Hardcoded de_dust2 map layout
+// Hardcoded de_dust2 map layout – faithful recreation
 const C = require('../shared/constants');
 
 const TILE_EMPTY = 0;
@@ -13,7 +13,6 @@ const TILE_DOOR = 7;
 // ── Connectivity validation (flood fill) ─────────────────────────────────
 
 function validateMap(map) {
-  // Find all key positions
   const keyTypes = [TILE_T_SPAWN, TILE_CT_SPAWN, TILE_BOMBSITE_A, TILE_BOMBSITE_B];
   const keyPositions = {};
 
@@ -26,12 +25,10 @@ function validateMap(map) {
     }
   }
 
-  // Check all key areas exist
   for (const type of keyTypes) {
     if (!keyPositions[type]) return false;
   }
 
-  // Flood fill from T spawn to check all areas are reachable
   const visited = new Set();
   const queue = [keyPositions[TILE_T_SPAWN]];
   visited.add(`${queue[0].x},${queue[0].y}`);
@@ -48,14 +45,12 @@ function validateMap(map) {
       if (n.x < 0 || n.x >= C.MAP_WIDTH || n.y < 0 || n.y >= C.MAP_HEIGHT) continue;
       if (visited.has(key)) continue;
       const tile = map[n.y][n.x];
-      // Can walk through empty, spawn, bombsite, and door tiles
       if (tile === TILE_WALL || tile === TILE_CRATE) continue;
       visited.add(key);
       queue.push(n);
     }
   }
 
-  // Check that CT spawn, bombsite A, and bombsite B are all reachable from T spawn
   for (const type of [TILE_CT_SPAWN, TILE_BOMBSITE_A, TILE_BOMBSITE_B]) {
     const pos = keyPositions[type];
     if (!visited.has(`${pos.x},${pos.y}`)) return false;
@@ -66,30 +61,33 @@ function validateMap(map) {
 
 // ── de_dust2 hardcoded map ──────────────────────────────────────────────
 //
-//  80x60 tiles.  Orientation: North = top of screen.
+//  80x60 tiles. Orientation: North = top of screen.
+//
+//  Authentic de_dust2 layout based on overhead tactical view:
 //
 //    ┌──────────────────────────────────────────────────────────────────┐
-//    │  CT Spawn     │  CT→A corridor          │      A Site           │
-//    │  (top-left)   │                         │  (top-right)          │
-//    │               │  CT Mid  ──── Catwalk ──│                       │
-//    ├───────────────┤         │               │                       │
-//    │               │   Mid   │               │                       │
-//    │  Long A       │  Corr.  │               │                       │
-//    │  (vertical)   │         │               │                       │
-//    │               │         ├───────────────│──────────┐            │
-//    │               │         │               │ CT→B     │ B Site     │
-//    │               │         │               │ corridor │(bot-right) │
-//    ├───────────────┴──── T Spawn ────────────┤          │            │
-//    │  Long A horiz ←  (bottom-center)  → B Tunnels     │            │
+//    │                                                                 │
+//    │  CT Spawn ── CT Ramp ────────────────────── A Site              │
+//    │  (top-left)     │                          (top-right)          │
+//    │                 │  Catwalk ────────────────┘                    │
+//    │                 │  (Short A)                                  │
+//    │             Top of Mid                                        │
+//    │                 │                                              │
+//    │                 │                                              │
+//    │  Long A ────────┼─────────────────── A Site (west entrance)    │
+//    │  (long horiz    │                                   │          │
+//    │   corridor,     Mid (vertical)                       │          │
+//    │   36 tiles)     │                                   │          │
+//    │                 │                                   │          │
+//    │                 Mid Doors                           │          │
+//    │                 │                                   │          │
+//    │   Long Doors    │                            B Tunnels─ B Site │
+//    │       │         │                              (bottom-right)  │
+//    │       └──── T Spawn ────┘                                      │
+//    │           (bottom-center)                                      │
 //    └──────────────────────────────────────────────────────────────────┘
 //
-//  Routes:
-//    T → Long A doors → Long A → A approach → A Site
-//    T → Mid → Catwalk → A Site (Short A)
-//    T → Upper Tunnels → B Tunnels → B Site
-//    CT → A Main → A Site
-//    CT → CT Mid → Mid → Catwalk → A Site
-//    CT → B Doors → B Site
+//  Corridor widths: 5-6 tiles for good gameplay.
 
 function generateMap() {
   const W = C.MAP_WIDTH;   // 80
@@ -118,124 +116,138 @@ function generateMap() {
   }
 
   // ════════════════════════════════════════════════════════════════════════
-  //  ROOMS / KEY AREAS
+  //  KEY AREAS / ROOMS
   // ════════════════════════════════════════════════════════════════════════
 
-  // CT Spawn – top-left
-  //   x:3-15  y:3-12
-  carve(3, 3, 13, 10, TILE_CT_SPAWN);
+  // ── CT Spawn (top-left corner) ────────────────────────────────────
+  //   x:3-14, y:3-9  (12x7)
+  carve(3, 3, 12, 7, TILE_CT_SPAWN);
 
-  // T Spawn – bottom-center
-  //   x:30-47  y:48-56
-  carve(30, 48, 18, 9, TILE_T_SPAWN);
+  // ── A Site (top-right, large open bombsite) ───────────────────────
+  //   x:50-76, y:3-18  (27x16 - the biggest open area)
+  carve(50, 3, 27, 16, TILE_BOMBSITE_A);
 
-  // A Site – top-right (elevated bombsite)
-  //   x:54-75  y:3-18
-  carve(54, 3, 22, 16, TILE_BOMBSITE_A);
+  // ── T Spawn (bottom-center) ───────────────────────────────────────
+  //   x:28-44, y:49-56  (17x8)
+  carve(28, 49, 17, 8, TILE_T_SPAWN);
 
-  // B Site – bottom-right
-  //   x:62-76  y:42-55
-  carve(62, 42, 15, 14, TILE_BOMBSITE_B);
+  // ── B Site (bottom-right) ─────────────────────────────────────────
+  //   x:62-76, y:40-56  (15x17)
+  carve(62, 40, 15, 17, TILE_BOMBSITE_B);
 
   // ════════════════════════════════════════════════════════════════════════
   //  CORRIDORS
   // ════════════════════════════════════════════════════════════════════════
 
-  // ── Long A ──────────────────────────────────────────────────────────
-  //  T Spawn left exit → Long A doors → Long A yard → A approach → A Site
+  // ── LONG A (the iconic long corridor, must be 25+ tiles) ──────────
+  // Runs horizontally across the upper-left portion of the map.
+  // In real de_dust2, Long A is the longest sightline on the map.
   //
-  // Horizontal part: T Spawn left to Long A doors area
-  //   x:7-30  y:50-54  (overlaps T Spawn at x:30)
-  carve(7, 50, 24, 5, TILE_EMPTY);
+  // Long A corridor (horizontal): x:5-49, y:22-27  (45 tiles long, 6 wide!)
+  carve(5, 22, 45, 6, TILE_EMPTY);
 
-  // Vertical part: Long A doors northward (the "long" corridor)
-  //   x:7-11  y:17-50
-  carve(7, 17, 5, 34, TILE_EMPTY);
+  // Long A approach (widening near A Site entrance): x:48-52, y:19-28
+  carve(48, 19, 5, 10, TILE_EMPTY);
 
-  // Approach: turns east toward A Site
-  //   x:10-55  y:14-18
-  carve(10, 14, 46, 5, TILE_EMPTY);
+  // Long A Pit (small depression south of the corridor)
+  //   x:15-21, y:28-33
+  carve(15, 28, 7, 6, TILE_EMPTY);
 
-  // ── Mid Corridor ────────────────────────────────────────────────────
-  // T Spawn top exit → Mid → Top of Mid
-  //   x:36-41  y:14-47  (overlaps T Spawn at y:48 via adjacency)
-  carve(36, 14, 6, 34, TILE_EMPTY);
+  // Long A Doors area (L-shaped: from Long A west end, turns south to T spawn)
+  // Vertical corridor going south: x:5-10, y:27-48
+  carve(5, 27, 6, 22, TILE_EMPTY);
+  // Small room at Long Doors (widening): x:5-13, y:43-48
+  carve(5, 43, 9, 6, TILE_EMPTY);
 
-  // ── Short A / Catwalk ──────────────────────────────────────────────
-  // Top of Mid east to A Site
-  //   x:40-55  y:11-16  (overlaps Mid at x:40-41, y:14-16; overlaps A Site at x:54-55)
-  carve(40, 11, 16, 6, TILE_EMPTY);
+  // ── MID (central vertical corridor) ────────────────────────────────
+  // Runs roughly north-south through center of map
+  //   x:34-40, y:13-48  (7 wide, 36 tall)
+  carve(34, 13, 7, 36, TILE_EMPTY);
 
-  // ── B Tunnels ──────────────────────────────────────────────────────
-  // T Spawn right exit → B Site
-  //   x:47-63  y:49-54  (overlaps T Spawn at x:47; overlaps B Site at x:62-63)
-  carve(47, 49, 17, 6, TILE_EMPTY);
+  // ── MID DOORS (wall with gap, chokepoint) ─────────────────────────
+  // Wall across mid at y:43-45, gap at x:36-38
+  carve(34, 43, 7, 3, TILE_WALL);
+  // Re-carve the door gap (mid doors opening)
+  carve(36, 43, 3, 3, TILE_EMPTY);
 
-  // ── CT Mid ─────────────────────────────────────────────────────────
-  // CT Spawn south, then east to top of Mid
-  // Vertical:   x:10-14  y:10-25  (overlaps CT Spawn at x:10-14, y:10-12)
-  carve(10, 10, 5, 16, TILE_EMPTY);
-  // Horizontal: x:14-37  y:23-27  (overlaps Mid at x:36-37)
-  carve(14, 23, 24, 5, TILE_EMPTY);
+  // ── CATWALK / SHORT A (top of Mid eastward to A Site) ─────────────
+  // Short horizontal corridor from top of mid to A Site
+  //   x:40-51, y:13-18  (12 wide, 6 tall)
+  carve(40, 13, 12, 6, TILE_EMPTY);
 
-  // ── CT → A Site (A Main) ──────────────────────────────────────────
-  // Direct route from CT Spawn east to A Site
-  //   x:14-55  y:5-9  (overlaps CT Spawn at x:14-15; overlaps A Site at x:54-55)
-  carve(14, 5, 42, 5, TILE_EMPTY);
+  // ── CT RAMP (CT Spawn east to A Site) ─────────────────────────────
+  // The direct CT route to A. Runs east from CT spawn.
+  //   x:14-51, y:5-9  (38 wide, 5 tall)
+  carve(14, 5, 38, 5, TILE_EMPTY);
 
-  // ── CT → B (B Doors route) ────────────────────────────────────────
-  // CT Spawn south, then east to B Site
-  // Vertical:   x:14-18  y:10-42  (overlaps CT Spawn at x:14-15, y:10-12)
-  carve(14, 10, 5, 33, TILE_EMPTY);
-  // Horizontal: x:16-63  y:40-44  (overlaps B Site at x:62-63, y:42-44)
-  carve(16, 40, 48, 5, TILE_EMPTY);
+  // ── CT MID (CT Spawn south to Mid) ────────────────────────────────
+  // South from CT spawn, then turns east to reach top of mid
+  // Vertical: x:10-14, y:9-18  (5 wide)
+  carve(10, 9, 5, 10, TILE_EMPTY);
+  // Horizontal to mid: x:14-35, y:17-21  (6 wide)
+  carve(14, 17, 22, 5, TILE_EMPTY);
+
+  // ── B TUNNELS (T Spawn east to B Site) ────────────────────────────
+  // Real de_dust2: T exits right, goes through upper tunnels,
+  // then B tunnels (narrow corridor) into B Site
+  //
+  // Upper tunnels (horizontal, wide): x:44-60, y:49-55
+  carve(44, 49, 17, 7, TILE_EMPTY);
+  // B tunnels corridor (vertical, going north then west to B Site):
+  //   x:55-62, y:40-49  (8 wide, 10 tall)
+  carve(55, 40, 8, 10, TILE_EMPTY);
+
+  // ── CT → B CORRIDOR (via mid, then east) ──────────────────────────
+  // CT goes south through mid area, then east to reach B site
+  // Vertical: x:22-27, y:21-39  (6 wide, 19 tall)
+  carve(22, 21, 6, 19, TILE_EMPTY);
+  // Horizontal: x:27-62, y:37-42  (36 wide, 6 tall)
+  carve(27, 37, 36, 6, TILE_EMPTY);
 
   // ════════════════════════════════════════════════════════════════════════
-  //  STRUCTURAL WALLS (add chokepoints without blocking any corridor)
+  //  STRUCTURAL WALLS (chokepoints & definition)
   // ════════════════════════════════════════════════════════════════════════
 
-  // Wall separating Long A yard from upper area (partial – leaves gaps)
-  //   y:19, x:12-33  (below Long A approach which ends at y:18)
-  carve(12, 19, 22, 1, TILE_WALL);
-
-  // Wall edge along Long A (creates narrow pit feel)
-  //   y:15-17, x:12  (leaves gap at y:14 and y:18 for approach corridor)
-  //   Skipped – would risk blocking the Long A approach
-
-  // Partial wall below A Site (leaves gap at x:64-75 for approach)
-  //   y:19, x:54-63
-  carve(54, 19, 10, 1, TILE_WALL);
-
-  // Wall between Mid and B Tunnels (mid doors feel)
-  //   x:34-35, y:30-38
-  carve(34, 30, 2, 9, TILE_WALL);
-  // Re-carve a door opening at y:33-34
-  carve(34, 33, 2, 2, TILE_EMPTY);
+  // Wall at south edge of A Site (creates site platform boundary)
+  // y:19, x:54-76  (leaves gap at x:50-53 for Long A approach entrance)
+  carve(54, 19, 23, 1, TILE_WALL);
 
   // ════════════════════════════════════════════════════════════════════════
   //  CRATES / COVER
   // ════════════════════════════════════════════════════════════════════════
 
-  // A Site crates (cover on the bombsite)
-  carve(58, 6, 3, 3, TILE_CRATE);    // near A Site NW corner
-  carve(65, 5, 3, 3, TILE_CRATE);    // near A Site NE area
-  carve(58, 13, 4, 2, TILE_CRATE);   // near A Site SW area
-  carve(71, 9, 2, 4, TILE_CRATE);    // near A Site east side
+  // A Site cover (the iconic boxes on A platform)
+  carve(55, 6, 3, 3, TILE_CRATE);     // A site boxes (west side)
+  carve(62, 5, 3, 3, TILE_CRATE);     // A site center boxes
+  carve(70, 7, 3, 4, TILE_CRATE);     // A site east boxes (ninja)
+  carve(57, 13, 4, 2, TILE_CRATE);    // A site SW boxes
+  carve(65, 12, 2, 3, TILE_CRATE);    // A site south boxes
+  carve(73, 13, 2, 2, TILE_CRATE);    // A site far corner
 
-  // B Site crates (cover on the bombsite)
-  carve(66, 45, 3, 3, TILE_CRATE);   // B Site NW
-  carve(72, 46, 3, 3, TILE_CRATE);   // B Site NE
-  carve(66, 51, 3, 2, TILE_CRATE);   // B Site SW
+  // B Site cover
+  carve(66, 43, 3, 3, TILE_CRATE);    // B site NW boxes
+  carve(72, 44, 3, 3, TILE_CRATE);    // B site NE boxes
+  carve(66, 51, 4, 2, TILE_CRATE);    // B site SW (back site)
+  carve(73, 51, 2, 2, TILE_CRATE);    // B site SE corner
 
-  // Mid corridor crates (cover)
-  carve(37, 25, 2, 2, TILE_CRATE);   // mid lower
-  carve(39, 35, 2, 2, TILE_CRATE);   // mid upper
+  // Long A car position (cover near A entrance)
+  carve(46, 23, 2, 3, TILE_CRATE);
 
-  // Long A pit crate
-  carve(9, 45, 2, 2, TILE_CRATE);    // pit cover
+  // Long A pit cover
+  carve(16, 29, 2, 2, TILE_CRATE);
 
-  // CT spawn area crate (cover)
-  carve(6, 7, 2, 2, TILE_CRATE);
+  // Mid corridor cover
+  carve(36, 20, 2, 2, TILE_CRATE);    // Top of mid box
+  carve(38, 33, 2, 2, TILE_CRATE);    // Mid lower box
+
+  // Catwalk cover
+  carve(44, 15, 2, 2, TILE_CRATE);    // Short A box
+
+  // CT spawn cover
+  carve(6, 5, 2, 2, TILE_CRATE);
+
+  // B tunnels cover
+  carve(52, 51, 2, 2, TILE_CRATE);
 
   // ════════════════════════════════════════════════════════════════════════
   //  VALIDATE
@@ -279,7 +291,6 @@ function getBombsites(map) {
       }
     }
   }
-  // Center of bombsite
   for (const key of Object.keys(sites)) {
     const s = sites[key];
     const cx = s.tiles.reduce((a, t) => a + t.x, 0) / s.tiles.length;
@@ -295,7 +306,6 @@ function isWall(map, px, py) {
   const ty = Math.floor(py / C.TILE_SIZE);
   if (tx < 0 || tx >= C.MAP_WIDTH || ty < 0 || ty >= C.MAP_HEIGHT) return true;
   const t = map[ty][tx];
-  // DOOR is walkable (not solid), everything else solid is wall/crate
   return t === TILE_WALL || t === TILE_CRATE;
 }
 
