@@ -125,7 +125,7 @@ function createPlayer(id, name) {
     deaths: 0,
     assists: 0,
     lastDamageBy: null,
-    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, crouch: false },
+    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, crouch: false, ads: false },
     lastShot: 0,
     shotsFired: 0,
     lastShotTime: 0,
@@ -802,6 +802,9 @@ function applyMovement(p, dt) {
     speed = C.PLAYER_SPEED;
   }
 
+  // ADS slows movement by 50%
+  if (p.input.ads) speed *= 0.5;
+
   const newX = p.x + dx * speed * dt;
   const newY = p.y + dy * speed * dt;
 
@@ -961,10 +964,13 @@ function shoot(p) {
 
   const spread = baseSpread + recoilPenalty;
 
+  // ADS (Aim Down Sights) reduces spread significantly
+  const finalSpread = p.input.ads ? spread * (wep.data.type === 'sniper' ? 0.1 : 0.55) : spread;
+
   // Shotgun pellets
   const pellets = wep.data.pellets || 1;
   for (let i = 0; i < pellets; i++) {
-    const angle = p.angle + (Math.random() - 0.5) * spread * 2;
+    const angle = p.angle + (Math.random() - 0.5) * finalSpread * 2;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
 
@@ -1889,6 +1895,7 @@ io.on('connection', (socket) => {
 });
 
 function serializePlayer(p) {
+  const wep = getCurrentWeapon(p);
   return {
     id: p.id,
     name: p.name,
@@ -1913,6 +1920,7 @@ function serializePlayer(p) {
     crouching: p.crouching,
     crouchTransition: p.crouchTransition,
     sprinting: p.sprinting,
+    weaponType: wep ? wep.data.type : 'knife',
     // Spectator data
     specTarget: p.specTarget,
   };

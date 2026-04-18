@@ -43,6 +43,22 @@ let gameState = 'waiting';
 let myPlayer = null;
 let players = {};
 let bullets = [];
+let adsActive = false;
+let adsZoom = 1.0;
+let adsTargetZoom = 1.0;
+const ADS_ZOOM_LEVELS = { pistol: 1.3, rifle: 1.5, smg: 1.3, sniper: 2.5, shotgun: 1.2 };
+
+function getPlayerWeaponType() {
+  const p = players[myId];
+  if (!p || !p.alive) return 'pistol';
+  if (p.weaponType) return p.weaponType;
+  const wIdx = p.currentWeapon;
+  if (wIdx < 0 || !p.weapons || !p.weapons[wIdx]) return 'knife';
+  const wKey = p.weapons[wIdx];
+  if (WEAPONS[wKey]) return WEAPONS[wKey].type;
+  return 'pistol';
+}
+
 let serverGrenades = [];
 let activeGrenades = [];
 let droppedWeapons = [];
@@ -601,6 +617,7 @@ function spawnMuzzleFlash(x, y, angle, weaponType) {
   // Dynamic crosshair spread on shoot
   lastShotTime = Date.now();
   crosshairTargetSpread = Math.min(20, crosshairTargetSpread + (weaponType === 'rifle' || weaponType === 'smg' ? 8 : 12));
+  if (adsActive) crosshairTargetSpread *= 0.4;
 
   // Core bright flash
   for (let i = 0; i < Math.ceil(6 * countMult); i++) {
@@ -1261,26 +1278,42 @@ document.addEventListener('keyup', (e) => {
 });
 canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
 canvas.addEventListener('mousedown', (e) => {
-  mouse.down = true;
-  // Spectator: click to select player
-  if (spectating && !showBuyMenu && !escMenuOpen) {
-    const worldX = mouse.x - canvas.width / 2 + camera.x;
-    const worldY = mouse.y - canvas.height / 2 + camera.y;
-    let closestId = null, closestDist = 40;
-    for (const [id, pl] of Object.entries(players)) {
-      if (!pl.alive || pl.team === 'SPEC') continue;
-      const dx = pl.x - worldX, dy = pl.y - worldY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < closestDist) { closestDist = dist; closestId = id; }
+  if (e.button === 0) {
+    mouse.down = true;
+    // Spectator: click to select player
+    if (spectating && !showBuyMenu && !escMenuOpen) {
+      const worldX = (mouse.x - canvas.width / 2) / adsZoom + camera.x;
+      const worldY = (mouse.y - canvas.height / 2) / adsZoom + camera.y;
+      let closestId = null, closestDist = 40;
+      for (const [id, pl] of Object.entries(players)) {
+        if (!pl.alive || pl.team === 'SPEC') continue;
+        const dx = pl.x - worldX, dy = pl.y - worldY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < closestDist) { closestDist = dist; closestId = id; }
+      }
+      if (closestId) {
+        spectateTarget = closestId;
+        spectateFreeCam = false;
+        socket?.emit('spectate_player', closestId);
+      }
     }
-    if (closestId) {
-      spectateTarget = closestId;
-      spectateFreeCam = false;
-      socket?.emit('spectate_player', closestId);
+  }
+  if (e.button === 2) {
+    adsActive = true;
+    const p = players[myId];
+    if (p && p.alive) {
+      const wepType = getPlayerWeaponType();
+      adsTargetZoom = ADS_ZOOM_LEVELS[wepType] || 1.3;
     }
   }
 });
-canvas.addEventListener('mouseup', () => { mouse.down = false; });
+canvas.addEventListener('mouseup', (e) => {
+  if (e.button === 0) mouse.down = false;
+  if (e.button === 2) {
+    adsActive = false;
+    adsTargetZoom = 1.0;
+  }
+});
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
   if (!socket || chatOpen || escMenuOpen) return;
@@ -1304,14 +1337,15 @@ setInterval(() => {
 
   const p = players[myId];
   if (!p || !p.alive) return;
-  const wmx = mouse.x - canvas.width / 2;
-  const wmy = mouse.y - canvas.height / 2;
+  const wmx = (mouse.x - canvas.width / 2) / adsZoom;
+  const wmy = (mouse.y - canvas.height / 2) / adsZoom;
   socket.emit('update_input', {
     up: keys['KeyW']||false, down: keys['KeyS']||false,
     left: keys['KeyA']||false, right: keys['KeyD']||false,
     shoot: mouse.down && !showBuyMenu,
     sprint: keys['ShiftLeft'] || keys['ShiftRight'] || false,
     crouch: keys['ControlLeft'] || keys['ControlRight'] || false,
+    ads: adsActive,
   });
   socket.emit('update_angle', Math.atan2(wmy, wmx));
 }, 1000/30);
@@ -2297,6 +2331,9 @@ function render(timestamp) {
     camTargetY = mapHeightPx / 2 - canvas.height / 2;
   }
 
+  // Smooth ADS zoom
+  adsZoom += (adsTargetZoom - adsZoom) * 0.12;
+
   if (camTargetX !== undefined) {
     camera.x += (camTargetX - camera.x) * 0.15;
     camera.y += (camTargetY - camera.y) * 0.15;
@@ -2308,6 +2345,10 @@ function render(timestamp) {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.save();
+  // Apply ADS zoom - scale from center of screen
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.scale(adsZoom, adsZoom);
+  ctx.translate(-canvas.width / 2, -canvas.height / 2);
   ctx.translate(-camera.x + camera.shakeX, -camera.y + camera.shakeY);
 
   // Map
@@ -2331,13 +2372,14 @@ function render(timestamp) {
     fogCtx.globalCompositeOperation = 'destination-out';
     const cx = viewPlayer.x - camera.x + camera.shakeX;
     const cy = viewPlayer.y - camera.y + camera.shakeY;
-    const fogGrad = fogCtx.createRadialGradient(cx, cy, FOG_VISIBILITY_RADIUS * 0.25, cx, cy, FOG_VISIBILITY_RADIUS);
+    const effectiveFogRadius = FOG_VISIBILITY_RADIUS * adsZoom;
+    const fogGrad = fogCtx.createRadialGradient(cx, cy, effectiveFogRadius * 0.25, cx, cy, effectiveFogRadius);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
     fogGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.95)');
     fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     fogCtx.fillStyle = fogGrad;
     fogCtx.beginPath();
-    fogCtx.arc(cx, cy, FOG_VISIBILITY_RADIUS, 0, Math.PI * 2);
+    fogCtx.arc(cx, cy, effectiveFogRadius, 0, Math.PI * 2);
     fogCtx.fill();
     fogCtx.globalCompositeOperation = 'source-over';
 
@@ -2629,6 +2671,57 @@ function render(timestamp) {
 
   ctx.restore();
 
+  // Sniper scope overlay when ADS
+  if (adsActive && adsZoom > 2.0) {
+    ctx.save();
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    // Clear circle in center
+    ctx.globalCompositeOperation = 'destination-out';
+    const scopeRadius = Math.min(canvas.width, canvas.height) * 0.35;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, scopeRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    // Scope crosshair lines
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
+    ctx.lineWidth = 1.5;
+    // Horizontal
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height / 2);
+    ctx.lineTo(canvas.width / 2 - scopeRadius, canvas.height / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2 + scopeRadius, canvas.height / 2);
+    ctx.lineTo(canvas.width, canvas.height / 2);
+    ctx.stroke();
+    // Vertical
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2, 0);
+    ctx.lineTo(canvas.width / 2, canvas.height / 2 - scopeRadius);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(canvas.width / 2, canvas.height / 2 + scopeRadius);
+    ctx.lineTo(canvas.width / 2, canvas.height);
+    ctx.stroke();
+    // Scope circle border
+    ctx.strokeStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, scopeRadius, 0, Math.PI * 2);
+    ctx.stroke();
+    // Small red dot in center
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(canvas.width / 2, canvas.height / 2, 2, 0, Math.PI * 2);
+    ctx.fill();
+    // Hide normal crosshair when scoped
+    document.getElementById('crosshair').style.display = 'none';
+    ctx.restore();
+  } else if (!spectating) {
+    document.getElementById('crosshair').style.display = '';
+  }
+
   // Draw vignette
   drawVignette();
 
@@ -2644,8 +2737,8 @@ function render(timestamp) {
 
   // Damage numbers (screen space)
   for (const d of damageNumbers) {
-    const screenX = d.x - camera.x + camera.shakeX;
-    const screenY = d.y - camera.y + camera.shakeY;
+    const screenX = (d.x - camera.x + camera.shakeX) * adsZoom + canvas.width / 2 * (1 - adsZoom);
+    const screenY = (d.y - camera.y + camera.shakeY) * adsZoom + canvas.height / 2 * (1 - adsZoom);
     const alpha = Math.min(1, d.timer / 0.5);
     ctx.save();
     ctx.globalAlpha = alpha;
