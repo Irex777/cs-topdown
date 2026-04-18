@@ -156,7 +156,19 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
     return; // Skip normal behavior while retreating
   }
 
-  if (enemy && bot.aiReactionTimer <= 0) {
+  if (enemy) {
+    // Set reaction timer when first spotting an enemy
+    if (!bot._wasTrackingEnemy) {
+      bot.aiReactionTimer = 0.2 + (1 - bot.skill) * 0.4; // 200-600ms reaction
+      bot._wasTrackingEnemy = true;
+    }
+    if (bot.aiReactionTimer > 0) {
+      // During reaction time, aim toward enemy but don't shoot yet
+      const angleToEnemy = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
+      bot.angle += normalizeAngle(angleToEnemy - bot.angle) * 0.05; // slowly turn toward
+      navigateTo(bot, bot.aiLastSeen ? bot.aiLastSeen.x : enemy.x, bot.aiLastSeen ? bot.aiLastSeen.y : enemy.y, gameMap, dt);
+      return;
+    }
     // Can see an enemy
     bot.aiLastSeen = { x: enemy.x, y: enemy.y, time: Date.now() / 1000 };
     bot.aiTarget = enemy.id;
@@ -166,10 +178,9 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
     const dist = distance(bot, enemy);
     const angleToEnemy = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
 
-    // Aim at enemy with skill-based inaccuracy (tighter at close range)
-    const distFactor = Math.min(1, dist / 700);
-    const aimError = (1 - bot.skill) * (0.12 + 0.22 * distFactor);
-    bot.angle = angleToEnemy + (Math.random() - 0.5) * aimError;
+    // Human-like aim with spread system
+    const aimPoint = getAimPoint(bot, enemy);
+    bot.angle = Math.atan2(aimPoint.y - bot.y, aimPoint.x - bot.x);
 
     // Try to throw a grenade if it makes sense
     if (tryThrowGrenade(bot, enemy, dist, players, gameMap)) {
@@ -195,6 +206,7 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
       bot.input.sprint = true;
     }
   } else if (bot.aiLastSeen && Date.now() / 1000 - bot.aiLastSeen.time < 5) {
+    bot._wasTrackingEnemy = false;
     bot.aiState = 'chasing';
     navigateTo(bot, bot.aiLastSeen.x, bot.aiLastSeen.y, gameMap, dt);
     if (distance(bot, bot.aiLastSeen) < 50) {
@@ -202,6 +214,7 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
       bot._path = null;
     }
   } else {
+    bot._wasTrackingEnemy = false;
     // No enemy visible - patrol/roam toward objectives
     bot.aiState = 'roaming';
     handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsites, nearestEnemyPos);
@@ -440,6 +453,49 @@ function addCombatStrafe(bot, angleToEnemy, dt) {
   }
 }
 
+// ==================== AIM SYSTEM ====================
+function getAimPoint(bot, target) {
+  if (!bot._aimOffset) {
+    bot._aimOffset = { x: 0, y: 0 };
+    bot._aimWanderPhase = Math.random() * Math.PI * 2;
+    bot._recoilAccum = 0;
+  }
+
+  const dt = 1/60; // approximate
+  const dist = distance(bot, target);
+
+  // Base spread depends on skill
+  const baseSpread = 40 - (bot.skill * 30); // skill 0.3: 31px, skill 0.7: 19px, skill 0.9: 13px
+
+  // Movement penalty
+  const isMoving = Math.abs(bot.vx || 0) > 10 || Math.abs(bot.vy || 0) > 10;
+  let spread = baseSpread;
+  if (isMoving) spread += 20 + (1 - bot.skill) * 15;
+  if (bot.crouching) spread -= 8;
+
+  // Distance penalty
+  if (dist > 400) spread += (dist - 400) * 0.04;
+
+  // Recoil accumulation
+  spread += bot._recoilAccum;
+  // Recoil recovery (decay over 400ms)
+  bot._recoilAccum = Math.max(0, bot._recoilAccum - dt * 60);
+
+  // Aim wander (sine wave drift)
+  bot._aimWanderPhase += dt * (1.5 + (1 - bot.skill));
+  const wanderX = Math.sin(bot._aimWanderPhase) * spread * 0.3;
+  const wanderY = Math.cos(bot._aimWanderPhase * 0.7) * spread * 0.3;
+
+  // Random offset within spread circle
+  const randAngle = Math.random() * Math.PI * 2;
+  const randDist = Math.random() * spread * 0.7;
+
+  return {
+    x: target.x + wanderX + Math.cos(randAngle) * randDist,
+    y: target.y + wanderY + Math.sin(randAngle) * randDist,
+  };
+}
+
 function handleCombat(bot, enemy, dist, players, dt) {
   const wep = getCurrentWeapon(bot);
   if (!wep) return;
@@ -468,6 +524,9 @@ function handleCombat(bot, enemy, dist, players, dt) {
       : Math.floor(1 + bot.skill * 2);
     if (bot.aiBurstCount <= maxBurst) {
       bot.input.shoot = true;
+      // Add recoil per shot
+      if (!bot._recoilAccum) bot._recoilAccum = 0;
+      bot._recoilAccum = Math.min(40, bot._recoilAccum + 3 + (1 - bot.skill) * 5);
     } else {
       bot.aiBurstCount = 0;
       // Short pause to let recoil reset — smarter bots pause less
@@ -513,17 +572,42 @@ function teammateInLineOfFire(bot, target, players) {
 function findNearestEnemy(bot, players, gameMap, smokeGrenades) {
   let nearest = null;
   let nearestDist = Infinity;
+  const now = Date.now() / 1000;
 
   for (const p of Object.values(players)) {
     if (!p.alive || p.team === bot.team || p.team === C.TEAM_SPEC) continue;
     const dist = distance(bot, p);
-    if (dist < 1800 && dist < nearestDist) {
-      if (lineOfSight(gameMap, bot.x, bot.y, p.x, p.y) && !lineBlockedBySmoke(bot.x, bot.y, p.x, p.y, smokeGrenades)) {
+
+    // Sound detection: if enemy recently shot (last 2s), detect from further
+    const enemyRecentShot = p.lastShotTime && (now - p.lastShotTime) < 2;
+    const maxDist = enemyRecentShot ? 1000 : 700;
+    const fovRequired = enemyRecentShot ? Math.PI * 2 : (140 * Math.PI / 180); // 360° for sound, 140° for vision
+
+    if (dist > maxDist) continue;
+
+    // FOV cone check (skip for sound detection)
+    if (!enemyRecentShot) {
+      const angleToEnemy = Math.atan2(p.y - bot.y, p.x - bot.x);
+      let angleDiff = angleToEnemy - bot.angle;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      if (Math.abs(angleDiff) > fovRequired / 2) continue;
+    }
+
+    // Line of sight check
+    if (lineOfSight(gameMap, bot.x, bot.y, p.x, p.y) && !lineBlockedBySmoke(bot.x, bot.y, p.x, p.y, smokeGrenades)) {
+      if (dist < nearestDist) {
         nearest = p;
         nearestDist = dist;
       }
     }
   }
+
+  // Update last known position
+  if (nearest) {
+    bot.aiLastSeen = { x: nearest.x, y: nearest.y, time: now };
+  }
+
   return nearest;
 }
 
@@ -576,7 +660,7 @@ function getCurrentWeapon(p) {
 function spawnBotsForTeam(existingPlayers, team, count) {
   const bots = [];
   for (let i = 0; i < count; i++) {
-    const skill = 0.3 + Math.random() * 0.4;
+    const skill = 0.2 + Math.random() * 0.5; // 0.2-0.7 range for more variety
     const bot = createBot(team, skill);
     bots.push(bot);
   }

@@ -21,7 +21,7 @@ module.exports = {
 
   // Round
   ROUND_TIME: 115,          // seconds
-  FREEZE_TIME: 5,           // seconds
+  FREEZE_TIME: 15,          // seconds (standard CS buy time)
   BOMB_PLANT_TIME: 3.2,     // seconds
   BOMB_DEFUSE_TIME: 5,      // seconds
   BOMB_TIMER: 40,           // seconds before explosion

@@ -592,12 +592,62 @@ function update(dt) {
 
   if (gameState === 'freeze') {
     freezeTimer -= dt;
+
+    // Clear all movement inputs during freeze
+    for (const p of Object.values(players)) {
+      if (!p.alive || p.team === C.TEAM_SPEC) continue;
+      p.input.up = false;
+      p.input.down = false;
+      p.input.left = false;
+      p.input.right = false;
+      p.input.shoot = false;
+      p.input.sprint = false;
+      p.input.use = false;
+      // Keep: reload (for animation), crouch (visual only)
+    }
+
+    // Handle reloads during freeze (allow reload to complete)
+    for (const p of Object.values(players)) {
+      if (!p.alive || p.team === C.TEAM_SPEC || !p.reloading) continue;
+      p.reloadTimer -= dt;
+      if (p.reloadTimer <= 0) {
+        const wep = getCurrentWeapon(p);
+        if (wep && wep.key !== 'knife') {
+          const ammo = p.ammo[wep.key];
+          if (ammo) {
+            const needed = wep.data.magSize - ammo.mag;
+            const available = Math.min(needed, ammo.reserve);
+            ammo.mag += available;
+            ammo.reserve -= available;
+          }
+        }
+        p.reloading = false;
+      }
+    }
+
+    // Update bot AI inputs but clear movement
+    botBuyDuringFreeze();
+
+    // Bots can look around during freeze but not move
+    for (const p of Object.values(players)) {
+      if (p.isBot && p.alive && p.team !== C.TEAM_SPEC) {
+        p.input.up = false;
+        p.input.down = false;
+        p.input.left = false;
+        p.input.right = false;
+        p.input.shoot = false;
+        p.input.sprint = false;
+        p.input.use = false;
+      }
+    }
+
     if (freezeTimer <= 0) {
       startRound();
+      io.emit('freeze_end');
     }
-    updatePlayers(dt);
-    updateBots(dt);
-    botBuyDuringFreeze();
+
+    broadcastPlayerList();
+    io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, freezeTimer, roundHistory });
     return;
   }
 
@@ -1564,6 +1614,12 @@ io.on('connection', (socket) => {
   socket.on('update_input', (input) => {
     const p = players[socket.id];
     if (!p) return;
+    if (gameState === 'freeze') {
+      // Only allow crouch and reload during freeze
+      if (input.crouch !== undefined) p.input.crouch = input.crouch;
+      if (input.reload !== undefined) p.input.reload = input.reload;
+      return;
+    }
     p.input = { ...p.input, ...input };
   });
 
@@ -1576,6 +1632,7 @@ io.on('connection', (socket) => {
   socket.on('shoot', () => {
     const p = players[socket.id];
     if (!p) return;
+    if (gameState === 'freeze') return; // No shooting during freeze
     p.input.shoot = true;
     setTimeout(() => { if (players[socket.id]) players[socket.id].input.shoot = false; }, 50);
   });
