@@ -52,7 +52,7 @@ let roundTimer = 0, freezeTimer = 0;
 let camera = { x: 0, y: 0, shakeX: 0, shakeY: 0 };
 let keys = {};
 let mouse = { x: 0, y: 0, down: false };
-let showBuyMenu = false, chatOpen = false, escMenuOpen = false;
+let showBuyMenu = false, chatOpen = false, chatTeamOnly = false, escMenuOpen = false;
 let flashTimer = 0;
 let mapWidth = 80, mapHeight = 60;
 let mapOffscreen = null;
@@ -1104,7 +1104,7 @@ function connect() {
   });
 
   socket.on('chat', (d) => { addChatMessage(d); });
-  socket.on('error', (m) => { alert(m); });
+  socket.on('error', (m) => { showCenterMsg(m, '#ff4444', '', 3); });
   socket.on('player_update', (d) => { if (players[d.id]) Object.assign(players[d.id], d); });
   socket.on('bomb_defusing', (d) => {
     const el = document.getElementById('action-progress');
@@ -1183,7 +1183,8 @@ document.addEventListener('keydown', (e) => {
   keys[e.code] = true;
   if (e.code === 'Escape' && chatOpen) {
     const inp = document.getElementById('chat-input');
-    inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
+    inp.value = ''; inp.classList.remove('show'); inp.classList.remove('team-chat-input');
+    chatOpen = false; chatTeamOnly = false; return;
   }
   if (e.code === 'Escape' && showBuyMenu) {
     showBuyMenu = false;
@@ -1198,13 +1199,20 @@ document.addEventListener('keydown', (e) => {
     return;
   }
   if (e.code === 'Enter' && !chatOpen && !escMenuOpen) {
-    chatOpen = true; const inp = document.getElementById('chat-input');
-    inp.classList.add('show'); inp.focus(); return;
+    chatOpen = true; chatTeamOnly = false; const inp = document.getElementById('chat-input');
+    inp.placeholder = 'Type message... (Enter to send)';
+    inp.classList.add('show'); inp.classList.remove('team-chat-input'); inp.focus(); return;
+  }
+  if (e.code === 'KeyU' && !chatOpen && !escMenuOpen) {
+    chatOpen = true; chatTeamOnly = true; const inp = document.getElementById('chat-input');
+    inp.placeholder = 'Team chat... (Enter to send)';
+    inp.classList.add('show'); inp.classList.add('team-chat-input'); inp.focus(); return;
   }
   if (e.code === 'Enter' && chatOpen) {
     const inp = document.getElementById('chat-input');
-    if (inp.value.trim() && socket) socket.emit('chat', inp.value.trim());
-    inp.value = ''; inp.classList.remove('show'); chatOpen = false; return;
+    if (inp.value.trim() && socket) socket.emit('chat_message', { message: inp.value.trim(), teamOnly: chatTeamOnly });
+    inp.value = ''; inp.classList.remove('show'); inp.classList.remove('team-chat-input');
+    chatOpen = false; chatTeamOnly = false; return;
   }
   if (chatOpen || escMenuOpen) return;
 
@@ -1219,11 +1227,21 @@ document.addEventListener('keydown', (e) => {
   }
 
   if (e.code === 'KeyB') toggleBuyMenu();
+  // Buy menu number shortcuts
+  if (showBuyMenu && e.code.startsWith('Digit')) {
+    const num = parseInt(e.code.replace('Digit', ''));
+    if (num >= 1 && num <= 9 && window._buyKeys && window._buyKeys[num - 1]) {
+      buyItem(window._buyKeys[num - 1]);
+      return;
+    }
+  }
   if (e.code === 'Tab') { e.preventDefault(); document.getElementById('scoreboard').classList.add('show'); }
-  if (e.code === 'Digit1') socket?.emit('switch_weapon', 0);
-  if (e.code === 'Digit2') socket?.emit('switch_weapon', 1);
-  if (e.code === 'Digit3') socket?.emit('switch_weapon', 2);
-  if (e.code === 'Digit4') socket?.emit('switch_weapon', 3);
+  if (!showBuyMenu) {
+    if (e.code === 'Digit1') socket?.emit('switch_weapon', 0);
+    if (e.code === 'Digit2') socket?.emit('switch_weapon', 1);
+    if (e.code === 'Digit3') socket?.emit('switch_weapon', 2);
+    if (e.code === 'Digit4') socket?.emit('switch_weapon', 3);
+  }
   if (e.code === 'KeyR') socket?.emit('reload');
   if (e.code === 'KeyG') socket?.emit('throw_grenade', 'he');
   if (e.code === 'KeyF') socket?.emit('throw_grenade', 'flash');
@@ -1371,19 +1389,36 @@ function renderBuyMenu() {
 
   let h = '';
   let buyKeyIdx = 1;
+  const buyKeys = [];
   for (const [sec, items] of Object.entries(BUY_ITEMS)) {
     h += '<div class="buy-section"><div class="buy-section-title">' + sec + '</div><div class="buy-grid">';
     for (const it of items) {
       const ca = p.money < it.price, wt = it.team && it.team !== p.team;
       const keyLabel = buyKeyIdx <= 9 ? buyKeyIdx : '';
+      if (buyKeyIdx <= 9) buyKeys.push(it.key);
       buyKeyIdx++;
+      // Build stats tooltip
+      const wInfo = WEAPONS[it.key];
+      let statsHtml = '';
+      if (wInfo) {
+        const dmgPct = Math.min(100, Math.round((wInfo.damage || 0) / 40 * 100));
+        const ratePct = Math.min(100, Math.round((wInfo.fireRate || 0) / 12 * 100));
+        const accVal = wInfo.spread ? Math.max(0, Math.round((1 - wInfo.spread) * 100)) : 70;
+        statsHtml = '<div class="buy-item-stats">' +
+          '<div class="buy-item-stats-row"><span>Damage</span><div class="buy-item-stats-bar"><div class="buy-item-stats-fill" style="width:'+dmgPct+'%;background:#ff4444"></div></div></div>' +
+          '<div class="buy-item-stats-row"><span>Fire Rate</span><div class="buy-item-stats-bar"><div class="buy-item-stats-fill" style="width:'+ratePct+'%;background:#ffaa00"></div></div></div>' +
+          '<div class="buy-item-stats-row"><span>Accuracy</span><div class="buy-item-stats-bar"><div class="buy-item-stats-fill" style="width:'+accVal+'%;background:#4caf50"></div></div></div>' +
+          '</div>';
+      }
       h += '<div class="buy-item '+(ca?'cant-afford':wt?'wrong-team':'')+'" onclick="buyItem(\''+it.key+'\')">';
       if (keyLabel) h += '<div class="buy-item-key">' + keyLabel + '</div>';
-      h += '<div class="buy-item-name">'+it.name+'</div><div class="buy-item-price">$'+it.price+'</div></div>';
+      h += '<div class="buy-item-name">'+it.name+'</div><div class="buy-item-price">$'+it.price+'</div>' + statsHtml + '</div>';
     }
     h += '</div></div>';
   }
   c.innerHTML = h;
+  // Store buy keys for keyboard shortcuts
+  window._buyKeys = buyKeys;
 }
 function buyItem(k) { if (socket) socket.emit('buy', k); renderBuyMenu(); }
 
@@ -1892,25 +1927,36 @@ function showHitMarker(kill) {
 
 function addKillFeedEntry(d) {
   const feed = document.getElementById('kill-feed');
+  // Max 5 entries
+  while (feed.children.length >= 5) { feed.removeChild(feed.firstChild); }
   const e = document.createElement('div');
   e.className = 'kill-entry' + (d.headshot ? ' headshot' : '');
   const tc = team => team === 'T' ? '#d4a537' : '#4a90d9';
-  const hs = d.headshot ? ' <span class="hs-icon">★ HS</span>' : '';
+  const hs = d.headshot ? ' <span class="hs-icon">🎯 HS</span>' : '';
   const weaponIcon = WEAPON_ICONS[d.weapon] || '🔫';
+  const weaponName = d.weapon || 'Unknown';
   e.innerHTML =
     `<span class="killer-name" style="color:${tc(players[d.killer]?.team)}">${d.killerName}</span>` +
-    `<span style="font-size:13px;">${weaponIcon}</span>` +
+    `<span class="kill-weapon">${weaponIcon} ${weaponName}</span>` +
     `<span class="victim-name" style="color:${tc(players[d.victim]?.team)}">${d.victimName}</span>` + hs;
   feed.appendChild(e);
-  setTimeout(() => { if (e.parentNode) e.remove(); }, 6000);
+  // Fade out after 5 seconds, remove after 5.5s
+  setTimeout(() => { e.style.opacity = '0'; e.style.transform = 'translateX(20px)'; }, 5000);
+  setTimeout(() => { if (e.parentNode) e.remove(); }, 5500);
 }
 
 function addChatMessage(d) {
   const box = document.getElementById('chat-box');
-  const msg = document.createElement('div'); msg.className = 'chat-msg';
-  msg.innerHTML = `<span class="chat-name ${d.team}">${d.name}:</span> ${escapeHtml(d.message)}`;
-  box.appendChild(msg);
-  setTimeout(() => { if (msg.parentNode) msg.remove(); }, 10000);
+  // Limit visible messages
+  while (box.children.length >= 8) { box.removeChild(box.firstChild); }
+  const msg = document.createElement('div');
+  msg.className = 'chat-msg' + (d.teamOnly ? ' team-chat' : '');
+  const teamPrefix = d.teamOnly ? '<span class="chat-prefix">[TEAM]</span>' : '';
+  const nameClass = d.team || 'SPEC';
+  msg.innerHTML = teamPrefix + '<span class="chat-name ' + nameClass + '">' + escapeHtml(d.name) + ':</span> ' + escapeHtml(d.message);
+  box.insertBefore(msg, box.firstChild);
+  // Remove after 7 seconds
+  setTimeout(() => { if (msg.parentNode) msg.remove(); }, 7000);
 }
 
 function escapeHtml(t) { const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
@@ -2898,12 +2944,27 @@ function drawMinimap() {
     minimapCtx.fillText('CT', ctSpawnX/ctCount * sx, ctSpawnY/ctCount * sy);
   }
 
-  // Players
+  // Players (alive)
   const me = players[myId];
   const viewTeam = spectating ? null : me?.team;
   for (const [id, pl] of Object.entries(players)) {
-    if (!pl.alive || pl.team === 'SPEC') continue;
+    if (pl.team === 'SPEC') continue;
     const isAlly = pl.team === viewTeam;
+    if (!pl.alive) {
+      // Dead teammates shown as X
+      if (isAlly) {
+        const px = pl.x * sx, py = pl.y * sy;
+        minimapCtx.save();
+        minimapCtx.globalAlpha = 0.4;
+        minimapCtx.font = 'bold 8px monospace';
+        minimapCtx.fillStyle = pl.team === 'T' ? '#d4a537' : '#4a90d9';
+        minimapCtx.textAlign = 'center';
+        minimapCtx.textBaseline = 'middle';
+        minimapCtx.fillText('X', px, py);
+        minimapCtx.restore();
+      }
+      continue;
+    }
     if (!isAlly && !spectating && id !== myId) {
       if (!pl.noiseVisible) continue;
       minimapCtx.beginPath();

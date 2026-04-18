@@ -255,6 +255,7 @@
   .kill-entry .weapon-icon-img { width: 14px; height: 14px; }
   .kill-entry .weapon-text { color: #ff6b35; font-size: 10px; opacity: 0.8; }
   .kill-entry .victim-name { color: #aaa; }
+  .kill-entry .kill-weapon { color: #ff6b35; font-size: 10px; opacity: 0.9; white-space: nowrap; }
   .kill-entry .hs-icon { color: #ffd700; font-size: 10px; font-weight: 900; animation: hsFlash 0.5s ease 3; }
   @keyframes hsFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
@@ -324,30 +325,49 @@
   .buy-item-name { font-size: 11px; font-weight: 600; }
   .buy-item-price { font-size: 11px; color: #4caf50; margin-top: 3px; }
   .buy-item-key { position: absolute; top: 4px; left: 6px; font-size: 9px; color: #333; font-weight: 700; }
+  .buy-item-stats {
+    display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.95); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+    padding: 10px 14px; min-width: 160px; z-index: 100; pointer-events: none;
+    font-size: 10px; backdrop-filter: blur(10px);
+  }
+  .buy-item:hover .buy-item-stats { display: block; }
+  .buy-item-stats-row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 2px; }
+  .buy-item-stats-label { color: #666; }
+  .buy-item-stats-value { color: #ddd; font-weight: 600; }
+  .buy-item-stats-bar { height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 2px; margin-bottom: 6px; }
+  .buy-item-stats-fill { height: 100%; border-radius: 2px; }
 
   /* Chat */
   #chat-box {
-    position: absolute; bottom: 80px; left: 12px; width: 350px;
-    z-index: 20; pointer-events: none;
+    position: absolute; bottom: 80px; left: 12px; width: 380px;
+    z-index: 20; pointer-events: none; max-height: 200px; overflow: hidden;
+    display: flex; flex-direction: column-reverse;
   }
   .chat-msg {
-    background: rgba(0,0,0,0.5); padding: 4px 10px; border-radius: 6px;
+    background: rgba(0,0,0,0.6); padding: 4px 10px; border-radius: 6px;
     font-size: 12px; margin-bottom: 3px; border-left: 2px solid transparent;
-    animation: chatFade 8s 2s forwards; backdrop-filter: blur(4px);
+    animation: chatSlideIn 0.2s ease-out, chatFade 5s 2s forwards;
+    backdrop-filter: blur(4px);
   }
+  .chat-msg.team-chat { background: rgba(0,0,0,0.75); border-left: 3px solid #ff6b35; }
+  @keyframes chatSlideIn { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
   @keyframes chatFade { to { opacity: 0; } }
   .chat-name { font-weight: 600; }
-  .chat-name.T { color: #d4a537; border-left-color: #d4a537; }
-  .chat-name.CT { color: #4a90d9; border-left-color: #4a90d9; }
+  .chat-name.T { color: #d4a537; }
+  .chat-name.CT { color: #4a90d9; }
+  .chat-name.SPEC { color: #888; }
+  .chat-prefix { font-size: 9px; color: #ff6b35; font-weight: 700; margin-right: 4px; letter-spacing: 1px; }
 
   #chat-input {
-    position: absolute; bottom: 64px; left: 12px; width: 300px;
+    position: absolute; bottom: 64px; left: 12px; width: 320px;
     padding: 8px 14px; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
-    background: rgba(0,0,0,0.8); color: #eee; font-size: 13px;
+    background: rgba(0,0,0,0.85); color: #eee; font-size: 13px;
     z-index: 20; display: none; pointer-events: auto;
     backdrop-filter: blur(10px);
   }
   #chat-input.show { display: block; }
+  #chat-input.team-chat-input { border-color: rgba(255,107,53,0.4); }
 
   /* Minimap */
   .minimap-container {
@@ -556,7 +576,8 @@
         <span class="key">C</span><span class="desc">Smoke Grenade</span>
         <span class="key">E</span><span class="desc">Plant / Defuse bomb</span>
         <span class="key">SHIFT</span><span class="desc">Sprint</span>
-        <span class="key">ENTER</span><span class="desc">Chat</span>
+        <span class="key">ENTER</span><span class="desc">All chat</span>
+        <span class="key">U</span><span class="desc">Team chat</span>
         <span class="key">TAB</span><span class="desc">Scoreboard</span>
         <span class="key">ESC</span><span class="desc">Pause menu</span>
       </div>
@@ -655,7 +676,7 @@
       <span id="minimap-t-alive" style="color:#d4a537;">T: 0</span>
       <span id="minimap-ct-alive" style="color:#4a90d9;">CT: 0</span>
     </div>
-    <canvas id="minimap" width="220" height="165"></canvas>
+    <canvas id="minimap" width="260" height="195"></canvas>
   </div>
 
   <div class="crosshair" id="crosshair">

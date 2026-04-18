@@ -1778,10 +1778,23 @@ io.on('connection', (socket) => {
     socket.emit('bots_removed', { count });
   });
 
-  socket.on('chat', (msg) => {
+  socket.on('chat_message', (data) => {
     const p = players[socket.id];
     if (!p) return;
-    io.emit('chat', { name: p.name, team: p.team, message: msg.substring(0, 100) });
+    const message = (data.message || '').substring(0, 100);
+    if (!message.trim()) return;
+    const teamOnly = !!data.teamOnly;
+    const chatData = { name: p.name, team: p.team, message, teamOnly };
+    if (teamOnly) {
+      // Send only to teammates
+      Object.keys(players).forEach(id => {
+        if (players[id].team === p.team) {
+          io.to(id).emit('chat', chatData);
+        }
+      });
+    } else {
+      io.emit('chat', chatData);
+    }
   });
 
   socket.on('disconnect', () => {
