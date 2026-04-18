@@ -1,4 +1,6 @@
-// CS Top-Down Shooter - Game Server
+// CS Top-Down Shooter - Game Server (v2)
+// Improvements: knife, crouching, bomb progress, kill rewards, round history,
+//               spectator mode, clean auto-restart, round MVP, sound events, weapon drops
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -8,6 +10,51 @@ const { generateMap, getSpawnPoints, getBombsites, isWall, isOnBombsite, lineOfS
   TILE_WALL, TILE_CRATE, TILE_BOMBSITE_A, TILE_BOMBSITE_B, TILE_T_SPAWN, TILE_CT_SPAWN, TILE_DOOR, TILE_EMPTY } = require('./shared/map');
 const { createBot, updateBot, spawnBotsForTeam, addBotBuyLogic, getCurrentWeapon: getBotWeapon, BOT_PREFIX, randomMapPoint } = require('./server/bots');
 
+// ==================== KNIFE WEAPON DEFINITION ====================
+// Knife is slot 0, always available, melee range, fast attack
+const KNIFE_WEAPON = {
+  key: 'knife',
+  name: 'Knife',
+  type: 'knife',
+  price: 0,
+  damage: 40,
+  fireRate: 2.0,         // attacks per second
+  range: 50,             // very short melee range
+  moveSpread: 0,
+  spread: 0,
+  reloadTime: 0,
+  magSize: Infinity,
+  reserveAmmo: Infinity,
+  reward: 1500,          // knife kill reward
+  fireMode: 'semi',
+  recoilPattern: [],
+  armorPenetration: 1.0, // full armor penetration
+};
+
+// ==================== SOUND EVENTS ====================
+const SOUNDS = {
+  gunshot: (weapon) => ({ type: 'gunshot', weapon }),
+  footstep: () => ({ type: 'footstep' }),
+  knife_swing: () => ({ type: 'knife_swing' }),
+  knife_hit: () => ({ type: 'knife_hit' }),
+  grenade_bounce: () => ({ type: 'grenade_bounce' }),
+  grenade_explode: (gtype) => ({ type: 'grenade_explode', gtype }),
+  bomb_plant_tick: () => ({ type: 'bomb_plant_tick' }),
+  bomb_defuse_tick: () => ({ type: 'bomb_defuse_tick' }),
+  bomb_beep: () => ({ type: 'bomb_beep' }),
+  weapon_pickup: () => ({ type: 'weapon_pickup' }),
+  weapon_drop: () => ({ type: 'weapon_drop' }),
+  player_death: () => ({ type: 'player_death' }),
+  round_start: () => ({ type: 'round_start' }),
+  round_end: () => ({ type: 'round_end' }),
+  headshot: () => ({ type: 'headshot' }),
+};
+
+function emitSound(x, y, soundData, range = 800) {
+  io.emit('sound', { ...soundData, x, y, range });
+}
+
+// ==================== SERVER SETUP ====================
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -26,6 +73,8 @@ let gameId = 0;
 let gameState = 'waiting'; // waiting, warmup, freeze, playing, round_end, game_over
 let roundTimer = 0;
 let freezeTimer = 0;
+let roundEndTimer = 0;     // pause between rounds (for MVP display)
+let gameOverTimer = 0;      // auto-restart countdown after game_over
 let roundNumber = 0;
 let tScore = 0;
 let ctScore = 0;
@@ -40,8 +89,18 @@ let players = {};
 let bullets = [];
 let grenades = [];
 let activeGrenades = [];  // thrown grenades in flight
-let bombState = null;     // { site, x, y, planter, timer, defuser, defuseTimer, planted: bool, exploded: bool }
+let bombState = null;     // { site, x, y, planter, timer, defuser, defuseTimer, planted, exploded, defused, plantProgress }
 let damageIndicators = [];
+let droppedWeapons = [];  // { id, weaponKey, x, y, ammo }
+let droppedIdCounter = 0;
+
+// Round history (last 5 rounds)
+let roundHistory = []; // [{ round, winner, reason, mvp }]
+const MAX_ROUND_HISTORY = 5;
+
+// Round MVP tracking
+let roundMVP = null;     // { id, name, kills, damage, team }
+let roundMVPTracker = {}; // { playerId: { kills, damage } }
 
 // ==================== PLAYER CLASS ====================
 function createPlayer(id, name) {
@@ -57,8 +116,8 @@ function createPlayer(id, name) {
     helmet: false,
     money: C.START_MONEY,
     alive: true,
-    weapons: [],       // array of weapon keys
-    currentWeapon: -1, // index into weapons
+    weapons: [],       // array of weapon keys (does NOT include knife; knife is implicit slot 0)
+    currentWeapon: -1, // index into weapons; -1 = knife
     ammo: {},          // { weaponKey: { mag, reserve } }
     grenades: { he: 0, flash: 0, smoke: 0 },
     hasDefuseKit: false,
@@ -66,7 +125,7 @@ function createPlayer(id, name) {
     deaths: 0,
     assists: 0,
     lastDamageBy: null,
-    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, use: false },
+    input: { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, crouch: false },
     lastShot: 0,
     shotsFired: 0,
     lastShotTime: 0,
@@ -74,27 +133,29 @@ function createPlayer(id, name) {
     reloading: false,
     reloadTimer: 0,
     sprinting: false,
-    // Plant / defuse progress
-    plantProgress: 0,
-    plantSite: null,
-    defusing: false,
-    lastMoveTime: 0,
+    crouching: false,
+    crouchTransition: 0, // 0 = standing, 1 = fully crouched (smooth visual)
     connected: true,
     ping: 0,
+    // Spectator state
+    specTarget: null,   // player id being spectated, or null for free roam
+    specX: 0,
+    specY: 0,
+    // Footstep tracking
+    footstepTimer: 0,
+    // Plant progress (server-side for player-initiated planting)
+    plantingBomb: false,
+    plantProgress: 0,
+    defusingBomb: false,
+    defuseProgress: 0,
   };
 }
 
 function spawnPlayer(player) {
   const spawns = player.team === 'T' ? tSpawns : ctSpawns;
-  if (!spawns || spawns.length === 0) {
-    console.warn('[spawnPlayer] no spawns for team', player.team, '- using map center');
-    player.x = C.MAP_WIDTH * C.TILE_SIZE / 2;
-    player.y = C.MAP_HEIGHT * C.TILE_SIZE / 2;
-  } else {
-    const sp = spawns[Math.floor(Math.random() * spawns.length)];
-    player.x = sp.x + (Math.random() - 0.5) * 30;
-    player.y = sp.y + (Math.random() - 0.5) * 30;
-  }
+  const sp = spawns[Math.floor(Math.random() * spawns.length)];
+  player.x = sp.x + (Math.random() - 0.5) * 30;
+  player.y = sp.y + (Math.random() - 0.5) * 30;
   player.hp = C.PLAYER_MAX_HP;
   player.alive = true;
   player.reloading = false;
@@ -102,8 +163,12 @@ function spawnPlayer(player) {
   player.lastDamageBy = null;
   player.vx = 0;
   player.vy = 0;
-  // Defensive: reset angle if bogus
-  if (!Number.isFinite(player.angle)) player.angle = 0;
+  player.crouching = false;
+  player.crouchTransition = 0;
+  player.plantingBomb = false;
+  player.plantProgress = 0;
+  player.defusingBomb = false;
+  player.defuseProgress = 0;
 }
 
 function resetPlayerRound(player) {
@@ -117,10 +182,60 @@ function giveDefaultWeapons(player) {
   const pistol = player.team === 'T' ? 'glock' : 'usp';
   player.weapons.push(pistol);
   player.ammo[pistol] = { mag: C.WEAPONS[pistol].magSize, reserve: C.WEAPONS[pistol].reserveAmmo };
-  player.currentWeapon = 0;
+  player.currentWeapon = 0; // slot 0 in weapons array = pistol; knife is implicit at index -1
   player.grenades = { he: 0, flash: 0, smoke: 0 };
   player.hasDefuseKit = false;
-  player.knife = true;
+}
+
+// ==================== WEAPON HELPERS ====================
+// Get the effective weapon for a player (knife if currentWeapon == -1)
+function getCurrentWeapon(p) {
+  if (p.currentWeapon < 0) {
+    // Knife is always available
+    return { key: 'knife', data: KNIFE_WEAPON };
+  }
+  if (p.currentWeapon >= p.weapons.length) return null;
+  const key = p.weapons[p.currentWeapon];
+  const data = C.WEAPONS[key];
+  return data ? { key, data } : null;
+}
+
+// Get weapon key string for display
+function getWeaponKeyForPlayer(p) {
+  const wep = getCurrentWeapon(p);
+  return wep ? wep.key : 'knife';
+}
+
+// ==================== ROUND MVP TRACKING ====================
+function initRoundMVPTracker() {
+  roundMVPTracker = {};
+  for (const p of Object.values(players)) {
+    if (p.team !== C.TEAM_SPEC) {
+      roundMVPTracker[p.id] = { kills: 0, damage: 0, name: p.name, team: p.team };
+    }
+  }
+}
+
+function trackDamage(attackerId, damage) {
+  if (roundMVPTracker[attackerId]) {
+    roundMVPTracker[attackerId].damage += damage;
+  }
+}
+
+function trackKill(attackerId) {
+  if (roundMVPTracker[attackerId]) {
+    roundMVPTracker[attackerId].kills++;
+  }
+}
+
+function calculateRoundMVP() {
+  let best = null;
+  for (const [id, stats] of Object.entries(roundMVPTracker)) {
+    if (!best || stats.kills > best.kills || (stats.kills === best.kills && stats.damage > best.damage)) {
+      best = { id, ...stats };
+    }
+  }
+  return best;
 }
 
 // ==================== ROUND MANAGEMENT ====================
@@ -133,6 +248,8 @@ function startGame() {
   lossBonus = { T: 0, CT: 0 };
   consecutiveLosses = { T: 0, CT: 0 };
   bombState = null;
+  roundHistory = [];
+  droppedWeapons = [];
 
   for (const p of Object.values(players)) {
     if (p.team !== C.TEAM_SPEC) {
@@ -143,9 +260,11 @@ function startGame() {
     }
   }
 
+  initRoundMVPTracker();
   freezeTimer = C.FREEZE_TIME;
+  emitSound(0, 0, SOUNDS.round_start(), 99999);
   io.emit('round_start', { round: roundNumber, tScore, ctScore, freezeTime: C.FREEZE_TIME });
-  io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
+  io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, roundHistory });
 }
 
 function startRound() {
@@ -155,6 +274,7 @@ function startRound() {
   bullets = [];
   activeGrenades = [];
   grenades = [];
+  droppedWeapons = [];
 
   for (const p of Object.values(players)) {
     if (p.team !== C.TEAM_SPEC) {
@@ -162,13 +282,16 @@ function startRound() {
     }
   }
 
+  initRoundMVPTracker();
+  emitSound(0, 0, SOUNDS.round_start(), 99999);
   io.emit('round_live', { round: roundNumber, tScore, ctScore });
-  io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
+  io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, roundHistory });
 }
 
 function endRound(winner, reason) {
   if (gameState === 'round_end' || gameState === 'game_over') return; // Prevent double-call
   gameState = 'round_end';
+  roundEndTimer = 5.0; // 5 second pause for MVP display
 
   // Calculate rewards
   if (winner === 'T') {
@@ -195,54 +318,107 @@ function endRound(winner, reason) {
     }
   }
 
+  // Calculate and store round MVP
+  roundMVP = calculateRoundMVP();
+
+  // Record round history
+  roundHistory.push({
+    round: roundNumber,
+    winner,
+    reason,
+    mvp: roundMVP ? { id: roundMVP.id, name: roundMVP.name, kills: roundMVP.kills, damage: Math.round(roundMVP.damage) } : null,
+  });
+  if (roundHistory.length > MAX_ROUND_HISTORY) {
+    roundHistory.shift();
+  }
+
+  emitSound(0, 0, SOUNDS.round_end(), 99999);
   io.emit('round_end', {
     winner,
     reason,
     tScore,
     ctScore,
     round: roundNumber,
+    mvp: roundMVP,
+    roundHistory,
   });
 
-  // Check game over
-  if (tScore >= C.ROUNDS_TO_WIN || ctScore >= C.ROUNDS_TO_WIN) {
-    setTimeout(() => {
-      gameState = 'game_over';
-      const gameWinner = tScore >= C.ROUNDS_TO_WIN ? 'T' : 'CT';
-      io.emit('game_over', { winner: gameWinner, tScore, ctScore });
-    }, 3000);
-    return;
+  // Check game over — handled naturally in the game loop via roundEndTimer
+}
+
+function handleGameOver() {
+  gameState = 'game_over';
+  gameOverTimer = 8.0; // 8 seconds before auto-restart
+  const gameWinner = tScore >= C.ROUNDS_TO_WIN ? 'T' : 'CT';
+  io.emit('game_over', { winner: gameWinner, tScore, ctScore, roundHistory });
+}
+
+function handleNextRound() {
+  roundNumber++;
+
+  // Half-time swap at round 13
+  if (roundNumber === 13) {
+    for (const p of Object.values(players)) {
+      if (p.team === 'T') p.team = 'CT';
+      else if (p.team === 'CT') p.team = 'T';
+    }
+    const tmp = tScore;
+    tScore = ctScore;
+    ctScore = tmp;
+    io.emit('team_swap', { tScore, ctScore });
   }
 
-  // Next round after delay
+  for (const p of Object.values(players)) {
+    if (p.team !== C.TEAM_SPEC) {
+      giveDefaultWeapons(p);
+      spawnPlayer(p);
+      if (p.isBot) p._botBought = false;
+    }
+  }
+
+  gameState = 'freeze';
+  freezeTimer = C.FREEZE_TIME;
+  bombState = null;
+  droppedWeapons = [];
+
+  initRoundMVPTracker();
+  emitSound(0, 0, SOUNDS.round_start(), 99999);
+  io.emit('round_start', { round: roundNumber, tScore, ctScore, freezeTime: C.FREEZE_TIME, roundHistory });
+  io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, roundHistory });
+}
+
+function handleAutoRestart() {
+  console.log('Auto-restarting game after game_over');
+  // Remove old bots
+  for (const [id, p] of Object.entries(players)) {
+    if (p.isBot) delete players[id];
+  }
+  gameState = 'waiting';
+  roundNumber = 0;
+  tScore = 0;
+  ctScore = 0;
+  bombState = null;
+  lossBonus = { T: 0, CT: 0 };
+  consecutiveLosses = { T: 0, CT: 0 };
+  roundHistory = [];
+  droppedWeapons = [];
+  gameOverTimer = 0;
+
+  // Reset all player stats
+  for (const [id, p] of Object.entries(players)) {
+    p.kills = 0;
+    p.deaths = 0;
+    p.assists = 0;
+    p.money = C.START_MONEY;
+  }
+
+  io.emit('game_restart');
+  io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0, roundHistory });
+
+  // Re-add bots and start fresh after short delay
   setTimeout(() => {
-    roundNumber++;
-    // Half-time swap at round 13
-    if (roundNumber === 13) {
-      for (const p of Object.values(players)) {
-        if (p.team === 'T') p.team = 'CT';
-        else if (p.team === 'CT') p.team = 'T';
-      }
-      const tmp = tScore;
-      tScore = ctScore;
-      ctScore = tmp;
-      io.emit('team_swap', { tScore, ctScore });
-    }
-
-    for (const p of Object.values(players)) {
-      if (p.team !== C.TEAM_SPEC) {
-        giveDefaultWeapons(p);
-        spawnPlayer(p);
-        if (p.isBot) p._botBought = false;
-      }
-    }
-
-    gameState = 'freeze';
-    freezeTimer = C.FREEZE_TIME;
-    bombState = null;
-
-    io.emit('round_start', { round: roundNumber, tScore, ctScore, freezeTime: C.FREEZE_TIME });
-    io.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
-  }, 5000);
+    autoStartGame();
+  }, 1500);
 }
 
 // ==================== BUY SYSTEM ====================
@@ -294,7 +470,13 @@ function handleBuy(player, item) {
     // Drop the existing weapon of this type
     const idx = player.weapons.findIndex(w => C.WEAPONS[w]?.type === weapon.type);
     if (idx >= 0) {
+      // Drop old weapon on ground
+      const oldKey = player.weapons[idx];
+      const oldAmmo = player.ammo[oldKey];
+      dropWeaponOnGround(oldKey, player.x, player.y, oldAmmo ? oldAmmo.reserve : 0);
+
       player.weapons.splice(idx, 1);
+      delete player.ammo[oldKey];
       // Fix currentWeapon index
       if (player.currentWeapon >= player.weapons.length) player.currentWeapon = player.weapons.length - 1;
     }
@@ -302,6 +484,11 @@ function handleBuy(player, item) {
     // Replace current pistol
     const pistolIdx = player.weapons.findIndex(w => C.WEAPONS[w]?.type === 'pistol');
     if (pistolIdx >= 0) {
+      const oldKey = player.weapons[pistolIdx];
+      const oldAmmo = player.ammo[oldKey];
+      dropWeaponOnGround(oldKey, player.x, player.y, oldAmmo ? oldAmmo.reserve : 0);
+      delete player.ammo[oldKey];
+
       player.weapons[pistolIdx] = item;
       player.ammo[item] = { mag: weapon.magSize, reserve: weapon.reserveAmmo };
       player.money -= weapon.price;
@@ -314,6 +501,83 @@ function handleBuy(player, item) {
   player.currentWeapon = player.weapons.length - 1;
   player.money -= weapon.price;
   return true;
+}
+
+// ==================== DROPPED WEAPONS ====================
+function dropWeaponOnGround(weaponKey, x, y, reserveAmmo) {
+  if (!weaponKey || weaponKey === 'knife') return;
+  droppedWeapons.push({
+    id: ++droppedIdCounter,
+    weaponKey,
+    x: x + (Math.random() - 0.5) * 20,
+    y: y + (Math.random() - 0.5) * 20,
+    ammo: { mag: C.WEAPONS[weaponKey] ? C.WEAPONS[weaponKey].magSize : 0, reserve: reserveAmmo },
+  });
+}
+
+function dropPrimaryWeaponOnDeath(player) {
+  // Find primary weapon (non-pistol, non-knife)
+  for (let i = player.weapons.length - 1; i >= 0; i--) {
+    const wKey = player.weapons[i];
+    const wData = C.WEAPONS[wKey];
+    if (wData && wData.type !== 'pistol') {
+      const ammo = player.ammo[wKey];
+      dropWeaponOnGround(wKey, player.x, player.y, ammo ? ammo.reserve : 0);
+      player.weapons.splice(i, 1);
+      delete player.ammo[wKey];
+      if (player.currentWeapon >= player.weapons.length) {
+        player.currentWeapon = player.weapons.length - 1;
+      }
+      emitSound(player.x, player.y, SOUNDS.weapon_drop(), 500);
+      return;
+    }
+  }
+}
+
+function checkWeaponPickup(player) {
+  if (!player.alive || player.team === C.TEAM_SPEC) return;
+
+  for (let i = droppedWeapons.length - 1; i >= 0; i--) {
+    const dw = droppedWeapons[i];
+    const dx = player.x - dw.x;
+    const dy = player.y - dw.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 30) {
+      const wData = C.WEAPONS[dw.weaponKey];
+      if (!wData) continue;
+
+      // Check if player already has this weapon type
+      const existingIdx = player.weapons.findIndex(w => {
+        const wd = C.WEAPONS[w];
+        return wd && wd.type === wData.type;
+      });
+
+      if (existingIdx >= 0) {
+        // Replace existing weapon of same type
+        const oldKey = player.weapons[existingIdx];
+        const oldAmmo = player.ammo[oldKey];
+        dropWeaponOnGround(oldKey, player.x, player.y, oldAmmo ? oldAmmo.reserve : 0);
+        delete player.ammo[oldKey];
+
+        player.weapons[existingIdx] = dw.weaponKey;
+        player.ammo[dw.weaponKey] = dw.ammo;
+        player.currentWeapon = existingIdx;
+      } else if (player.weapons.length < 3) {
+        // Add to inventory (max 3 weapons + knife)
+        player.weapons.push(dw.weaponKey);
+        player.ammo[dw.weaponKey] = dw.ammo;
+        player.currentWeapon = player.weapons.length - 1;
+      } else {
+        // Inventory full, skip
+        continue;
+      }
+
+      droppedWeapons.splice(i, 1);
+      emitSound(player.x, player.y, SOUNDS.weapon_pickup(), 400);
+      break; // Only pick up one weapon per tick
+    }
+  }
 }
 
 // ==================== GAME PHYSICS ====================
@@ -337,6 +601,29 @@ function update(dt) {
     return;
   }
 
+  // Handle round_end pause (5 seconds for MVP display)
+  if (gameState === 'round_end') {
+    roundEndTimer -= dt;
+    if (roundEndTimer <= 0) {
+      // Check if this should trigger game_over
+      if (tScore >= C.ROUNDS_TO_WIN || ctScore >= C.ROUNDS_TO_WIN) {
+        handleGameOver();
+        return;
+      }
+      handleNextRound();
+    }
+    return;
+  }
+
+  // Handle game_over with auto-restart countdown
+  if (gameState === 'game_over') {
+    gameOverTimer -= dt;
+    if (gameOverTimer <= 0) {
+      handleAutoRestart();
+    }
+    return;
+  }
+
   if (gameState !== 'playing') return;
 
   roundTimer -= dt;
@@ -354,115 +641,48 @@ function update(dt) {
   updateBullets(dt);
   updateActiveGrenades(dt);
   updateGrenades(dt);
-  processPlantDefuse(dt);
   updateBomb(dt);
   updateBots(dt);
+  updateWeaponPickups(dt);
   checkRoundEnd();
 }
 
-// Plant/defuse progression driven by player input ('use' = E held)
-function processPlantDefuse(dt) {
+function updateWeaponPickups(dt) {
   for (const p of Object.values(players)) {
-    if (!p.alive || p.team === C.TEAM_SPEC) continue;
-    const holdingUse = !!p.input.use;
-
-    // ----- PLANTING (T only, bomb not planted) -----
-    if (p.team === 'T' && (!bombState || !bombState.planted)) {
-      let site = null;
-      if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
-      else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
-
-      // Only one planter at a time — first come, first serve
-      const alreadyPlanting = Object.values(players)
-        .some(o => o !== p && o.team === 'T' && o.plantProgress > 0);
-
-      if (holdingUse && site && !alreadyPlanting) {
-        p.plantSite = site;
-        p.plantProgress += dt;
-        if (p.plantProgress >= C.BOMB_PLANT_TIME) {
-          // Plant the bomb
-          bombState = {
-            site,
-            x: bombsites[site].centerX,
-            y: bombsites[site].centerY,
-            planter: p.id,
-            timer: C.BOMB_TIMER,
-            defuser: null,
-            defuseTimer: 0,
-            defuseTotalTime: 0,
-            planted: true,
-            exploded: false,
-            defused: false,
-            plantProgress: 0,
-          };
-          p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
-          p.plantProgress = 0;
-          p.plantSite = null;
-          io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER });
-        }
-      } else {
-        p.plantProgress = 0;
-        p.plantSite = null;
-      }
-    } else if (p.plantProgress > 0) {
-      p.plantProgress = 0;
-      p.plantSite = null;
-    }
-
-    // ----- DEFUSING (CT only, bomb planted) -----
-    if (p.team === 'CT' && bombState && bombState.planted) {
-      const dx = p.x - bombState.x;
-      const dy = p.y - bombState.y;
-      const inRange = (dx * dx + dy * dy) < (60 * 60);
-      const currentDefuser = bombState.defuser;
-      const canDefuse = inRange && holdingUse &&
-        (!currentDefuser || currentDefuser === p.id);
-
-      if (canDefuse) {
-        if (bombState.defuser !== p.id) {
-          bombState.defuser = p.id;
-          const defuseTime = p.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
-          bombState.defuseTimer = defuseTime;
-          bombState.defuseTotalTime = defuseTime;
-          io.emit('bomb_defusing', { defuser: p.id, time: defuseTime });
-        }
-        p.defusing = true;
-      } else {
-        if (bombState.defuser === p.id) {
-          bombState.defuser = null;
-          bombState.defuseTimer = 0;
-        }
-        p.defusing = false;
-      }
-    } else {
-      p.defusing = false;
-    }
-  }
-}
-
-function updatePlayersFrozen(dt) {
-  // Allow movement in spawn but can't leave spawn area
-  for (const p of Object.values(players)) {
-    if (!p.alive || p.team === C.TEAM_SPEC) continue;
-    applyMovement(p, dt);
+    if (!p.alive || p.team === C.TEAM_SPEC || p.isBot) continue;
+    checkWeaponPickup(p);
   }
 }
 
 function updatePlayers(dt) {
   for (const p of Object.values(players)) {
-    if (!p.alive || p.team === C.TEAM_SPEC) continue;
+    if (p.team === C.TEAM_SPEC) {
+      updateSpectator(p, dt);
+      continue;
+    }
+    if (!p.alive) continue;
+
+    // Crouching
+    p.crouching = !!p.input.crouch;
+    if (p.crouching) {
+      p.crouchTransition = Math.min(1, p.crouchTransition + dt * 8);
+    } else {
+      p.crouchTransition = Math.max(0, p.crouchTransition - dt * 8);
+    }
 
     // Reloading
     if (p.reloading) {
       p.reloadTimer -= dt;
       if (p.reloadTimer <= 0) {
         const wep = getCurrentWeapon(p);
-        if (wep) {
+        if (wep && wep.key !== 'knife') {
           const ammo = p.ammo[wep.key];
-          const needed = wep.data.magSize - ammo.mag;
-          const available = Math.min(needed, ammo.reserve);
-          ammo.mag += available;
-          ammo.reserve -= available;
+          if (ammo) {
+            const needed = wep.data.magSize - ammo.mag;
+            const available = Math.min(needed, ammo.reserve);
+            ammo.mag += available;
+            ammo.reserve -= available;
+          }
         }
         p.reloading = false;
       }
@@ -470,6 +690,20 @@ function updatePlayers(dt) {
 
     // Movement
     applyMovement(p, dt);
+
+    // Footsteps
+    const moving = Math.abs(p.vx) > 10 || Math.abs(p.vy) > 10;
+    if (moving && !p.crouching) {
+      const speed = p.input.sprint ? C.PLAYER_SPRINT_SPEED : C.PLAYER_SPEED;
+      const stepInterval = p.input.sprint ? 0.3 : 0.45;
+      p.footstepTimer -= dt;
+      if (p.footstepTimer <= 0) {
+        p.footstepTimer = stepInterval;
+        emitSound(p.x, p.y, SOUNDS.footstep(), 600);
+      }
+    } else {
+      p.footstepTimer = 0;
+    }
 
     // Shooting
     if (p.input.shoot && !p.reloading) {
@@ -484,6 +718,11 @@ function updatePlayers(dt) {
 
     // Track shoot state for semi-auto rising-edge detection
     p.prevShoot = p.input.shoot;
+
+    // Check weapon pickup
+    if (!p.isBot) {
+      checkWeaponPickup(p);
+    }
   }
 }
 
@@ -504,7 +743,15 @@ function applyMovement(p, dt) {
   dx /= len;
   dy /= len;
 
-  const speed = p.input.sprint ? C.PLAYER_SPRINT_SPEED : C.PLAYER_SPEED;
+  let speed;
+  if (p.crouching) {
+    speed = C.PLAYER_CROUCH_SPEED;
+  } else if (p.input.sprint) {
+    speed = C.PLAYER_SPRINT_SPEED;
+  } else {
+    speed = C.PLAYER_SPEED;
+  }
+
   const newX = p.x + dx * speed * dt;
   const newY = p.y + dy * speed * dt;
 
@@ -521,24 +768,88 @@ function applyMovement(p, dt) {
   p.vy = dy * speed;
 }
 
-function getCurrentWeapon(p) {
-  if (p.currentWeapon < 0 || p.currentWeapon >= p.weapons.length) return null;
-  const key = p.weapons[p.currentWeapon];
-  const data = C.WEAPONS[key];
-  return data ? { key, data } : null;
-}
-
 function shoot(p) {
   const wep = getCurrentWeapon(p);
   if (!wep) return;
-
-  // Defensive: don't fire if player state is bogus
-  if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.angle)) return;
 
   const now = Date.now() / 1000;
   const fireInterval = 1 / wep.data.fireRate;
   if (now - p.lastShot < fireInterval) return;
 
+  // Knife attack
+  if (wep.key === 'knife') {
+    // Knife uses semi-auto (rising edge)
+    if (p.prevShoot) return;
+    p.lastShot = now;
+    p.lastShotTime = now;
+    emitSound(p.x, p.y, SOUNDS.knife_swing(), 400);
+
+    // Check for melee hit (short range, wide arc)
+    for (const target of Object.values(players)) {
+      if (!target.alive || target.team === p.team || target.id === p.id) continue;
+      const tdx = target.x - p.x;
+      const tdy = target.y - p.y;
+      const dist = Math.sqrt(tdx * tdx + tdy * tdy);
+      if (dist > KNIFE_WEAPON.range) continue;
+
+      // Check angle (wide 120 degree arc)
+      const angleToTarget = Math.atan2(tdy, tdx);
+      let angleDiff = angleToTarget - p.angle;
+      while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+      while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+      if (Math.abs(angleDiff) > Math.PI / 3) continue; // 60 degrees each side
+
+      // Hit!
+      let damage = KNIFE_WEAPON.damage;
+      // Crouching targets take 30% less damage (harder to hit)
+      if (target.crouching) {
+        damage *= 0.7;
+      }
+
+      // Armor doesn't help much against knife
+      if (target.armor > 0) {
+        const absorbed = damage * 0.2;
+        const armorDmg = Math.min(target.armor, absorbed);
+        target.armor -= armorDmg;
+        damage -= armorDmg;
+      }
+
+      target.hp -= damage;
+      target.lastDamageBy = p.id;
+      trackDamage(p.id, damage);
+      emitSound(target.x, target.y, SOUNDS.knife_hit(), 400);
+      io.emit('hit_marker', { x: target.x, y: target.y, damage });
+
+      if (target.hp <= 0) {
+        target.hp = 0;
+        target.alive = false;
+        target.deaths++;
+        p.kills++;
+        trackKill(p.id);
+        // Knife kill reward
+        p.money = Math.min(C.MAX_MONEY, p.money + KNIFE_WEAPON.reward);
+        dropPrimaryWeaponOnDeath(target);
+
+        if (target.lastDamageBy && target.lastDamageBy !== p.id && players[target.lastDamageBy]) {
+          players[target.lastDamageBy].assists++;
+        }
+
+        emitSound(target.x, target.y, SOUNDS.player_death(), 600);
+        io.emit('player_killed', {
+          victim: target.id,
+          victimName: target.name,
+          killer: p.id,
+          killerName: p.name,
+          weapon: 'knife',
+          headshot: false,
+        });
+      }
+      break; // Only hit one target per swing
+    }
+    return;
+  }
+
+  // Gun attack
   const ammo = p.ammo[wep.key];
   if (!ammo || ammo.mag <= 0) {
     // Auto reload
@@ -552,7 +863,6 @@ function shoot(p) {
     // Only fire on rising edge (shoot just pressed this frame)
     if (p.prevShoot) return;
   }
-  // bolt and pump are naturally limited by their slow fireRate — no extra logic needed
 
   p.lastShot = now;
 
@@ -565,7 +875,10 @@ function shoot(p) {
 
   ammo.mag--;
 
-  // Calculate spread: base + movement penalty + recoil penalty
+  // Emit gunshot sound
+  emitSound(p.x, p.y, SOUNDS.gunshot(wep.key), 1200);
+
+  // Calculate spread: base + movement penalty + recoil penalty + crouch bonus
   const moving = Math.abs(p.vx) > 10 || Math.abs(p.vy) > 10;
   const sprinting = p.input.sprint && moving;
 
@@ -573,25 +886,21 @@ function shoot(p) {
   if (!moving) {
     baseSpread = wep.data.spread;                          // Standing still
   } else if (sprinting) {
-    baseSpread = wep.data.moveSpread * 1.8;                // Sprinting — severe
+    baseSpread = wep.data.moveSpread * 1.5;                // Sprinting
   } else {
     baseSpread = wep.data.moveSpread;                      // Walking
   }
 
-  // Recoil escalation — accumulates per shot, decays over time between shots.
-  // Apply to all fire modes so mindless spam is always punished.
-  const maxRecoil = wep.data.type === 'sniper' ? 0.04
-    : wep.data.type === 'rifle' ? 0.18
-    : wep.data.type === 'smg' ? 0.20
-    : wep.data.type === 'shotgun' ? 0.10
-    : 0.14; // pistols
-  const perShot = wep.data.type === 'sniper' ? 0.02
-    : wep.data.type === 'rifle' ? 0.011
-    : wep.data.type === 'smg' ? 0.009
-    : wep.data.type === 'shotgun' ? 0.05
-    : 0.010;
-  // First shot is always accurate
-  const recoilPenalty = Math.min(maxRecoil, Math.max(0, p.shotsFired - 1) * perShot);
+  // Crouch bonus: 50% spread reduction
+  if (p.crouching) {
+    baseSpread *= 0.5;
+  }
+
+  // Recoil escalation for auto weapons
+  let recoilPenalty = 0;
+  if (fireMode === 'auto' && p.shotsFired > 1) {
+    recoilPenalty = p.shotsFired * 0.005;
+  }
 
   const spread = baseSpread + recoilPenalty;
 
@@ -612,15 +921,13 @@ function shoot(p) {
       range: wep.data.range,
       dist: 0,
       team: p.team,
-      armorPen: wep.data.armorPenetration != null ? wep.data.armorPenetration : 0.5,
-      weaponKey: wep.key,
     });
   }
 }
 
 function startReload(p) {
   const wep = getCurrentWeapon(p);
-  if (!wep || p.reloading) return;
+  if (!wep || wep.key === 'knife' || p.reloading) return;
   const ammo = p.ammo[wep.key];
   if (!ammo || ammo.mag >= wep.data.magSize || ammo.reserve <= 0) return;
   p.reloading = true;
@@ -630,11 +937,6 @@ function startReload(p) {
 function updateBullets(dt) {
   const newBullets = [];
   for (const b of bullets) {
-    // Defensive: drop any bullet with invalid data
-    if (!Number.isFinite(b.x) || !Number.isFinite(b.y) ||
-        !Number.isFinite(b.vx) || !Number.isFinite(b.vy)) {
-      continue;
-    }
     const newX = b.x + b.vx * dt;
     const newY = b.y + b.vy * dt;
     const moveDist = Math.sqrt((newX - b.x) ** 2 + (newY - b.y) ** 2);
@@ -660,38 +962,33 @@ function updateBullets(dt) {
         // Hit!
         let damage = b.damage;
 
-        // Damage falloff — shots past 60% of effective range start losing power
-        // (gradient from 100% to 60% damage at max range)
-        const falloffStart = b.range * 0.6;
-        if (b.dist > falloffStart) {
-          const excess = (b.dist - falloffStart) / (b.range - falloffStart);
-          damage *= 1 - excess * 0.4;
+        // Crouching damage reduction (30% less, simulating smaller hitbox)
+        if (p.crouching) {
+          damage *= 0.7;
         }
 
-        // Headshot detection — in top-down, a "headshot" is a near-center hit.
-        // Tight center cluster (~35% of radius) is considered a head hit.
-        const isHeadshot = dist < C.PLAYER_RADIUS * 0.35;
+        // Headshot detection (top 30% of player circle)
+        const isHeadshot = dy < -C.PLAYER_RADIUS * 0.4;
         if (isHeadshot && !p.helmet) {
-          damage *= 2.5; // Instant kill for most rifles
+          damage *= 2.5; // Instant kill for most weapons
         } else if (isHeadshot && p.helmet) {
           damage *= 1.5;
           p.helmet = false; // Helmet absorbs first HS
         }
 
-        // Armor damage reduction — rifles with armor penetration hurt more through kevlar
+        // Armor damage reduction
         if (p.armor > 0) {
-          const ap = b.armorPen != null ? b.armorPen : 0.5;
-          const absorbed = damage * (1 - ap);
+          const absorbed = damage * 0.5;
           const armorDmg = Math.min(p.armor, absorbed);
           p.armor -= armorDmg;
           damage -= armorDmg;
         }
 
-        // Never deal negative damage
-        damage = Math.max(1, damage);
-
         p.hp -= damage;
         p.lastDamageBy = b.owner;
+
+        // Track damage for MVP
+        trackDamage(b.owner, damage);
 
         // Kill assist tracking
         io.emit('hit_marker', { x: p.x, y: p.y, damage });
@@ -704,7 +1001,13 @@ function updateBullets(dt) {
           const killer = players[b.owner];
           if (killer) {
             killer.kills++;
-            killer.money = Math.min(C.MAX_MONEY, killer.money + (C.WEAPONS[getCurrentWeapon(killer)?.key]?.reward || C.KILL_REWARD));
+            trackKill(killer.id);
+            // Kill reward per weapon + headshot bonus
+            const wepKey = getWeaponKeyForPlayer(killer);
+            const weaponReward = wepKey === 'knife' ? KNIFE_WEAPON.reward : (C.WEAPONS[wepKey]?.reward || C.KILL_REWARD);
+            let reward = weaponReward;
+            if (isHeadshot) reward += 300; // Headshot bonus
+            killer.money = Math.min(C.MAX_MONEY, killer.money + reward);
           }
 
           // Credit assist
@@ -712,12 +1015,20 @@ function updateBullets(dt) {
             players[p.lastDamageBy].assists++;
           }
 
+          // Drop weapon on death
+          dropPrimaryWeaponOnDeath(p);
+
+          emitSound(p.x, p.y, SOUNDS.player_death(), 600);
+          if (isHeadshot) {
+            emitSound(p.x, p.y, SOUNDS.headshot(), 800);
+          }
+
           io.emit('player_killed', {
             victim: p.id,
             victimName: p.name,
             killer: b.owner,
             killerName: killer?.name || 'Unknown',
-            weapon: b.weaponKey || getCurrentWeapon(killer || {})?.key || 'unknown',
+            weapon: getWeaponKeyForPlayer(killer || {}),
             headshot: isHeadshot,
           });
         }
@@ -739,27 +1050,23 @@ function updateBullets(dt) {
 function updateActiveGrenades(dt) {
   const newActive = [];
   for (const g of activeGrenades) {
-    // Step X and Y independently so walls properly block one axis at a time
-    const nextX = g.x + g.vx * dt;
-    const nextY = g.y + g.vy * dt;
-
-    if (!isWall(gameMap, nextX, g.y)) {
-      g.x = nextX;
-    } else {
-      g.vx = -g.vx * 0.55;                 // bounce X
-    }
-    if (!isWall(gameMap, g.x, nextY)) {
-      g.y = nextY;
-    } else {
-      g.vy = -g.vy * 0.55;                 // bounce Y
-    }
-
-    // Air drag
-    g.vx *= 0.97;
-    g.vy *= 0.97;
+    const oldX = g.x, oldY = g.y;
+    g.x += g.vx * dt;
+    g.y += g.vy * dt;
+    g.vx *= 0.95;
+    g.vy *= 0.95;
     g.timer -= dt;
 
-    // HE grenades hurt when they detonate mid-flight; flash/smoke just need to land
+    // Bounce off walls
+    if (isWall(gameMap, g.x, g.y)) {
+      g.vx *= -0.5;
+      g.vy *= -0.5;
+      g.x += g.vx * dt * 2;
+      g.y += g.vy * dt * 2;
+      // Emit bounce sound
+      emitSound(g.x, g.y, SOUNDS.grenade_bounce(), 500);
+    }
+
     if (g.timer <= 0) {
       detonateGrenade(g);
     } else {
@@ -770,6 +1077,8 @@ function updateActiveGrenades(dt) {
 }
 
 function detonateGrenade(g) {
+  emitSound(g.x, g.y, SOUNDS.grenade_explode(g.type), 1500);
+
   if (g.type === 'he') {
     // HE explosion
     for (const p of Object.values(players)) {
@@ -790,7 +1099,12 @@ function detonateGrenade(g) {
           p.hp = 0;
           p.alive = false;
           p.deaths++;
-          if (g.owner && players[g.owner]) players[g.owner].kills++;
+          if (g.owner && players[g.owner]) {
+            players[g.owner].kills++;
+            trackKill(g.owner);
+          }
+          dropPrimaryWeaponOnDeath(p);
+          emitSound(p.x, p.y, SOUNDS.player_death(), 600);
           io.emit('player_killed', {
             victim: p.id, victimName: p.name,
             killer: g.owner, killerName: players[g.owner]?.name || 'Unknown',
@@ -819,6 +1133,14 @@ function updateBomb(dt) {
   if (!bombState || !bombState.planted) return;
 
   bombState.timer -= dt;
+
+  // Emit bomb beep sound periodically (more frequent as timer runs low)
+  const beepInterval = bombState.timer > 10 ? 1.0 : 0.5;
+  if (!bombState._lastBeep || Date.now() / 1000 - bombState._lastBeep > beepInterval) {
+    bombState._lastBeep = Date.now() / 1000;
+    emitSound(bombState.x, bombState.y, SOUNDS.bomb_beep(), 99999);
+  }
+
   if (bombState.timer <= 0) {
     bombState.exploded = true;
     bombState.planted = false;
@@ -832,6 +1154,8 @@ function updateBomb(dt) {
         p.hp = 0;
         p.alive = false;
         p.deaths++;
+        dropPrimaryWeaponOnDeath(p);
+        emitSound(p.x, p.y, SOUNDS.player_death(), 600);
       }
     }
     io.emit('bomb_exploded', { x: bombState.x, y: bombState.y, site: bombState.site });
@@ -839,24 +1163,49 @@ function updateBomb(dt) {
     return;
   }
 
-  // Defusing — only tick down while the committed defuser is alive AND still at the bomb
+  // Defusing — check if defuser is still close enough (cancel if moved away)
   if (bombState.defuser) {
     const defuser = players[bombState.defuser];
-    const stillDefusing = defuser && defuser.alive && defuser.defusing;
-    if (stillDefusing) {
-      bombState.defuseTimer -= dt;
-      if (bombState.defuseTimer <= 0) {
-        bombState.planted = false;
-        bombState.defused = true;
-        defuser.money = Math.min(C.MAX_MONEY, defuser.money + C.BOMB_DEFUSE_REWARD);
-        io.emit('bomb_defused', { site: bombState.site, defuser: bombState.defuser });
-        endRound('CT', 'defuse');
-      }
-    } else {
-      // Defuser left the bomb or died — reset progress
+    if (!defuser || !defuser.alive) {
+      // Defuser died or disconnected
       bombState.defuser = null;
       bombState.defuseTimer = 0;
+      io.emit('bomb_defuse_cancelled', { reason: 'disconnected' });
+    } else {
+      // Check distance — cancel if too far
+      const dx = defuser.x - bombState.x;
+      const dy = defuser.y - bombState.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist > 80) {
+        // Moved away — cancel defuse
+        bombState.defuser = null;
+        bombState.defuseTimer = 0;
+        defuser.defusingBomb = false;
+        defuser.defuseProgress = 0;
+        io.emit('bomb_defuse_cancelled', { reason: 'moved_away' });
+      } else {
+        bombState.defuseTimer -= dt;
+        const totalDefuseTime = defuser.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
+        const progress = 1 - (bombState.defuseTimer / totalDefuseTime);
+
+        // Emit defuse progress
+        io.emit('bomb_defusing', { defuser: defuser.id, progress: Math.max(0, progress), timeLeft: Math.max(0, bombState.defuseTimer) });
+
+        if (bombState.defuseTimer <= 0) {
+          bombState.planted = false;
+          bombState.defused = true;
+          defuser.money = Math.min(C.MAX_MONEY, defuser.money + C.BOMB_DEFUSE_REWARD);
+          defuser.defusingBomb = false;
+          io.emit('bomb_defused', { site: bombState.site, defuser: bombState.defuser });
+          endRound('CT', 'defuse');
+        }
+      }
     }
+  }
+
+  // Handle player-initiated planting progress
+  if (bombState.planter && !bombState.planted) {
+    // This shouldn't happen since planting is instant, but for future use
   }
 }
 
@@ -885,18 +1234,115 @@ function checkRoundEnd() {
   }
 }
 
+// ==================== SPECTATOR MODE ====================
+function updateSpectator(p, dt) {
+  // Free-roam with WASD
+  let dx = 0, dy = 0;
+  if (p.input.up) dy -= 1;
+  if (p.input.down) dy += 1;
+  if (p.input.left) dx -= 1;
+  if (p.input.right) dx += 1;
+
+  if (p.specTarget) {
+    // Following a specific player
+    const target = players[p.specTarget];
+    if (!target || !target.alive || target.team === C.TEAM_SPEC) {
+      p.specTarget = null;
+    } else {
+      // Follow target position
+      p.specX = target.x;
+      p.specY = target.y;
+      // Allow free-roam offset
+      if (dx !== 0 || dy !== 0) {
+        const speed = 300;
+        p.specX += dx * speed * dt;
+        p.specY += dy * speed * dt;
+      }
+    }
+  } else {
+    // Free roam
+    if (dx !== 0 || dy !== 0) {
+      const speed = 400;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      p.specX += (dx / len) * speed * dt;
+      p.specY += (dy / len) * speed * dt;
+    }
+  }
+
+  // Clamp to map bounds
+  const maxX = C.MAP_WIDTH * C.TILE_SIZE;
+  const maxY = C.MAP_HEIGHT * C.TILE_SIZE;
+  p.specX = Math.max(0, Math.min(maxX, p.specX));
+  p.specY = Math.max(0, Math.min(maxY, p.specY));
+
+  // Store as player position for visibility purposes
+  p.x = p.specX;
+  p.y = p.specY;
+}
+
+function getAlivePlayersForSpectate() {
+  return Object.values(players).filter(p => p.alive && p.team !== C.TEAM_SPEC);
+}
+
+function cycleSpectateTarget(p, direction) {
+  const alive = getAlivePlayersForSpectate();
+  if (alive.length === 0) {
+    p.specTarget = null;
+    return;
+  }
+
+  if (!p.specTarget) {
+    p.specTarget = alive[0].id;
+    return;
+  }
+
+  const currentIdx = alive.findIndex(pl => pl.id === p.specTarget);
+  if (currentIdx === -1) {
+    p.specTarget = alive[0].id;
+    return;
+  }
+
+  const newIdx = (currentIdx + direction + alive.length) % alive.length;
+  p.specTarget = alive[newIdx].id;
+}
+
 // ==================== BOT MANAGEMENT ====================
 function updateBots(dt) {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
 
-    // Collect any grenades the bot decided to throw this tick
-    if (p._pendingGrenades && p._pendingGrenades.length) {
-      for (const g of p._pendingGrenades) {
-        activeGrenades.push(g);
+    // Bot weapon pickup (occasionally check)
+    if (Math.random() < 0.01) {
+      checkWeaponPickup(p);
+    }
+  }
+  // Bot auto-plant bomb (server-side since bots can't emit socket events)
+  if (gameState === 'playing' && (!bombState || !bombState.planted)) {
+    for (const p of Object.values(players)) {
+      if (!p.isBot || !p.alive || p.team !== 'T') continue;
+      let site = null;
+      if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
+      else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
+      if (site && Math.random() < 0.02 * dt * 30) { // ~2% chance per tick when on site
+        bombState = {
+          site,
+          x: bombsites[site].centerX,
+          y: bombsites[site].centerY,
+          planter: p.id,
+          timer: C.BOMB_TIMER,
+          defuser: null,
+          defuseTimer: 0,
+          planted: true,
+          exploded: false,
+          defused: false,
+          plantProgress: 1,
+          _lastBeep: null,
+        };
+        p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
+        io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER, planter: p.id });
+        break;
       }
-      p._pendingGrenades.length = 0;
     }
   }
 }
@@ -905,13 +1351,13 @@ function botBuyDuringFreeze() {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     if (p._botBought) continue;
-    const items = addBotBuyLogic(p);
-    if (Array.isArray(items)) {
-      for (const item of items) {
-        handleBuy(p, item);
+    const item = addBotBuyLogic(p);
+    if (item) {
+      handleBuy(p, item);
+      // Also buy armor if didn't buy it already
+      if (!item.includes('kevlar') && !item.includes('helmet') && p.money >= 650) {
+        handleBuy(p, p.money >= 1000 ? 'helmet' : 'kevlar');
       }
-    } else if (typeof items === 'string') {
-      handleBuy(p, items);
     }
     p._botBought = true;
   }
@@ -922,15 +1368,14 @@ function addBotsToGame() {
   const ctPlayers = Object.values(players).filter(p => p.team === 'CT');
   const tBots = tPlayers.filter(p => p.isBot).length;
   const ctBots = ctPlayers.filter(p => p.isBot).length;
-  
+
   // Ensure each team has at least 3 bots
-  const botsToAdd = [];
   const tNeeded = Math.max(0, 3 - tBots);
   const ctNeeded = Math.max(0, 3 - ctBots);
-  
+
   const tNew = spawnBotsForTeam(players, 'T', tNeeded);
   const ctNew = spawnBotsForTeam(players, 'CT', ctNeeded);
-  
+
   for (const bot of [...tNew, ...ctNew]) {
     players[bot.id] = bot;
     giveDefaultWeapons(bot);
@@ -943,7 +1388,7 @@ function addBotsToGame() {
       bot.money = C.START_MONEY;
     }
   }
-  
+
   broadcastPlayerList();
   return { t: tNew.length, ct: ctNew.length };
 }
@@ -976,6 +1421,7 @@ io.on('connection', (socket) => {
     round: roundNumber,
     tScore,
     ctScore,
+    roundHistory,
   });
 
   // Send map
@@ -1003,23 +1449,28 @@ io.on('connection', (socket) => {
     }
 
     p.team = team;
-    if (team !== 'SPEC') {
+    if (team === 'SPEC') {
+      p.specTarget = null;
+      p.specX = C.MAP_WIDTH * C.TILE_SIZE / 2;
+      p.specY = C.MAP_HEIGHT * C.TILE_SIZE / 2;
+      p.alive = false;
+      p.weapons = [];
+      p.currentWeapon = -1;
+    } else {
       giveDefaultWeapons(p);
       spawnPlayer(p);
       // If joining mid-game, give starting money and mark as alive
       if (gameState === 'playing') {
         p.money = Math.min(p.money, C.START_MONEY);
-        // Player will be alive but join the current round
-        // If all enemies are dead, they'll be in the next round
       }
     }
 
     broadcastPlayerList();
-    io.emit('player_joined_team', { 
+    io.emit('player_joined_team', {
       id: socket.id, name: p.name, team,
     });
     // Send current game state to the joining player
-    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
+    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, roundHistory });
   });
 
   // Explicit mid-match team switch (from ESC menu)
@@ -1038,11 +1489,14 @@ io.on('connection', (socket) => {
     p.team = team;
     p.vx = 0;
     p.vy = 0;
-    p.input = { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false };
+    p.input = { up: false, down: false, left: false, right: false, shoot: false, reload: false, sprint: false, crouch: false };
 
     if (team === 'SPEC') {
       p.weapons = [];
       p.currentWeapon = -1;
+      p.specTarget = null;
+      p.specX = p.x;
+      p.specY = p.y;
     } else {
       giveDefaultWeapons(p);
       // Player respawns next round
@@ -1050,7 +1504,7 @@ io.on('connection', (socket) => {
 
     broadcastPlayerList();
     io.emit('player_joined_team', { id: socket.id, name: p.name, team });
-    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore });
+    socket.emit('game_state', { state: gameState, round: roundNumber, tScore, ctScore, roundHistory });
   });
 
   socket.on('update_input', (input) => {
@@ -1062,7 +1516,6 @@ io.on('connection', (socket) => {
   socket.on('update_angle', (angle) => {
     const p = players[socket.id];
     if (!p) return;
-    if (!Number.isFinite(angle)) return;
     p.angle = angle;
   });
 
@@ -1081,8 +1534,48 @@ io.on('connection', (socket) => {
 
   socket.on('switch_weapon', (index) => {
     const p = players[socket.id];
-    if (!p || index < 0 || index >= p.weapons.length) return;
-    p.currentWeapon = index;
+    if (!p) return;
+
+    // index -1 = knife (always available)
+    // index 0..weapons.length-1 = weapon slots
+    if (index === -1 || index === 'knife') {
+      p.currentWeapon = -1; // knife
+      p.reloading = false;
+      return;
+    }
+
+    if (typeof index === 'string' && index === 'knife') {
+      p.currentWeapon = -1;
+      p.reloading = false;
+      return;
+    }
+
+    const idx = parseInt(index);
+    if (isNaN(idx) || idx < 0 || idx >= p.weapons.length) return;
+    p.currentWeapon = idx;
+    p.reloading = false;
+  });
+
+  // Scroll weapon switch (up/down cycle)
+  socket.on('scroll_weapon', (direction) => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    // If spectator, cycle spectate target instead
+    if (p.team === C.TEAM_SPEC) {
+      cycleSpectateTarget(p, direction === 1 ? 1 : -1);
+      return;
+    }
+
+    if (!p.alive) return;
+
+    // Cycle through weapons: knife -> slot0 -> slot1 -> ... -> knife
+    const totalSlots = p.weapons.length + 1; // +1 for knife
+    let currentSlot = p.currentWeapon + 1; // +1 because knife is -1
+    if (currentSlot < 0) currentSlot = 0;
+
+    const newSlot = ((currentSlot + direction) % totalSlots + totalSlots) % totalSlots;
+    p.currentWeapon = newSlot - 1; // back to -1 for knife
     p.reloading = false;
   });
 
@@ -1093,15 +1586,61 @@ io.on('connection', (socket) => {
     socket.emit('player_update', serializePlayer(p));
   });
 
-  // Legacy plant/defuse events — kept for backward compat, now route to `use` input.
   socket.on('plant_bomb', () => {
     const p = players[socket.id];
-    if (p) p.input.use = true;
+    if (!p || p.team !== 'T' || !p.alive || bombState?.planted) return;
+
+    // Check if on bombsite
+    let site = null;
+    if (isOnBombsite(gameMap, p.x, p.y, 'A')) site = 'A';
+    else if (isOnBombsite(gameMap, p.x, p.y, 'B')) site = 'B';
+    if (!site) return;
+
+    bombState = {
+      site,
+      x: bombsites[site].centerX,
+      y: bombsites[site].centerY,
+      planter: p.id,
+      timer: C.BOMB_TIMER,
+      defuser: null,
+      defuseTimer: 0,
+      planted: true,
+      exploded: false,
+      defused: false,
+      plantProgress: 1,
+      _lastBeep: null,
+    };
+
+    p.money = Math.min(C.MAX_MONEY, p.money + C.BOMB_PLANT_REWARD);
+    io.emit('bomb_planted', { site, x: bombState.x, y: bombState.y, timer: C.BOMB_TIMER, planter: p.id });
   });
 
   socket.on('defuse_bomb', () => {
     const p = players[socket.id];
-    if (p) p.input.use = true;
+    if (!p || p.team !== 'CT' || !p.alive || !bombState?.planted) return;
+
+    const dx = p.x - bombState.x;
+    const dy = p.y - bombState.y;
+    if (Math.sqrt(dx * dx + dy * dy) > 80) return;
+
+    const defuseTime = p.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
+    bombState.defuser = p.id;
+    bombState.defuseTimer = defuseTime;
+    p.defusingBomb = true;
+    io.emit('bomb_defusing', { defuser: p.id, progress: 0, timeLeft: defuseTime });
+  });
+
+  // Cancel defuse (explicit)
+  socket.on('cancel_defuse', () => {
+    const p = players[socket.id];
+    if (!p) return;
+    if (bombState && bombState.defuser === p.id) {
+      bombState.defuser = null;
+      bombState.defuseTimer = 0;
+      p.defusingBomb = false;
+      p.defuseProgress = 0;
+      io.emit('bomb_defuse_cancelled', { reason: 'cancelled' });
+    }
   });
 
   socket.on('throw_grenade', (type) => {
@@ -1128,6 +1667,22 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Spectator: click on player to spectate them
+  socket.on('spectate_player', (targetId) => {
+    const p = players[socket.id];
+    if (!p || p.team !== C.TEAM_SPEC) return;
+    const target = players[targetId];
+    if (!target || !target.alive || target.team === C.TEAM_SPEC) return;
+    p.specTarget = targetId;
+  });
+
+  // Spectator: stop spectating, go to free roam
+  socket.on('spectate_free', () => {
+    const p = players[socket.id];
+    if (!p || p.team !== C.TEAM_SPEC) return;
+    p.specTarget = null;
+  });
+
   socket.on('start_game', () => {
     const tCount = Object.values(players).filter(p => p.team === 'T').length;
     const ctCount = Object.values(players).filter(p => p.team === 'CT').length;
@@ -1144,6 +1699,10 @@ io.on('connection', (socket) => {
     tScore = 0;
     ctScore = 0;
     bombState = null;
+    roundHistory = [];
+    droppedWeapons = [];
+    roundEndTimer = 0;
+    gameOverTimer = 0;
     // Keep bots, reset their stats too
     for (const [id, p] of Object.entries(players)) {
       p.kills = 0;
@@ -1152,7 +1711,7 @@ io.on('connection', (socket) => {
       p.money = C.START_MONEY;
     }
     io.emit('game_restart');
-    io.emit('game_state', { state: gameState, round: 0, tScore: 0, ctScore: 0 });
+    io.emit('game_state', { state: gameState, round: 0, tScore: 0, ctScore: 0, roundHistory });
   });
 
   socket.on('add_bots', () => {
@@ -1177,6 +1736,12 @@ io.on('connection', (socket) => {
     if (p) {
       delete players[socket.id];
       broadcastPlayerList();
+      // If someone was spectating this player, reset their target
+      for (const other of Object.values(players)) {
+        if (other.specTarget === socket.id) {
+          other.specTarget = null;
+        }
+      }
       // Game keeps running even without real players — bots play on
     }
   });
@@ -1200,13 +1765,15 @@ function serializePlayer(p) {
     hasDefuseKit: p.hasDefuseKit,
     angle: p.angle,
     reloading: p.reloading,
-    reloadTimer: p.reloadTimer,
     kills: p.kills,
     deaths: p.deaths,
     assists: p.assists,
-    plantProgress: p.plantProgress || 0,
-    defusing: p.defusing || false,
     isBot: p.isBot || false,
+    crouching: p.crouching,
+    crouchTransition: p.crouchTransition,
+    sprinting: p.sprinting,
+    // Spectator data
+    specTarget: p.specTarget,
   };
 }
 
@@ -1246,12 +1813,16 @@ setInterval(() => {
     grenades: grenades.map(g => ({ type: g.type, x: g.x, y: g.y, radius: g.radius, timer: g.timer })),
     activeGrenades: activeGrenades.map(g => ({ type: g.type, x: g.x, y: g.y })),
     bomb: bombState,
+    droppedWeapons: droppedWeapons.map(dw => ({ id: dw.id, weaponKey: dw.weaponKey, x: dw.x, y: dw.y })),
     roundTimer,
     freezeTimer,
+    roundEndTimer,
     gameState,
     round: roundNumber,
     tScore,
     ctScore,
+    roundHistory,
+    mvp: roundMVP,
   };
 
   // Find all connected sockets
@@ -1264,6 +1835,15 @@ setInterval(() => {
 
     const myState = { ...baseState, players: {} };
 
+    // Determine bomb carrier for T team visibility
+    let bombCarrier = null;
+    if (bombState && !bombState.planted && bombState.planter) {
+      bombCarrier = bombState.planter;
+    }
+    // If bomb not planted and no planter set, find the T player who "has" the bomb
+    // (In this implementation, any T on a bombsite can plant, so we show bomb carrier as
+    //  the first alive T player as a visual indicator)
+
     for (const [id, p] of Object.entries(players)) {
       // Always include self
       if (id === socketId) {
@@ -1272,7 +1852,7 @@ setInterval(() => {
       }
 
       // Always include teammates (full visibility)
-      if (p.team === me.team) {
+      if (p.team === me.team && me.team !== C.TEAM_SPEC) {
         myState.players[id] = serializePlayer(p);
         continue;
       }
@@ -1294,16 +1874,9 @@ setInterval(() => {
       // Check line of sight (and within view distance)
       const canSee = dist <= VISIBILITY_RADIUS && lineOfSight(gameMap, me.x, me.y, p.x, p.y);
 
-      // Check if enemy is making noise:
-      //  - shooting (loud — heard at HEAR_RANGE)
-      //  - sprinting running (heard at FOOTSTEP_RANGE)
-      //  - walking (heard at closer range)
+      // Check if enemy is making noise (shot within last 0.5s) and within hearing range
       const shootingNow = (now / 1000) - (p.lastShotTime || 0) < 0.5;
-      const enemyMoving = (Math.abs(p.vx) + Math.abs(p.vy)) > 20;
-      const enemySprinting = enemyMoving && p.input && p.input.sprint;
-      const footstepRange = enemySprinting ? 400 : (enemyMoving ? 220 : 0);
-      const canHear = (shootingNow && dist <= HEAR_RANGE)
-                    || (enemyMoving && dist <= footstepRange);
+      const canHear = shootingNow && dist <= HEAR_RANGE;
 
       if (canSee) {
         myState.players[id] = serializePlayer(p);
@@ -1315,6 +1888,11 @@ setInterval(() => {
         };
       }
       // Otherwise enemy is completely hidden – do not include
+    }
+
+    // Include bomb carrier indicator
+    if (bombCarrier && myState.players[bombCarrier]) {
+      myState.players[bombCarrier].hasBomb = true;
     }
 
     socket.emit('game_state_update', myState);
@@ -1338,43 +1916,3 @@ function autoStartGame() {
   startGame();
   console.log('Auto-started game with bots');
 }
-
-// Patch endRound to auto-restart after game_over
-(function patchEndRound() {
-  const orig = endRound;
-  endRound = function(winner, reason) {
-    // Check if this will trigger game_over BEFORE calling orig
-    let willBeGameOver = false;
-    if (winner === 'T') {
-      willBeGameOver = (tScore + 1) >= C.ROUNDS_TO_WIN;
-    } else {
-      willBeGameOver = (ctScore + 1) >= C.ROUNDS_TO_WIN;
-    }
-    
-    orig(winner, reason);
-    
-    if (willBeGameOver) {
-      // Wait for the game_over state to be set (3s from orig's setTimeout) + 5s display
-      setTimeout(() => {
-        console.log('Auto-restarting game after game_over');
-        // Remove old bots
-        for (const [id, p] of Object.entries(players)) {
-          if (p.isBot) delete players[id];
-        }
-        gameState = 'waiting';
-        roundNumber = 0;
-        tScore = 0;
-        ctScore = 0;
-        bombState = null;
-        lossBonus = { T: 0, CT: 0 };
-        consecutiveLosses = { T: 0, CT: 0 };
-        io.emit('game_restart');
-        io.emit('game_state', { state: 'waiting', round: 0, tScore: 0, ctScore: 0 });
-        // Re-add bots and start fresh after short delay
-        setTimeout(() => {
-          autoStartGame();
-        }, 1500);
-      }, 10000); // 3s (round_end display) + 7s (game_over display)
-    }
-  };
-})();

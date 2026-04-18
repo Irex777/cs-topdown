@@ -15,19 +15,31 @@
     background: radial-gradient(ellipse at center, #1a1a3e 0%, #0a0a14 70%);
   }
   #menu-screen.hidden { display: none; }
+  #menu-particles { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+  .menu-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
   .menu-title {
     font-size: 64px; font-weight: 900; letter-spacing: 8px; text-transform: uppercase;
     background: linear-gradient(135deg, #ff6b35 0%, #ffd700 30%, #ff6b35 60%, #ffd700 100%);
     background-size: 200% 200%;
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     animation: shimmer 3s ease infinite;
-    margin-bottom: 8px; filter: drop-shadow(0 0 30px rgba(255,107,53,0.3));
+    margin-bottom: 4px; filter: drop-shadow(0 0 30px rgba(255,107,53,0.3));
   }
   @keyframes shimmer { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-  .menu-subtitle { font-size: 14px; letter-spacing: 12px; color: #666; text-transform: uppercase; margin-bottom: 40px; }
+  .menu-subtitle { font-size: 14px; letter-spacing: 12px; color: #666; text-transform: uppercase; margin-bottom: 6px; }
+  .menu-version { font-size: 10px; color: #333; letter-spacing: 2px; margin-bottom: 32px; }
+  .menu-server-status {
+    display: flex; align-items: center; gap: 6px; font-size: 11px; color: #555;
+    margin-bottom: 20px; padding: 4px 12px; background: rgba(255,255,255,0.03);
+    border-radius: 20px; border: 1px solid rgba(255,255,255,0.04);
+  }
+  .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #444; }
+  .status-dot.online { background: #4caf50; box-shadow: 0 0 6px rgba(76,175,80,0.5); animation: pulse-dot 2s infinite; }
+  .status-dot.offline { background: #f44336; }
+  @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
   .menu-input {
     padding: 14px 24px; font-size: 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
-    background: rgba(255,255,255,0.05); color: #eee; width: 320px; text-align: center; margin-bottom: 16px;
+    background: rgba(255,255,255,0.05); color: #eee; width: 320px; text-align: center; margin-bottom: 12px;
     backdrop-filter: blur(10px); transition: all 0.3s;
   }
   .menu-input:focus { outline: none; border-color: #ff6b35; background: rgba(255,107,53,0.05); box-shadow: 0 0 20px rgba(255,107,53,0.1); }
@@ -41,6 +53,25 @@
     box-shadow: 0 4px 20px rgba(255,107,53,0.3);
   }
   .btn-connect:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(255,107,53,0.5); }
+  #menu-status { color: #555; font-size: 12px; margin-top: 8px; }
+
+  /* Controls Help Panel */
+  .controls-toggle {
+    margin-top: 24px; font-size: 11px; color: #444; cursor: pointer; letter-spacing: 2px;
+    text-transform: uppercase; transition: color 0.3s; padding: 8px 16px; border-radius: 8px;
+    border: 1px solid rgba(255,255,255,0.04);
+  }
+  .controls-toggle:hover { color: #888; border-color: rgba(255,255,255,0.08); }
+  .controls-panel {
+    margin-top: 12px; background: rgba(0,0,0,0.4); border-radius: 12px; padding: 16px 24px;
+    border: 1px solid rgba(255,255,255,0.04); max-width: 400px; width: 90%;
+    display: none; backdrop-filter: blur(10px);
+  }
+  .controls-panel.show { display: block; animation: fadeIn 0.3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: none; } }
+  .controls-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; font-size: 12px; }
+  .controls-grid .key { color: #ff6b35; font-weight: 700; font-family: monospace; text-align: right; }
+  .controls-grid .desc { color: #666; }
 
   /* TEAM SELECT */
   #team-select {
@@ -49,18 +80,16 @@
     text-align: center; min-width: 560px; border: 1px solid rgba(255,255,255,0.08);
     backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
-  #team-select.show { display: block; }
+  #team-select.show { display: block; animation: fadeIn 0.3s ease; }
   .team-btns { display: flex; gap: 20px; justify-content: center; margin-top: 20px; }
   .btn-t {
     background: linear-gradient(135deg, #c9952d, #a07825); color: #fff; flex: 1; padding: 24px;
-    font-size: 18px; border-radius: 12px; border: 1px solid rgba(212,165,55,0.3);
-    transition: all 0.3s;
+    font-size: 18px; border-radius: 12px; border: 1px solid rgba(212,165,55,0.3); transition: all 0.3s;
   }
   .btn-t:hover { background: linear-gradient(135deg, #daa535, #b88a2a); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(212,165,55,0.3); }
   .btn-ct {
     background: linear-gradient(135deg, #3a7bc8, #2a5fa0); color: #fff; flex: 1; padding: 24px;
-    font-size: 18px; border-radius: 12px; border: 1px solid rgba(74,144,217,0.3);
-    transition: all 0.3s;
+    font-size: 18px; border-radius: 12px; border: 1px solid rgba(74,144,217,0.3); transition: all 0.3s;
   }
   .btn-ct:hover { background: linear-gradient(135deg, #4a8bd8, #3a6fb0); transform: translateY(-2px); box-shadow: 0 8px 25px rgba(74,144,217,0.3); }
   .btn-spec { background: rgba(255,255,255,0.05); color: #888; margin-top: 15px; width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
@@ -92,20 +121,81 @@
   }
   .score-t {
     background: linear-gradient(135deg, rgba(212,165,55,0.2), rgba(212,165,55,0.05));
-    padding: 8px 24px; font-size: 28px; font-weight: 900; color: #d4a537;
-    min-width: 55px; text-align: center; text-shadow: 0 0 10px rgba(212,165,55,0.3);
+    padding: 8px 16px; font-size: 28px; font-weight: 900; color: #d4a537;
+    min-width: 45px; text-align: center; text-shadow: 0 0 10px rgba(212,165,55,0.3);
+    display: flex; align-items: center; justify-content: center;
   }
+  .round-dots-t {
+    display: flex; gap: 2px; padding: 4px 8px; align-items: center;
+    background: rgba(212,165,55,0.08);
+  }
+  .round-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .round-dot.t { background: #d4a537; }
+  .round-dot.ct { background: #4a90d9; }
+  .round-dot.empty { background: rgba(255,255,255,0.08); }
   .score-info {
-    padding: 6px 18px; text-align: center; background: rgba(0,0,0,0.3);
-    display: flex; flex-direction: column; justify-content: center;
+    padding: 6px 14px; text-align: center; background: rgba(0,0,0,0.3);
+    display: flex; flex-direction: column; justify-content: center; min-width: 80px;
   }
-  .score-round { font-size: 10px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
+  .score-round { font-size: 9px; color: #555; text-transform: uppercase; letter-spacing: 1px; }
   .score-timer { font-size: 22px; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; }
   .score-ct {
     background: linear-gradient(135deg, rgba(74,144,217,0.2), rgba(74,144,217,0.05));
-    padding: 8px 24px; font-size: 28px; font-weight: 900; color: #4a90d9;
-    min-width: 55px; text-align: center; text-shadow: 0 0 10px rgba(74,144,217,0.3);
+    padding: 8px 16px; font-size: 28px; font-weight: 900; color: #4a90d9;
+    min-width: 45px; text-align: center; text-shadow: 0 0 10px rgba(74,144,217,0.3);
+    display: flex; align-items: center; justify-content: center;
   }
+  .round-dots-ct {
+    display: flex; gap: 2px; padding: 4px 8px; align-items: center;
+    background: rgba(74,144,217,0.08);
+  }
+
+  /* Round history bar */
+  .round-history {
+    position: absolute; top: 56px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 2px; z-index: 12;
+  }
+  .round-history-dot {
+    width: 10px; height: 10px; border-radius: 2px;
+    animation: popIn 0.3s ease;
+  }
+  .round-history-dot.t { background: #d4a537; }
+  .round-history-dot.ct { background: #4a90d9; }
+  @keyframes popIn { from { transform: scale(0); } to { transform: scale(1); } }
+
+  /* Alive count per team */
+  .alive-counts {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 12px; z-index: 11; pointer-events: none;
+  }
+
+  /* Bomb indicator */
+  .bomb-indicator {
+    position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+    display: flex; align-items: center; gap: 8px; z-index: 12;
+    background: rgba(0,0,0,0.7); padding: 6px 16px; border-radius: 8px;
+    border: 1px solid rgba(255,50,50,0.3); backdrop-filter: blur(8px);
+    animation: fadeIn 0.3s ease;
+  }
+  .bomb-indicator.hidden { display: none; }
+  .bomb-icon-pulse { animation: bombPulse 0.8s ease infinite; display: inline-block; }
+  @keyframes bombPulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.2); opacity: 0.7; } }
+  .bomb-timer { font-size: 18px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  .bomb-timer.urgent { color: #ff0000; animation: urgentFlash 0.5s infinite; }
+  @keyframes urgentFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+  .bomb-site-label { font-size: 11px; font-weight: 700; letter-spacing: 2px; }
+
+  /* Plant/defuse progress bar */
+  .action-progress {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    width: 240px; z-index: 13; text-align: center; display: none;
+  }
+  .action-progress.show { display: block; animation: fadeIn 0.2s ease; }
+  .action-progress-label { font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 6px; }
+  .action-progress-track { width: 100%; height: 8px; background: rgba(0,0,0,0.7); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); }
+  .action-progress-fill { height: 100%; border-radius: 4px; transition: width 0.1s linear; }
+  .action-progress-fill.planting { background: linear-gradient(90deg, #ff4444, #ff6b35); }
+  .action-progress-fill.defusing { background: linear-gradient(90deg, #2196f3, #4caf50); }
 
   /* Bottom HUD */
   .bottom-hud {
@@ -126,12 +216,14 @@
   .hp-fill.mid { background: linear-gradient(90deg, #ff9800, #ffb74d); }
   .armor-fill { background: linear-gradient(90deg, #2196f3, #42a5f5); }
 
-  .ammo-display { text-align: center; }
+  .ammo-display { text-align: center; position: relative; }
   .weapon-name { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
   .ammo-row { display: flex; align-items: baseline; justify-content: center; gap: 4px; }
   .ammo-current { font-size: 28px; font-weight: 900; font-variant-numeric: tabular-nums; }
   .ammo-sep { font-size: 16px; color: #444; }
   .ammo-reserve { font-size: 16px; color: #666; font-variant-numeric: tabular-nums; }
+  .reload-bar-track { width: 100%; height: 3px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-top: 4px; overflow: hidden; }
+  .reload-bar-fill { height: 100%; background: #ff6b35; border-radius: 2px; transition: width 0.1s linear; }
 
   .grenade-display { display: flex; gap: 10px; align-items: center; }
   .grenade-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -147,37 +239,83 @@
   .kill-feed {
     position: absolute; top: 60px; right: 12px;
     display: flex; flex-direction: column; gap: 3px;
-    max-width: 380px;
+    max-width: 400px;
   }
   .kill-entry {
     background: rgba(0,0,0,0.7); padding: 5px 12px; border-radius: 6px;
-    font-size: 12px; display: flex; align-items: center; gap: 8px;
+    font-size: 12px; display: flex; align-items: center; gap: 6px;
     border: 1px solid rgba(255,255,255,0.04);
     animation: killSlide 0.3s ease-out, killFade 5s 1s forwards;
     backdrop-filter: blur(4px);
   }
+  .kill-entry.headshot { border-color: rgba(255,215,0,0.3); }
   @keyframes killSlide { from { transform: translateX(50px); opacity: 0; } to { transform: none; opacity: 1; } }
   @keyframes killFade { to { opacity: 0; transform: translateX(20px); } }
   .kill-entry .killer-name { font-weight: 700; }
-  .kill-entry .weapon-icon { color: #ff6b35; font-size: 11px; opacity: 0.7; }
+  .kill-entry .weapon-icon-img { width: 14px; height: 14px; }
+  .kill-entry .weapon-text { color: #ff6b35; font-size: 10px; opacity: 0.8; }
   .kill-entry .victim-name { color: #aaa; }
-  .kill-entry .hs-icon { color: #ffd700; font-size: 10px; font-weight: 900; }
+  .kill-entry .hs-icon { color: #ffd700; font-size: 10px; font-weight: 900; animation: hsFlash 0.5s ease 3; }
+  @keyframes hsFlash { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  /* Round result banner */
+  .round-result-banner {
+    position: absolute; top: 50%; left: 0; width: 100%; transform: translateY(-50%);
+    z-index: 40; text-align: center; pointer-events: none; display: none;
+  }
+  .round-result-banner.show { display: block; animation: bannerSlideIn 0.5s ease; }
+  @keyframes bannerSlideIn { from { transform: translateY(-50%) translateX(-100%); opacity: 0; } to { transform: translateY(-50%) translateX(0); opacity: 1; } }
+  .round-result-inner {
+    background: linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.85) 15%, rgba(0,0,0,0.85) 85%, transparent 100%);
+    padding: 24px 60px;
+  }
+  .round-result-winner { font-size: 36px; font-weight: 900; letter-spacing: 6px; text-transform: uppercase; }
+  .round-result-reason { font-size: 14px; color: #888; margin-top: 4px; letter-spacing: 2px; }
+  .round-result-mvp { font-size: 12px; color: #ffd700; margin-top: 8px; letter-spacing: 1px; }
+
+  /* Game over screen */
+  .game-over-screen {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 60; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.85); backdrop-filter: blur(8px);
+  }
+  .game-over-screen.show { display: flex; animation: fadeIn 0.5s ease; }
+  .game-over-content { text-align: center; }
+  .game-over-title { font-size: 48px; font-weight: 900; letter-spacing: 6px; text-transform: uppercase; margin-bottom: 16px; }
+  .game-over-score { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+  .game-over-mvp { font-size: 14px; color: #ffd700; margin-bottom: 32px; }
+  .game-over-btn {
+    padding: 14px 40px; font-size: 15px; font-weight: 700; border: none; border-radius: 12px;
+    cursor: pointer; transition: all 0.3s; text-transform: uppercase; letter-spacing: 2px;
+    pointer-events: auto; background: linear-gradient(135deg, #ff6b35, #e04a15); color: #fff;
+    box-shadow: 0 4px 20px rgba(255,107,53,0.3);
+  }
+  .game-over-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 30px rgba(255,107,53,0.5); }
 
   /* Buy menu */
   #buy-menu {
-    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.95);
     z-index: 80; background: rgba(10,10,20,0.95); padding: 24px; border-radius: 16px;
-    min-width: 640px; border: 1px solid rgba(255,255,255,0.06); pointer-events: auto;
+    min-width: 680px; max-width: 800px; max-height: 80vh; overflow-y: auto;
+    border: 1px solid rgba(255,255,255,0.06); pointer-events: auto;
     backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    opacity: 0; transition: all 0.25s ease;
   }
-  #buy-menu.show { display: block; }
-  .buy-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; text-align: center; color: #ff6b35; letter-spacing: 2px; }
+  #buy-menu.show { display: block; opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  .buy-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .buy-title { font-size: 18px; font-weight: 700; color: #ff6b35; letter-spacing: 2px; }
+  .buy-money { font-size: 16px; font-weight: 900; color: #4caf50; }
+  .buy-loadout { margin-bottom: 16px; padding: 10px 14px; background: rgba(255,255,255,0.03); border-radius: 10px; border: 1px solid rgba(255,255,255,0.04); }
+  .buy-loadout-title { font-size: 9px; color: #444; text-transform: uppercase; letter-spacing: 2px; margin-bottom: 6px; }
+  .buy-loadout-items { display: flex; gap: 8px; flex-wrap: wrap; }
+  .buy-loadout-item { font-size: 11px; color: #888; padding: 3px 8px; background: rgba(255,255,255,0.04); border-radius: 4px; }
+  .buy-loadout-item.owned { color: #4caf50; border: 1px solid rgba(76,175,80,0.2); }
   .buy-section { margin-bottom: 12px; }
   .buy-section-title { font-size: 10px; text-transform: uppercase; color: #555; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 4px; letter-spacing: 2px; }
   .buy-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .buy-item {
     background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; padding: 10px;
-    cursor: pointer; text-align: center; transition: all 0.2s;
+    cursor: pointer; text-align: center; transition: all 0.2s; position: relative;
   }
   .buy-item:hover { border-color: #ff6b35; background: rgba(255,107,53,0.08); transform: translateY(-1px); }
   .buy-item.cant-afford { opacity: 0.3; cursor: not-allowed; }
@@ -185,6 +323,7 @@
   .buy-item.wrong-team { opacity: 0.2; cursor: not-allowed; }
   .buy-item-name { font-size: 11px; font-weight: 600; }
   .buy-item-price { font-size: 11px; color: #4caf50; margin-top: 3px; }
+  .buy-item-key { position: absolute; top: 4px; left: 6px; font-size: 9px; color: #333; font-weight: 700; }
 
   /* Chat */
   #chat-box {
@@ -221,6 +360,10 @@
     position: absolute; top: 4px; left: 6px; font-size: 8px; color: #444;
     text-transform: uppercase; letter-spacing: 2px; z-index: 2;
   }
+  .minimap-counts {
+    position: absolute; bottom: 4px; left: 6px; right: 6px; z-index: 2;
+    display: flex; justify-content: space-between; font-size: 8px; font-weight: 700;
+  }
 
   /* Crosshair */
   .crosshair {
@@ -251,20 +394,27 @@
   #scoreboard {
     display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
     z-index: 85; background: rgba(10,10,20,0.95); padding: 24px; border-radius: 16px;
-    min-width: 750px; border: 1px solid rgba(255,255,255,0.06);
+    min-width: 800px; border: 1px solid rgba(255,255,255,0.06);
     backdrop-filter: blur(20px); box-shadow: 0 20px 60px rgba(0,0,0,0.5);
   }
   #scoreboard.show { display: block; }
-  .sb-header { display: flex; justify-content: space-between; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .sb-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.06); }
   .sb-team { text-align: center; }
   .sb-team-t { color: #d4a537; font-size: 32px; font-weight: 900; text-shadow: 0 0 15px rgba(212,165,55,0.3); }
   .sb-team-ct { color: #4a90d9; font-size: 32px; font-weight: 900; text-shadow: 0 0 15px rgba(74,144,217,0.3); }
   .sb-team-name { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 2px; }
+  .sb-team-dots { display: flex; gap: 3px; justify-content: center; margin-top: 4px; }
   .sb-table { width: 100%; border-collapse: collapse; }
   .sb-table th { font-size: 9px; color: #444; text-transform: uppercase; letter-spacing: 1px; padding: 4px 8px; text-align: left; }
-  .sb-table td { padding: 5px 8px; font-size: 13px; }
+  .sb-table td { padding: 5px 8px; font-size: 13px; font-variant-numeric: tabular-nums; }
   .sb-table .dead { opacity: 0.3; }
   .sb-table tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+  .sb-table .me { background: rgba(255,107,53,0.08); }
+  .sb-table .mvp-star { color: #ffd700; font-size: 11px; }
+  .sb-ping { color: #555; font-size: 11px; }
+  .sb-ping.good { color: #4caf50; }
+  .sb-ping.mid { color: #ff9800; }
+  .sb-ping.bad { color: #f44336; }
 
   /* Flash overlay */
   #flash-overlay {
@@ -324,18 +474,68 @@
   .esc-btn-spec { color: #888; }
   .esc-btn-disconnect { color: #ff4444; border-color: rgba(255,68,68,0.15); margin-top: 16px; }
   .esc-btn-disconnect:hover { background: rgba(255,68,68,0.1); border-color: rgba(255,68,68,0.3); }
+
+  /* Spectator info */
+  .spectator-info {
+    position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+    z-index: 14; text-align: center; pointer-events: none;
+    background: rgba(0,0,0,0.6); padding: 10px 20px; border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.06); backdrop-filter: blur(8px);
+  }
+  .spectator-info.hidden { display: none; }
+  .spectator-name { font-size: 16px; font-weight: 700; }
+  .spectator-hp { font-size: 12px; color: #888; margin-top: 2px; }
+  .spectator-hint { font-size: 10px; color: #444; margin-top: 6px; letter-spacing: 1px; }
+
+  /* Center message overlay */
+  .center-msg-overlay {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 30; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start; padding-top: 25%;
+  }
+  .center-msg-main { font-weight: 900; letter-spacing: 4px; text-transform: uppercase; }
+  .center-msg-sub { font-size: 14px; color: #888; margin-top: 8px; letter-spacing: 2px; }
 </style>
 </head>
 <body>
 
 <!-- MENU SCREEN -->
 <div id="menu-screen">
-  <div class="menu-title">CS TOPDOWN</div>
-  <div class="menu-subtitle">Tactical Shooter</div>
-  <input type="text" class="menu-input" id="name-input" placeholder="Your name" maxlength="20" value="">
-  <input type="text" class="menu-input" id="server-input" placeholder="Leave empty for this server" value="">
-  <button class="menu-btn btn-connect" id="connect-btn">CONNECT</button>
-  <div id="menu-status" style="color: #555; font-size: 12px; margin-top: 8px;"></div>
+  <canvas id="menu-particles"></canvas>
+  <div class="menu-content">
+    <div class="menu-title">CS TOPDOWN</div>
+    <div class="menu-subtitle">Tactical Shooter</div>
+    <div class="menu-version">v3.0 — Enhanced Edition</div>
+    <div class="menu-server-status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Checking server...</span>
+      <span style="color:#333;">|</span>
+      <span id="player-count-text" style="color:#444;">0 online</span>
+    </div>
+    <input type="text" class="menu-input" id="name-input" placeholder="Your name" maxlength="20" value="">
+    <input type="text" class="menu-input" id="server-input" placeholder="Leave empty for this server" value="">
+    <button class="menu-btn btn-connect" id="connect-btn">CONNECT</button>
+    <div id="menu-status"></div>
+    <div class="controls-toggle" onclick="toggleControls()">SHOW CONTROLS</div>
+    <div class="controls-panel" id="controls-panel">
+      <div class="controls-grid">
+        <span class="key">WASD</span><span class="desc">Move</span>
+        <span class="key">MOUSE</span><span class="desc">Aim</span>
+        <span class="key">LMB</span><span class="desc">Shoot</span>
+        <span class="key">R</span><span class="desc">Reload</span>
+        <span class="key">1-4</span><span class="desc">Switch weapons</span>
+        <span class="key">B</span><span class="desc">Buy menu</span>
+        <span class="key">G</span><span class="desc">HE Grenade</span>
+        <span class="key">F</span><span class="desc">Flashbang</span>
+        <span class="key">C</span><span class="desc">Smoke Grenade</span>
+        <span class="key">E</span><span class="desc">Plant / Defuse bomb</span>
+        <span class="key">SHIFT</span><span class="desc">Sprint</span>
+        <span class="key">ENTER</span><span class="desc">Chat</span>
+        <span class="key">TAB</span><span class="desc">Scoreboard</span>
+        <span class="key">ESC</span><span class="desc">Pause menu</span>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- TEAM SELECT -->
@@ -365,11 +565,26 @@
 <div id="hud" class="hidden">
   <div class="score-bar">
     <div class="score-t" id="score-t">0</div>
+    <div class="round-dots-t" id="round-dots-t"></div>
     <div class="score-info">
       <div class="score-round" id="round-num">Round 1</div>
       <div class="score-timer" id="round-timer">1:55</div>
     </div>
+    <div class="round-dots-ct" id="round-dots-ct"></div>
     <div class="score-ct" id="score-ct">0</div>
+  </div>
+
+  <div class="round-history" id="round-history"></div>
+
+  <div class="bomb-indicator hidden" id="bomb-indicator">
+    <span class="bomb-icon-pulse" style="font-size:20px;">💣</span>
+    <span class="bomb-site-label" id="bomb-site-label" style="color:#ff4444;">BOMB A</span>
+    <span class="bomb-timer" id="bomb-timer">40s</span>
+  </div>
+
+  <div class="action-progress" id="action-progress">
+    <div class="action-progress-label" id="action-progress-label">PLANTING</div>
+    <div class="action-progress-track"><div class="action-progress-fill" id="action-progress-fill" style="width:0%"></div></div>
   </div>
 
   <div class="bottom-hud">
@@ -393,6 +608,7 @@
         <span class="ammo-sep">/</span>
         <span class="ammo-reserve" id="ammo-reserve">120</span>
       </div>
+      <div class="reload-bar-track" id="reload-bar" style="display:none;"><div class="reload-bar-fill" id="reload-fill" style="width:0%"></div></div>
     </div>
     <div class="hud-panel grenade-display" id="grenade-display">
       <div class="grenade-slot"><span class="grenade-icon">💣</span><span class="grenade-count" id="grenade-he">0</span></div>
@@ -409,10 +625,14 @@
 
   <div class="minimap-container">
     <div class="minimap-label">radar</div>
-    <canvas id="minimap" width="200" height="150"></canvas>
+    <div class="minimap-counts">
+      <span id="minimap-t-alive" style="color:#d4a537;">T: 0</span>
+      <span id="minimap-ct-alive" style="color:#4a90d9;">CT: 0</span>
+    </div>
+    <canvas id="minimap" width="220" height="165"></canvas>
   </div>
 
-  <div class="crosshair">
+  <div class="crosshair" id="crosshair">
     <div class="crosshair-line ch-top"></div>
     <div class="crosshair-line ch-bottom"></div>
     <div class="crosshair-line ch-left"></div>
@@ -421,11 +641,43 @@
   </div>
 
   <div class="weapon-slots" id="weapon-slots"></div>
+
+  <div class="spectator-info hidden" id="spectator-info">
+    <div class="spectator-name" id="spec-name">—</div>
+    <div class="spectator-hp" id="spec-hp"></div>
+    <div class="spectator-hint">CLICK player to spectate | WASD free camera | SPACE next player</div>
+  </div>
+</div>
+
+<!-- Round result banner -->
+<div class="round-result-banner" id="round-result-banner">
+  <div class="round-result-inner">
+    <div class="round-result-winner" id="round-result-winner"></div>
+    <div class="round-result-reason" id="round-result-reason"></div>
+    <div class="round-result-mvp" id="round-result-mvp"></div>
+  </div>
+</div>
+
+<!-- Game over screen -->
+<div class="game-over-screen" id="game-over-screen">
+  <div class="game-over-content">
+    <div class="game-over-title" id="game-over-title">GAME OVER</div>
+    <div class="game-over-score" id="game-over-score"></div>
+    <div class="game-over-mvp" id="game-over-mvp"></div>
+    <button class="game-over-btn" onclick="reconnectGame()">RECONNECT</button>
+  </div>
 </div>
 
 <!-- Buy menu -->
 <div id="buy-menu">
-  <div class="buy-title">BUY MENU <span style="color:#444;font-size:12px;">[B]</span></div>
+  <div class="buy-header">
+    <div class="buy-title">BUY MENU <span style="color:#444;font-size:12px;">[B]</span></div>
+    <div class="buy-money" id="buy-money">$800</div>
+  </div>
+  <div class="buy-loadout" id="buy-loadout">
+    <div class="buy-loadout-title">CURRENT LOADOUT</div>
+    <div class="buy-loadout-items" id="buy-loadout-items"></div>
+  </div>
   <div id="buy-content"></div>
 </div>
 
@@ -436,9 +688,17 @@
 <!-- Scoreboard -->
 <div id="scoreboard">
   <div class="sb-header">
-    <div class="sb-team"><div class="sb-team-t" id="sb-t-score">0</div><div class="sb-team-name">Terrorists</div></div>
+    <div class="sb-team">
+      <div class="sb-team-t" id="sb-t-score">0</div>
+      <div class="sb-team-name">Terrorists</div>
+      <div class="sb-team-dots" id="sb-t-dots"></div>
+    </div>
     <div style="font-size:10px;color:#333;padding-top:15px;letter-spacing:2px;">SCOREBOARD</div>
-    <div class="sb-team"><div class="sb-team-ct" id="sb-ct-score">0</div><div class="sb-team-name">Counter-Terrorists</div></div>
+    <div class="sb-team">
+      <div class="sb-team-ct" id="sb-ct-score">0</div>
+      <div class="sb-team-name">Counter-Terrorists</div>
+      <div class="sb-team-dots" id="sb-ct-dots"></div>
+    </div>
   </div>
   <div id="sb-content"></div>
 </div>
@@ -461,6 +721,8 @@
   <button class="esc-btn esc-btn-t" onclick="escSwitchTeam('T')">Switch to Terrorists</button>
   <button class="esc-btn esc-btn-ct" onclick="escSwitchTeam('CT')">Switch to Counter-Terrorists</button>
   <button class="esc-btn esc-btn-spec" onclick="escSpectate()">Spectate</button>
+  <button class="esc-btn" onclick="escRestartGame()">Restart Game</button>
+  <button class="esc-btn" onclick="escRemoveBots()">Remove Bots</button>
   <button class="esc-btn esc-btn-disconnect" onclick="escDisconnect()">Disconnect</button>
 </div>
 
