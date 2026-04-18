@@ -88,6 +88,10 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
   bot.aiGrenadeCooldown = Math.max(0, (bot.aiGrenadeCooldown || 0) - dt);
   bot.aiBurstPauseTimer = Math.max(0, (bot.aiBurstPauseTimer || 0) - dt);
 
+  // Initialize strafe direction if not set
+  if (!bot._strafeDir) bot._strafeDir = Math.random() > 0.5 ? 1 : -1;
+  if (!bot._strafeTimer) bot._strafeTimer = 0;
+
   // Reset input each frame
   bot.input.up = false;
   bot.input.down = false;
@@ -127,6 +131,31 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
   // Reset burst count when losing sight of enemy
   if (!enemy && bot.aiBurstCount > 0) bot.aiBurstCount = 0;
 
+  // Retreat when low HP (< 30) — move away from nearest enemy toward spawn
+  if (bot.hp < 30 && bot.hp > 0 && nearestEnemyPos) {
+    bot.aiState = 'retreating';
+    const dx = bot.x - nearestEnemyPos.x;
+    const dy = bot.y - nearestEnemyPos.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist > 1) {
+      const fleeX = bot.x + (dx / dist) * 300;
+      const fleeY = bot.y + (dy / dist) * 300;
+      setMovementToward(bot, fleeX, fleeY);
+      bot.input.sprint = true;
+    }
+    // Still aim at enemy while retreating
+    const angleToEnemy = Math.atan2(nearestEnemyPos.y - bot.y, nearestEnemyPos.x - bot.x);
+    const aimError = (1 - bot.skill) * 0.2;
+    bot.angle = angleToEnemy + (Math.random() - 0.5) * aimError;
+    // Shoot if we have line of sight (panic fire)
+    if (enemy && dist < 500) {
+      handleCombat(bot, enemy, distance(bot, enemy), players, dt);
+    }
+    // Clear any pathfinding
+    bot._path = null;
+    return; // Skip normal behavior while retreating
+  }
+
   if (enemy && bot.aiReactionTimer <= 0) {
     // Can see an enemy
     bot.aiLastSeen = { x: enemy.x, y: enemy.y, time: Date.now() / 1000 };
@@ -147,10 +176,17 @@ function updateBot(bot, dt, players, gameMap, gameState, bombState, bombsites, s
       // thrown — skip combat this tick
     } else if (dist < 700) {
       bot.aiState = 'attacking';
+      // Stop and shoot when in range — clear movement, use strafe instead
+      bot.input.up = false;
+      bot.input.down = false;
+      bot.input.left = false;
+      bot.input.right = false;
       handleCombat(bot, enemy, dist, players, dt);
+      // Add strafe behavior during combat
+      addCombatStrafe(bot, angleToEnemy, dt);
     } else if (dist < 1100) {
       bot.aiState = 'attacking';
-      // Close the gap a bit while firing
+      // Close the gap while firing — but slow approach
       navigateTo(bot, enemy.x, enemy.y, gameMap, dt);
       handleCombat(bot, enemy, dist, players, dt);
     } else {
@@ -212,9 +248,11 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
     return;
   }
 
-  // CT — when bomb is planted, defuse
+  // CT — when bomb is planted, ALL CTs rotate to defuse
   if (bot.team === 'CT' && bombPlanted) {
+    // Sprint to bomb site when planted
     navigateTo(bot, bombState.x, bombState.y, gameMap, dt);
+    bot.input.sprint = true;
     if (distance(bot, bombState) < 55) {
       // Close enough — request defuse via 'use'
       bot.input.use = true;
@@ -368,6 +406,37 @@ function setMovementToward(bot, tx, ty) {
   if (Math.abs(my) > 0.1) {
     if (my > 0) bot.input.down = true;
     else bot.input.up = true;
+  }
+}
+
+// Combat strafing: bots alternate left/right movement while shooting
+function addCombatStrafe(bot, angleToEnemy, dt) {
+  // Only strafe if skill is high enough and bot has a gun (not knife)
+  if (bot.skill < 0.3) return;
+  const wep = getCurrentWeapon(bot);
+  if (!wep || wep.key === 'knife') return;
+
+  bot._strafeTimer -= dt;
+  if (bot._strafeTimer <= 0) {
+    // Switch strafe direction
+    bot._strafeDir *= -1;
+    bot._strafeTimer = 0.3 + Math.random() * 0.8; // Change direction every 0.3-1.1s
+  }
+
+  // Apply perpendicular movement
+  const strafeAngle = angleToEnemy + Math.PI / 2 * bot._strafeDir;
+  const strafeAmount = bot.skill * 0.7; // Higher skill = more strafing
+  if (Math.random() < strafeAmount) {
+    const sx = Math.cos(strafeAngle);
+    const sy = Math.sin(strafeAngle);
+    if (Math.abs(sx) > 0.3) {
+      if (sx > 0) bot.input.right = true;
+      else bot.input.left = true;
+    }
+    if (Math.abs(sy) > 0.3) {
+      if (sy > 0) bot.input.down = true;
+      else bot.input.up = true;
+    }
   }
 }
 

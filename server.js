@@ -818,6 +818,13 @@ function shoot(p) {
       target.lastDamageBy = p.id;
       trackDamage(p.id, damage);
       emitSound(target.x, target.y, SOUNDS.knife_hit(), 400);
+      // Send damage direction to victim
+      for (const [sockId, sock] of io.sockets.sockets) {
+        if (sockId === target.id) {
+          sock.emit('damage_taken', { attackerX: p.x, attackerY: p.y, damage, headshot: false });
+          break;
+        }
+      }
       io.emit('hit_marker', { target: target.id, damage, headshot: false, kill: target.hp <= 0 });
 
       if (target.hp <= 0) {
@@ -1002,6 +1009,18 @@ function updateBullets(dt) {
 
         // Track damage for MVP
         trackDamage(b.owner, damage);
+
+        // Send damage direction info to victim
+        const attacker = players[b.owner];
+        if (attacker) {
+          // Emit to the specific victim socket if connected, otherwise broadcast
+          for (const [sockId, sock] of io.sockets.sockets) {
+            if (sockId === p.id) {
+              sock.emit('damage_taken', { attackerX: attacker.x, attackerY: attacker.y, damage, headshot: !!isHeadshot });
+              break;
+            }
+          }
+        }
 
         // Kill assist tracking
         io.emit('hit_marker', { target: p.id, damage, headshot: !!isHeadshot, kill: p.hp <= 0 });
@@ -1387,12 +1406,11 @@ function botBuyDuringFreeze() {
   for (const p of Object.values(players)) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     if (p._botBought) continue;
-    const item = addBotBuyLogic(p);
-    if (item) {
-      handleBuy(p, item);
-      // Also buy armor if didn't buy it already
-      if (!item.includes('kevlar') && !item.includes('helmet') && p.money >= 650) {
-        handleBuy(p, p.money >= 1000 ? 'helmet' : 'kevlar');
+    const items = addBotBuyLogic(p);
+    // addBotBuyLogic returns an array of items to buy in priority order
+    if (items && items.length > 0) {
+      for (const item of items) {
+        handleBuy(p, item);
       }
     }
     p._botBought = true;
