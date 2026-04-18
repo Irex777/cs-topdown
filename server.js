@@ -818,7 +818,7 @@ function shoot(p) {
       target.lastDamageBy = p.id;
       trackDamage(p.id, damage);
       emitSound(target.x, target.y, SOUNDS.knife_hit(), 400);
-      io.emit('hit_marker', { x: target.x, y: target.y, damage });
+      io.emit('hit_marker', { target: target.id, damage, headshot: false, kill: target.hp <= 0 });
 
       if (target.hp <= 0) {
         target.hp = 0;
@@ -921,6 +921,7 @@ function shoot(p) {
       range: wep.data.range,
       dist: 0,
       team: p.team,
+      weaponKey: wep.key,
     });
   }
 }
@@ -968,17 +969,24 @@ function updateBullets(dt) {
         }
 
         // Headshot detection (top 30% of player circle)
+        const weaponData = b.weaponKey ? C.WEAPONS[b.weaponKey] : null;
         const isHeadshot = dy < -C.PLAYER_RADIUS * 0.4;
-        if (isHeadshot && !p.helmet) {
-          damage *= 2.5; // Instant kill for most weapons
-        } else if (isHeadshot && p.helmet) {
-          damage *= 1.5;
-          p.helmet = false; // Helmet absorbs first HS
+        if (isHeadshot) {
+          const canOneTap = weaponData && weaponData.oneTapHeadshot;
+          if (!p.helmet || canOneTap) {
+            damage *= 2.5; // Full headshot multiplier
+            if (p.helmet) p.helmet = false; // Helmet consumed
+          } else {
+            damage *= 1.5; // Helmet reduces headshot multiplier
+            p.helmet = false;
+          }
         }
 
-        // Armor damage reduction
+        // Armor damage reduction (uses weapon armorPenetration)
         if (p.armor > 0) {
-          const absorbed = damage * 0.5;
+          const ap = weaponData ? (weaponData.armorPenetration !== undefined ? weaponData.armorPenetration : 0.5) : 0.5;
+          const absorbRate = (1 - ap) * 0.5; // Armor absorbs half of non-penetrating damage
+          const absorbed = damage * absorbRate;
           const armorDmg = Math.min(p.armor, absorbed);
           p.armor -= armorDmg;
           damage -= armorDmg;
@@ -991,7 +999,7 @@ function updateBullets(dt) {
         trackDamage(b.owner, damage);
 
         // Kill assist tracking
-        io.emit('hit_marker', { x: p.x, y: p.y, damage });
+        io.emit('hit_marker', { target: p.id, damage, headshot: !!isHeadshot, kill: p.hp <= 0 });
 
         if (p.hp <= 0) {
           p.hp = 0;
@@ -1083,6 +1091,7 @@ function detonateGrenade(g) {
     // HE explosion
     for (const p of Object.values(players)) {
       if (!p.alive) continue;
+      if (p.id === g.owner) continue; // Don't damage self with own HE
       const dx = p.x - g.x;
       const dy = p.y - g.y;
       const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1312,9 +1321,31 @@ function updateBots(dt) {
     if (!p.isBot || !p.alive || p.team === C.TEAM_SPEC) continue;
     updateBot(p, dt, players, gameMap, gameState, bombState, bombsites);
 
+    // Process bot pending grenades
+    if (p._pendingGrenades && p._pendingGrenades.length > 0) {
+      for (const g of p._pendingGrenades) {
+        activeGrenades.push(g);
+      }
+      p._pendingGrenades = [];
+    }
+
     // Bot weapon pickup (occasionally check)
     if (Math.random() < 0.01) {
       checkWeaponPickup(p);
+    }
+
+    // Bot defuse bomb (server-side since bots can't emit socket events)
+    if (p.team === 'CT' && bombState && bombState.planted && !bombState.defused && !bombState.exploded && p.input.use) {
+      const dx = p.x - bombState.x;
+      const dy = p.y - bombState.y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 80 && !bombState.defuser) {
+        const defuseTime = p.hasDefuseKit ? C.BOMB_DEFUSE_TIME * 0.5 : C.BOMB_DEFUSE_TIME;
+        bombState.defuser = p.id;
+        bombState.defuseTimer = defuseTime;
+        p.defusingBomb = true;
+        io.emit('bomb_defusing', { defuser: p.id, progress: 0, timeLeft: defuseTime });
+      }
     }
   }
   // Bot auto-plant bomb (server-side since bots can't emit socket events)

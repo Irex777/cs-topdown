@@ -111,8 +111,6 @@ function initMenuParticles() {
 }
 function updateMenuParticles() {
   if (!menuCtx || document.getElementById('menu-screen').classList.contains('hidden')) return;
-  menuCanvas.width = window.innerWidth;
-  menuCanvas.height = window.innerHeight;
   menuCtx.clearRect(0, 0, menuCanvas.width, menuCanvas.height);
   for (const p of menuParticles) {
     p.x += p.vx * 0.016;
@@ -510,13 +508,18 @@ function connect() {
   socket.on('round_end', (d) => {
     const winner = d.winner;
     const reason = d.reason || '';
-    const mvpName = d.mvpName || '';
-    const mvpId = d.mvpId || null;
+    const mvpData = d.mvp || {};
+    const mvpName = mvpData.name || '';
+    const mvpId = mvpData.id || null;
     roundMvp = { name: mvpName, id: mvpId };
 
     // Add to history
-    roundHistory.push(winner);
-    if (roundHistory.length > 15) roundHistory.shift();
+    if (d.roundHistory) {
+      roundHistory = d.roundHistory;
+    } else {
+      roundHistory.push(winner);
+      if (roundHistory.length > 15) roundHistory.shift();
+    }
     updateRoundHistory();
 
     // Show banner
@@ -547,7 +550,7 @@ function connect() {
 
   socket.on('hit_marker', (d) => {
     showHitMarker(d && d.kill);
-    if (d && d.damage) {
+    if (d && d.damage && d.target) {
       const tp = players[d.target];
       if (tp) spawnDamageNumber(tp.x, tp.y, d.damage, d.headshot);
     }
@@ -572,7 +575,8 @@ function connect() {
     const winner = d.winner === 'T' ? 'TERRORISTS' : 'COUNTER-TERRORISTS';
     const color = d.winner === 'T' ? '#d4a537' : '#4a90d9';
     showCenterMsg(winner + ' WIN THE GAME', color, '', 10);
-    showGameOver(d.winner, d.mvpName);
+    const mvpData = d.mvp || {};
+    showGameOver(d.winner, mvpData.name || '');
   });
 
   socket.on('game_restart', () => {
@@ -749,7 +753,7 @@ canvas.addEventListener('mousedown', (e) => {
 canvas.addEventListener('mouseup', () => { mouse.down = false; });
 canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 canvas.addEventListener('wheel', (e) => {
-  if (!socket || spectating || chatOpen || escMenuOpen) return;
+  if (!socket || chatOpen || escMenuOpen) return;
   e.preventDefault();
   const dir = e.deltaY > 0 ? 1 : -1;
   socket.emit('scroll_weapon', dir);
@@ -888,6 +892,10 @@ function updateHUD() {
     document.getElementById('weapon-name').textContent = w ? w.name.toUpperCase() : wk;
     document.getElementById('ammo-current').textContent = am ? am.mag : 0;
     document.getElementById('ammo-reserve').textContent = am ? am.reserve : 0;
+  } else if (p.currentWeapon === -1) {
+    document.getElementById('weapon-name').textContent = 'KNIFE';
+    document.getElementById('ammo-current').textContent = '\u221E';
+    document.getElementById('ammo-reserve').textContent = '';
   }
 
   // Reload progress on weapon panel
@@ -895,7 +903,9 @@ function updateHUD() {
   const reloadFill = document.getElementById('reload-fill');
   if (p.reloading && p.reloadTimer !== undefined) {
     reloadBar.style.display = 'block';
-    const maxReload = 3;
+    const wk = p.currentWeapon >= 0 && p.weapons ? p.weapons[p.currentWeapon] : null;
+    const reloadTimes = {pistol:2.2,glock:2.2,usp:2.2,deagle:2.2,mp9:2.0,mac10:2.0,p90:2.4,ak47:2.5,m4a4:3.1,galil:2.5,famas:2.4,awp:3.7,ssg08:3.7,nova:3.0};
+    const maxReload = wk ? (reloadTimes[wk] || 2.5) : 2.5;
     const progress = 1 - Math.max(0, p.reloadTimer) / maxReload;
     reloadFill.style.width = (progress * 100) + '%';
   } else {
@@ -983,7 +993,8 @@ function updateRoundHistory() {
   const container = document.getElementById('round-history');
   let html = '';
   for (const r of roundHistory) {
-    html += `<div class="round-history-dot ${r.toLowerCase()}"></div>`;
+    const winner = typeof r === 'string' ? r : (r.winner || '');
+    html += `<div class="round-history-dot ${winner.toLowerCase()}"></div>`;
   }
   container.innerHTML = html;
 }
@@ -1735,7 +1746,7 @@ function render(timestamp) {
       ctx.strokeStyle = e.color;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(e.x - camera.x + canvas.width/2, e.y - camera.y + canvas.height/2, e.radius, 0, Math.PI * 2);
+      ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
       ctx.stroke();
       ctx.restore();
     }
@@ -1932,8 +1943,12 @@ function drawShadows() {
   ctx.save();
   ctx.globalAlpha = 0.12;
   ctx.fillStyle = '#000';
-  for (let y = 0; y < mapHeight; y++) {
-    for (let x = 0; x < mapWidth; x++) {
+  const startX = Math.max(0, Math.floor(camera.x / TILE_SIZE));
+  const startY = Math.max(0, Math.floor(camera.y / TILE_SIZE));
+  const endX = Math.min(mapWidth, Math.ceil((camera.x + canvas.width) / TILE_SIZE) + 1);
+  const endY = Math.min(mapHeight, Math.ceil((camera.y + canvas.height) / TILE_SIZE) + 1);
+  for (let y = startY; y < endY; y++) {
+    for (let x = startX; x < endX; x++) {
       const t = mapData[y][x];
       if (t === TILE_WALL || t === TILE_CRATE) {
         ctx.fillRect(x * TILE_SIZE + 3, y * TILE_SIZE + 3, TILE_SIZE, TILE_SIZE);
