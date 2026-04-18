@@ -1,4 +1,4 @@
-// Procedural map generator - creates unique CS-style tactical maps every time
+// Hardcoded de_dust2 map layout
 const C = require('../shared/constants');
 
 const TILE_EMPTY = 0;
@@ -9,230 +9,6 @@ const TILE_BOMBSITE_B = 4;
 const TILE_T_SPAWN = 5;
 const TILE_CT_SPAWN = 6;
 const TILE_DOOR = 7;
-
-// ── Helpers ──────────────────────────────────────────────────────────────
-
-function buildRect(map, x, y, w, h, tile) {
-  for (let dy = 0; dy < h; dy++) {
-    for (let dx = 0; dx < w; dx++) {
-      const py = y + dy;
-      const px = x + dx;
-      if (py >= 0 && py < C.MAP_HEIGHT && px >= 0 && px < C.MAP_WIDTH) {
-        map[py][px] = tile;
-      }
-    }
-  }
-}
-
-function fillArea(map, x, y, w, h, tile) {
-  buildRect(map, x, y, w, h, tile);
-}
-
-function randInt(min, max) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function randFloat(min, max) {
-  return Math.random() * (max - min) + min;
-}
-
-function pickRandom(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-// Carve a horizontal corridor (clear walls between two x positions at given y range)
-function carveHCorridor(map, x1, x2, y, width) {
-  const minX = Math.min(x1, x2);
-  const maxX = Math.max(x1, x2);
-  const halfW = Math.floor(width / 2);
-  for (let x = minX; x <= maxX; x++) {
-    for (let dy = -halfW; dy <= halfW; dy++) {
-      const py = y + dy;
-      if (py > 0 && py < C.MAP_HEIGHT - 1 && x > 0 && x < C.MAP_WIDTH - 1) {
-        if (map[py][x] === TILE_WALL) {
-          map[py][x] = TILE_EMPTY;
-        }
-      }
-    }
-  }
-}
-
-// Carve a vertical corridor
-function carveVCorridor(map, x, y1, y2, width) {
-  const minY = Math.min(y1, y2);
-  const maxY = Math.max(y1, y2);
-  const halfW = Math.floor(width / 2);
-  for (let y = minY; y <= maxY; y++) {
-    for (let dx = -halfW; dx <= halfW; dx++) {
-      const px = x + dx;
-      if (y > 0 && y < C.MAP_HEIGHT - 1 && px > 0 && px < C.MAP_WIDTH - 1) {
-        if (map[y][px] === TILE_WALL) {
-          map[y][px] = TILE_EMPTY;
-        }
-      }
-    }
-  }
-}
-
-// Carve an L-shaped corridor between two points
-function carveLCorridor(map, x1, y1, x2, y2, width) {
-  if (Math.random() < 0.5) {
-    // Horizontal first, then vertical
-    carveHCorridor(map, x1, x2, y1, width);
-    carveVCorridor(map, x2, y1, y2, width);
-  } else {
-    // Vertical first, then horizontal
-    carveVCorridor(map, x1, y1, y2, width);
-    carveHCorridor(map, x1, x2, y2, width);
-  }
-}
-
-// ── Room definition ──────────────────────────────────────────────────────
-
-function createRoom(map, rx, ry, rw, rh, doorPositions) {
-  // Build walls around the room
-  buildRect(map, rx, ry, rw, 1, TILE_WALL);       // top
-  buildRect(map, rx, ry + rh - 1, rw, 1, TILE_WALL); // bottom
-  buildRect(map, rx, ry, 1, rh, TILE_WALL);        // left
-  buildRect(map, rx + rw - 1, ry, 1, rh, TILE_WALL); // right
-
-  // Clear interior
-  fillArea(map, rx + 1, ry + 1, rw - 2, rh - 2, TILE_EMPTY);
-
-  // Place doors
-  for (const door of doorPositions) {
-    const { side, pos } = door;
-    switch (side) {
-      case 'top':
-        map[ry][rx + pos] = TILE_DOOR;
-        break;
-      case 'bottom':
-        map[ry + rh - 1][rx + pos] = TILE_DOOR;
-        break;
-      case 'left':
-        map[ry + pos][rx] = TILE_DOOR;
-        break;
-      case 'right':
-        map[ry + pos][rx + rw - 1] = TILE_DOOR;
-        break;
-    }
-  }
-}
-
-// ── BSP-based structure generation ───────────────────────────────────────
-
-function bspSplit(x, y, w, h, depth, maxDepth) {
-  if (depth >= maxDepth || w < 16 || h < 12) {
-    return [{ x, y, w, h }];
-  }
-
-  const nodes = [];
-  const splitH = Math.random() < (w > h * 1.5 ? 0.2 : h > w * 1.5 ? 0.8 : 0.5);
-
-  if (splitH) {
-    // Horizontal split (top/bottom)
-    const splitY = randInt(Math.floor(h * 0.35), Math.floor(h * 0.65));
-    nodes.push(...bspSplit(x, y, w, splitY, depth + 1, maxDepth));
-    nodes.push(...bspSplit(x, y + splitY, w, h - splitY, depth + 1, maxDepth));
-  } else {
-    // Vertical split (left/right)
-    const splitX = randInt(Math.floor(w * 0.35), Math.floor(w * 0.65));
-    nodes.push(...bspSplit(x, y, splitX, h, depth + 1, maxDepth));
-    nodes.push(...bspSplit(x + splitX, y, w - splitX, h, depth + 1, maxDepth));
-  }
-
-  return nodes;
-}
-
-// Generate internal walls from BSP to create rooms and chokepoints
-function generateInternalWalls(map, regions) {
-  const walls = [];
-
-  for (const region of regions) {
-    const { x, y, w, h } = region;
-    // Don't put internal walls in very small regions
-    if (w < 12 || h < 10) continue;
-
-    // Add some random internal wall segments to create rooms/chokepoints
-    const numWalls = randInt(1, 3);
-
-    for (let i = 0; i < numWalls; i++) {
-      const horizontal = Math.random() < 0.5;
-
-      if (horizontal && w > 14) {
-        // Horizontal wall with gap (door)
-        const wallY = y + randInt(Math.floor(h * 0.25), Math.floor(h * 0.75));
-        const gapPos = randInt(2, w - 5);
-        const gapWidth = randInt(2, 4);
-        const startX = x + 1;
-        const endX = x + w - 2;
-
-        for (let wx = startX; wx <= endX; wx++) {
-          if (wx >= x + gapPos && wx < x + gapPos + gapWidth) continue;
-          if (wallY > 1 && wallY < C.MAP_HEIGHT - 2 && wx > 0 && wx < C.MAP_WIDTH - 1) {
-            map[wallY][wx] = TILE_WALL;
-            walls.push({ x: wx, y: wallY });
-          }
-        }
-
-        // Place door in gap
-        for (let d = 0; d < gapWidth; d++) {
-          const dx = x + gapPos + d;
-          if (dx > 0 && dx < C.MAP_WIDTH - 1 && wallY > 1 && wallY < C.MAP_HEIGHT - 2) {
-            map[wallY][dx] = TILE_DOOR;
-          }
-        }
-      } else if (!horizontal && h > 10) {
-        // Vertical wall with gap (door)
-        const wallX = x + randInt(Math.floor(w * 0.25), Math.floor(w * 0.75));
-        const gapPos = randInt(2, h - 5);
-        const gapWidth = randInt(2, 4);
-        const startY = y + 1;
-        const endY = y + h - 2;
-
-        for (let wy = startY; wy <= endY; wy++) {
-          if (wy >= y + gapPos && wy < y + gapPos + gapWidth) continue;
-          if (wy > 1 && wy < C.MAP_HEIGHT - 2 && wallX > 0 && wallX < C.MAP_WIDTH - 1) {
-            map[wy][wallX] = TILE_WALL;
-            walls.push({ x: wallX, y: wy });
-          }
-        }
-
-        // Place door in gap
-        for (let d = 0; d < gapWidth; d++) {
-          const dy = y + gapPos + d;
-          if (dy > 1 && dy < C.MAP_HEIGHT - 2 && wallX > 0 && wallX < C.MAP_WIDTH - 1) {
-            map[dy][wallX] = TILE_DOOR;
-          }
-        }
-      }
-    }
-  }
-
-  return walls;
-}
-
-// Scatter crates for cover in open areas
-function scatterCrates(map, zones) {
-  for (const zone of zones) {
-    const { x, y, w, h, density } = zone;
-    const numCrates = Math.floor((w * h) * density);
-
-    for (let i = 0; i < numCrates; i++) {
-      const cx = randInt(x + 1, x + w - 2);
-      const cy = randInt(y + 1, y + h - 2);
-
-      // Only place crates on empty tiles (not walls, doors, spawn areas, bombsites)
-      const tile = map[cy][cx];
-      if (tile === TILE_EMPTY) {
-        // Small chance of cluster
-        const clusterW = Math.random() < 0.3 ? randInt(2, 3) : 1;
-        const clusterH = Math.random() < 0.3 ? randInt(2, 3) : 1;
-        buildRect(map, cx, cy, clusterW, clusterH, TILE_CRATE);
-      }
-    }
-  }
-}
 
 // ── Connectivity validation (flood fill) ─────────────────────────────────
 
@@ -288,11 +64,36 @@ function validateMap(map) {
   return true;
 }
 
-// ── Main map generator ──────────────────────────────────────────────────
+// ── de_dust2 hardcoded map ──────────────────────────────────────────────
+//
+//  80x60 tiles.  Orientation: North = top of screen.
+//
+//    ┌──────────────────────────────────────────────────────────────────┐
+//    │  CT Spawn     │  CT→A corridor          │      A Site           │
+//    │  (top-left)   │                         │  (top-right)          │
+//    │               │  CT Mid  ──── Catwalk ──│                       │
+//    ├───────────────┤         │               │                       │
+//    │               │   Mid   │               │                       │
+//    │  Long A       │  Corr.  │               │                       │
+//    │  (vertical)   │         │               │                       │
+//    │               │         ├───────────────│──────────┐            │
+//    │               │         │               │ CT→B     │ B Site     │
+//    │               │         │               │ corridor │(bot-right) │
+//    ├───────────────┴──── T Spawn ────────────┤          │            │
+//    │  Long A horiz ←  (bottom-center)  → B Tunnels     │            │
+//    └──────────────────────────────────────────────────────────────────┘
+//
+//  Routes:
+//    T → Long A doors → Long A → A approach → A Site
+//    T → Mid → Catwalk → A Site (Short A)
+//    T → Upper Tunnels → B Tunnels → B Site
+//    CT → A Main → A Site
+//    CT → CT Mid → Mid → Catwalk → A Site
+//    CT → B Doors → B Site
 
-function generateMapInternal() {
-  const W = C.MAP_WIDTH;
-  const H = C.MAP_HEIGHT;
+function generateMap() {
+  const W = C.MAP_WIDTH;   // 80
+  const H = C.MAP_HEIGHT;  // 60
   const map = [];
 
   // Initialize: fill everything with walls
@@ -303,166 +104,150 @@ function generateMapInternal() {
     }
   }
 
-  // Carve out playable area (inside border walls)
-  fillArea(map, 1, 1, W - 2, H - 2, TILE_EMPTY);
-
-  // ── 1. Define key room positions with randomization ──────────────────
-
-  // T Spawn: bottom-left quadrant (roughly x:2-20, y:42-57)
-  const tSpawnX = randInt(2, 5);
-  const tSpawnY = randInt(H - 18, H - 14);
-  const tSpawnW = randInt(12, 18);
-  const tSpawnH = randInt(10, 14);
-  const tSpawnCX = tSpawnX + Math.floor(tSpawnW / 2);
-  const tSpawnCY = tSpawnY + Math.floor(tSpawnH / 2);
-
-  // CT Spawn: top-right quadrant (roughly x:58-78, y:2-14)
-  const ctSpawnX = randInt(W - 22, W - 18);
-  const ctSpawnY = randInt(2, 5);
-  const ctSpawnW = randInt(12, 18);
-  const ctSpawnH = randInt(10, 14);
-  const ctSpawnCX = ctSpawnX + Math.floor(ctSpawnW / 2);
-  const ctSpawnCY = ctSpawnY + Math.floor(ctSpawnH / 2);
-
-  // Bombsite A: top-left / top-center area
-  const siteAX = randInt(8, 20);
-  const siteAY = randInt(3, 8);
-  const siteAW = randInt(12, 18);
-  const siteAH = randInt(10, 14);
-  const siteACX = siteAX + Math.floor(siteAW / 2);
-  const siteACY = siteAY + Math.floor(siteAH / 2);
-
-  // Bombsite B: bottom-right / bottom-center area
-  const siteBX = randInt(W - 30, W - 20);
-  const siteBY = randInt(H - 22, H - 16);
-  const siteBW = randInt(12, 18);
-  const siteBH = randInt(10, 14);
-  const siteBCX = siteBX + Math.floor(siteBW / 2);
-  const siteBCY = siteBY + Math.floor(siteBH / 2);
-
-  // Mid area: center of map
-  const midX = Math.floor(W / 2) + randInt(-5, 5);
-  const midY = Math.floor(H / 2) + randInt(-5, 5);
-
-  // ── 2. Place key rooms ──────────────────────────────────────────────
-
-  // T Spawn room
-  createRoom(map, tSpawnX, tSpawnY, tSpawnW, tSpawnH, [
-    { side: 'top', pos: randInt(2, tSpawnW - 3) },
-    { side: 'right', pos: randInt(2, tSpawnH - 3) },
-  ]);
-
-  // Mark T spawn tiles
-  fillArea(map, tSpawnX + 1, tSpawnY + 1, tSpawnW - 2, tSpawnH - 2, TILE_T_SPAWN);
-
-  // CT Spawn room
-  createRoom(map, ctSpawnX, ctSpawnY, ctSpawnW, ctSpawnH, [
-    { side: 'bottom', pos: randInt(2, ctSpawnW - 3) },
-    { side: 'left', pos: randInt(2, ctSpawnH - 3) },
-  ]);
-
-  // Mark CT spawn tiles
-  fillArea(map, ctSpawnX + 1, ctSpawnY + 1, ctSpawnW - 2, ctSpawnH - 2, TILE_CT_SPAWN);
-
-  // Bombsite A room
-  createRoom(map, siteAX, siteAY, siteAW, siteAH, [
-    { side: 'bottom', pos: randInt(2, siteAW - 3) },
-    { side: 'right', pos: randInt(2, siteAH - 3) },
-  ]);
-
-  // Mark bombsite A tiles
-  for (let y = siteAY + 1; y < siteAY + siteAH - 1; y++) {
-    for (let x = siteAX + 1; x < siteAX + siteAW - 1; x++) {
-      if (map[y][x] === TILE_EMPTY) map[y][x] = TILE_BOMBSITE_A;
+  // ── Local carve helper ──────────────────────────────────────────────
+  function carve(x, y, w, h, tile) {
+    for (let dy = 0; dy < h; dy++) {
+      for (let dx = 0; dx < w; dx++) {
+        const py = y + dy;
+        const px = x + dx;
+        if (py >= 0 && py < H && px >= 0 && px < W) {
+          map[py][px] = tile;
+        }
+      }
     }
   }
 
-  // Bombsite B room
-  createRoom(map, siteBX, siteBY, siteBW, siteBH, [
-    { side: 'top', pos: randInt(2, siteBW - 3) },
-    { side: 'left', pos: randInt(2, siteBH - 3) },
-  ]);
+  // ════════════════════════════════════════════════════════════════════════
+  //  ROOMS / KEY AREAS
+  // ════════════════════════════════════════════════════════════════════════
 
-  // Mark bombsite B tiles
-  for (let y = siteBY + 1; y < siteBY + siteBH - 1; y++) {
-    for (let x = siteBX + 1; x < siteBX + siteBW - 1; x++) {
-      if (map[y][x] === TILE_EMPTY) map[y][x] = TILE_BOMBSITE_B;
-    }
+  // CT Spawn – top-left
+  //   x:3-15  y:3-12
+  carve(3, 3, 13, 10, TILE_CT_SPAWN);
+
+  // T Spawn – bottom-center
+  //   x:30-47  y:48-56
+  carve(30, 48, 18, 9, TILE_T_SPAWN);
+
+  // A Site – top-right (elevated bombsite)
+  //   x:54-75  y:3-18
+  carve(54, 3, 22, 16, TILE_BOMBSITE_A);
+
+  // B Site – bottom-right
+  //   x:62-76  y:42-55
+  carve(62, 42, 15, 14, TILE_BOMBSITE_B);
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  CORRIDORS
+  // ════════════════════════════════════════════════════════════════════════
+
+  // ── Long A ──────────────────────────────────────────────────────────
+  //  T Spawn left exit → Long A doors → Long A yard → A approach → A Site
+  //
+  // Horizontal part: T Spawn left to Long A doors area
+  //   x:7-30  y:50-54  (overlaps T Spawn at x:30)
+  carve(7, 50, 24, 5, TILE_EMPTY);
+
+  // Vertical part: Long A doors northward (the "long" corridor)
+  //   x:7-11  y:17-50
+  carve(7, 17, 5, 34, TILE_EMPTY);
+
+  // Approach: turns east toward A Site
+  //   x:10-55  y:14-18
+  carve(10, 14, 46, 5, TILE_EMPTY);
+
+  // ── Mid Corridor ────────────────────────────────────────────────────
+  // T Spawn top exit → Mid → Top of Mid
+  //   x:36-41  y:14-47  (overlaps T Spawn at y:48 via adjacency)
+  carve(36, 14, 6, 34, TILE_EMPTY);
+
+  // ── Short A / Catwalk ──────────────────────────────────────────────
+  // Top of Mid east to A Site
+  //   x:40-55  y:11-16  (overlaps Mid at x:40-41, y:14-16; overlaps A Site at x:54-55)
+  carve(40, 11, 16, 6, TILE_EMPTY);
+
+  // ── B Tunnels ──────────────────────────────────────────────────────
+  // T Spawn right exit → B Site
+  //   x:47-63  y:49-54  (overlaps T Spawn at x:47; overlaps B Site at x:62-63)
+  carve(47, 49, 17, 6, TILE_EMPTY);
+
+  // ── CT Mid ─────────────────────────────────────────────────────────
+  // CT Spawn south, then east to top of Mid
+  // Vertical:   x:10-14  y:10-25  (overlaps CT Spawn at x:10-14, y:10-12)
+  carve(10, 10, 5, 16, TILE_EMPTY);
+  // Horizontal: x:14-37  y:23-27  (overlaps Mid at x:36-37)
+  carve(14, 23, 24, 5, TILE_EMPTY);
+
+  // ── CT → A Site (A Main) ──────────────────────────────────────────
+  // Direct route from CT Spawn east to A Site
+  //   x:14-55  y:5-9  (overlaps CT Spawn at x:14-15; overlaps A Site at x:54-55)
+  carve(14, 5, 42, 5, TILE_EMPTY);
+
+  // ── CT → B (B Doors route) ────────────────────────────────────────
+  // CT Spawn south, then east to B Site
+  // Vertical:   x:14-18  y:10-42  (overlaps CT Spawn at x:14-15, y:10-12)
+  carve(14, 10, 5, 33, TILE_EMPTY);
+  // Horizontal: x:16-63  y:40-44  (overlaps B Site at x:62-63, y:42-44)
+  carve(16, 40, 48, 5, TILE_EMPTY);
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  STRUCTURAL WALLS (add chokepoints without blocking any corridor)
+  // ════════════════════════════════════════════════════════════════════════
+
+  // Wall separating Long A yard from upper area (partial – leaves gaps)
+  //   y:19, x:12-33  (below Long A approach which ends at y:18)
+  carve(12, 19, 22, 1, TILE_WALL);
+
+  // Wall edge along Long A (creates narrow pit feel)
+  //   y:15-17, x:12  (leaves gap at y:14 and y:18 for approach corridor)
+  //   Skipped – would risk blocking the Long A approach
+
+  // Partial wall below A Site (leaves gap at x:64-75 for approach)
+  //   y:19, x:54-63
+  carve(54, 19, 10, 1, TILE_WALL);
+
+  // Wall between Mid and B Tunnels (mid doors feel)
+  //   x:34-35, y:30-38
+  carve(34, 30, 2, 9, TILE_WALL);
+  // Re-carve a door opening at y:33-34
+  carve(34, 33, 2, 2, TILE_EMPTY);
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  CRATES / COVER
+  // ════════════════════════════════════════════════════════════════════════
+
+  // A Site crates (cover on the bombsite)
+  carve(58, 6, 3, 3, TILE_CRATE);    // near A Site NW corner
+  carve(65, 5, 3, 3, TILE_CRATE);    // near A Site NE area
+  carve(58, 13, 4, 2, TILE_CRATE);   // near A Site SW area
+  carve(71, 9, 2, 4, TILE_CRATE);    // near A Site east side
+
+  // B Site crates (cover on the bombsite)
+  carve(66, 45, 3, 3, TILE_CRATE);   // B Site NW
+  carve(72, 46, 3, 3, TILE_CRATE);   // B Site NE
+  carve(66, 51, 3, 2, TILE_CRATE);   // B Site SW
+
+  // Mid corridor crates (cover)
+  carve(37, 25, 2, 2, TILE_CRATE);   // mid lower
+  carve(39, 35, 2, 2, TILE_CRATE);   // mid upper
+
+  // Long A pit crate
+  carve(9, 45, 2, 2, TILE_CRATE);    // pit cover
+
+  // CT spawn area crate (cover)
+  carve(6, 7, 2, 2, TILE_CRATE);
+
+  // ════════════════════════════════════════════════════════════════════════
+  //  VALIDATE
+  // ════════════════════════════════════════════════════════════════════════
+
+  if (!validateMap(map)) {
+    console.warn('[map.js] Warning: de_dust2 hardcoded map validation failed!');
+  } else {
+    console.log('[map.js] de_dust2 map validated successfully');
   }
-
-  // ── 3. Connect key areas with corridors ──────────────────────────────
-
-  const corridorWidth = 4;
-
-  // Route 1: T Spawn -> Mid (Long A approach)
-  carveLCorridor(map, tSpawnCX, tSpawnY, midX, midY, corridorWidth);
-
-  // Route 2: Mid -> Bombsite A (Long A)
-  carveLCorridor(map, midX, midY, siteACX, siteAY + siteAH - 1, corridorWidth);
-
-  // Route 3: T Spawn -> Bombsite B (B tunnels)
-  carveLCorridor(map, tSpawnX + tSpawnW - 1, tSpawnCY, siteBX, siteBCY, corridorWidth);
-
-  // Route 4: Mid -> Bombsite B (Short B)
-  carveLCorridor(map, midX, midY, siteBX, siteBCY, corridorWidth);
-
-  // Route 5: Mid -> CT Spawn (Short A)
-  carveLCorridor(map, midX, midY, ctSpawnX, ctSpawnCY, corridorWidth);
-
-  // Route 6: CT Spawn -> Bombsite A (CT approach to A)
-  carveLCorridor(map, ctSpawnX, ctSpawnCY, siteACX, siteAY + siteAH - 1, corridorWidth);
-
-  // Route 7: Bombsite A <-> Bombsite B (cross map)
-  carveLCorridor(map, siteACX, siteACY, siteBX, siteBCY, corridorWidth);
-
-  // ── 4. BSP internal structure ───────────────────────────────────────
-
-  // Generate BSP regions in the open play area
-  const bspDepth = randInt(2, 3);
-  const regions = bspSplit(2, 2, W - 4, H - 4, 0, bspDepth);
-  generateInternalWalls(map, regions);
-
-  // Ensure corridors are still open after BSP walls by re-carving key routes
-  carveHCorridor(map, tSpawnCX, midX, tSpawnY - 1, corridorWidth);
-  carveVCorridor(map, midX, tSpawnY, midY, corridorWidth);
-  carveHCorridor(map, midX, siteACX, midY, corridorWidth);
-  carveVCorridor(map, siteACX, midY, siteAY + siteAH - 1, corridorWidth);
-  carveHCorridor(map, tSpawnX + tSpawnW - 1, siteBX, tSpawnCY, corridorWidth);
-  carveVCorridor(map, siteBX, tSpawnCY, siteBCY, corridorWidth);
-  carveHCorridor(map, midX, siteBX, midY, corridorWidth);
-  carveVCorridor(map, siteBX, midY, siteBCY, corridorWidth);
-
-  // ── 5. Scatter crates for cover ─────────────────────────────────────
-
-  scatterCrates(map, [
-    { x: siteAX, y: siteAY, w: siteAW, h: siteAH, density: 0.04 },
-    { x: siteBX, y: siteBY, w: siteBW, h: siteBH, density: 0.04 },
-    { x: midX - 6, y: midY - 6, w: 12, h: 12, density: 0.06 },
-    { x: 20, y: 15, w: W - 40, h: H - 30, density: 0.005 },
-  ]);
-
-  // Ensure spawn areas don't have crates
-  fillArea(map, tSpawnX + 1, tSpawnY + 1, tSpawnW - 2, tSpawnH - 2, TILE_T_SPAWN);
-  fillArea(map, ctSpawnX + 1, ctSpawnY + 1, ctSpawnW - 2, ctSpawnH - 2, TILE_CT_SPAWN);
 
   return map;
-}
-
-function generateMap() {
-  const MAX_ATTEMPTS = 10;
-
-  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-    const map = generateMapInternal();
-
-    if (validateMap(map)) {
-      return map;
-    }
-  }
-
-  // Fallback: return last generated map even if not perfect
-  // (shouldn't happen often with the corridor approach)
-  console.warn('[map.js] Warning: Could not generate a fully validated map after 10 attempts, using last attempt');
-  return generateMapInternal();
 }
 
 // ── Public helper functions (preserved interface) ────────────────────────
