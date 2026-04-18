@@ -91,6 +91,21 @@ let footstepTimers = {}; // playerId -> timer
 // Weapon sway
 let weaponSway = { x: 0, y: 0, targetX: 0, targetY: 0 };
 
+// Bullet holes on walls
+let bulletHoles = []; // {x, y, life, maxLife}
+
+// Dynamic crosshair
+let crosshairSpread = 0;
+let crosshairTargetSpread = 0;
+let lastShotTime = 0;
+let lastMoveTime = 0;
+
+// Bomb glow canvas (pre-rendered)
+let bombGlowCanvas = null;
+
+// Vignette canvas (pre-rendered)
+let vignetteCanvas = null;
+
 // ==================== MENU PARTICLES ====================
 let menuParticles = [];
 function initMenuParticles() {
@@ -229,25 +244,45 @@ class Particle {
 let particles = [];
 let effects = [];
 
-function spawnMuzzleFlash(x, y, angle) {
+function spawnMuzzleFlash(x, y, angle, weaponType) {
   const cos = Math.cos(angle), sin = Math.sin(angle);
-  for (let i = 0; i < 6; i++) {
+  // Scale flash size by weapon type
+  const sizeMult = weaponType === 'sniper' ? 2.5 : weaponType === 'rifle' ? 2.0 : weaponType === 'shotgun' ? 2.2 : weaponType === 'smg' ? 1.5 : weaponType === 'pistol' ? 1.0 : 0.5;
+  const countMult = weaponType === 'shotgun' ? 1.5 : weaponType === 'sniper' ? 1.3 : 1.0;
+  const barrelLen = weaponType === 'sniper' ? 32 : weaponType === 'rifle' ? 28 : weaponType === 'smg' ? 22 : weaponType === 'shotgun' ? 20 : weaponType === 'pistol' ? 18 : 14;
+
+  // Dynamic crosshair spread on shoot
+  lastShotTime = Date.now();
+  crosshairTargetSpread = Math.min(20, crosshairTargetSpread + (weaponType === 'rifle' || weaponType === 'smg' ? 8 : 12));
+
+  // Core bright flash
+  for (let i = 0; i < Math.ceil(6 * countMult); i++) {
     const spread = (Math.random() - 0.5) * 0.8;
-    const spd = 200 + Math.random() * 300;
+    const spd = (200 + Math.random() * 300) * sizeMult;
     particles.push(new Particle(
-      x + cos * 18, y + sin * 18,
+      x + cos * barrelLen, y + sin * barrelLen,
       Math.cos(angle + spread) * spd, Math.sin(angle + spread) * spd,
-      0.06 + Math.random() * 0.06, 3 + Math.random() * 3,
+      0.06 + Math.random() * 0.06, (3 + Math.random() * 3) * sizeMult,
       `hsl(${40 + Math.random() * 20}, 100%, ${70 + Math.random() * 30}%)`,
-      0, 0.9, true, 15
+      0, 0.9, true, 15 * sizeMult
     ));
   }
-  for (let i = 0; i < 3; i++) {
+  // Smoke wisps
+  for (let i = 0; i < Math.ceil(3 * countMult); i++) {
     particles.push(new Particle(
-      x + cos * 20, y + sin * 20,
+      x + cos * (barrelLen + 2), y + sin * (barrelLen + 2),
       cos * 30 + (Math.random()-0.5) * 60, sin * 30 + (Math.random()-0.5) * 60,
-      0.3 + Math.random() * 0.4, 4 + Math.random() * 4,
+      0.3 + Math.random() * 0.4, (4 + Math.random() * 4) * sizeMult,
       `rgba(180,180,180,0.4)`, 0, 0.96, true, 0
+    ));
+  }
+  // Bright white core flash (bigger for bigger weapons)
+  if (sizeMult > 1) {
+    particles.push(new Particle(
+      x + cos * barrelLen, y + sin * barrelLen,
+      cos * 10, sin * 10,
+      0.04, 6 * sizeMult,
+      `rgba(255,255,240,0.9)`, 0, 0.8, true, 25 * sizeMult
     ));
   }
 }
@@ -270,38 +305,79 @@ function spawnBulletImpact(x, y) {
       `rgba(140,130,120,0.5)`, 0, 0.96, true, 0
     ));
   }
+  // Add bullet hole
+  bulletHoles.push({ x, y, life: 8, maxLife: 8 });
+  if (bulletHoles.length > 60) bulletHoles.shift();
 }
 
 function spawnBlood(x, y, angle) {
-  for (let i = 0; i < 12; i++) {
-    const a = angle + (Math.random() - 0.5) * 1.2;
-    const spd = 50 + Math.random() * 150;
+  // More particles, darker, directional spray
+  for (let i = 0; i < 16; i++) {
+    const a = angle + (Math.random() - 0.5) * 1.4;
+    const spd = 40 + Math.random() * 180;
     particles.push(new Particle(x, y,
       Math.cos(a)*spd, Math.sin(a)*spd,
-      0.3 + Math.random()*0.5, 1.5 + Math.random()*2,
-      `hsl(${0+Math.random()*10}, ${80+Math.random()*20}%, ${25+Math.random()*20}%)`,
-      100, 0.96, true, 0
+      0.4 + Math.random()*0.6, 1 + Math.random()*2.5,
+      `hsl(${0+Math.random()*8}, ${70+Math.random()*30}%, ${15+Math.random()*15}%)`,
+      120, 0.96, true, 0
     ));
   }
+  // Dark blood pool splat
   particles.push(new Particle(x, y,
-    (Math.random()-0.5)*10, (Math.random()-0.5)*10,
-    3 + Math.random()*2, 5 + Math.random()*4,
-    `hsl(0, 85%, 22%)`, 0, 1, false, 0
+    (Math.random()-0.5)*8, (Math.random()-0.5)*8,
+    4 + Math.random()*2, 6 + Math.random()*5,
+    `hsl(0, 80%, 12%)`, 0, 1, false, 0
   ));
+  // Secondary splatter drops
+  for (let i = 0; i < 5; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = 8 + Math.random() * 12;
+    particles.push(new Particle(x + Math.cos(a)*d, y + Math.sin(a)*d,
+      (Math.random()-0.5)*20, (Math.random()-0.5)*20,
+      2 + Math.random()*2, 2 + Math.random()*3,
+      `hsl(0, 75%, 18%)`, 0, 1, false, 0
+    ));
+  }
 }
 
 function spawnExplosion(x, y, radius) {
   const r = radius || 200;
-  for (let i = 0; i < 30; i++) {
+
+  // 1. Bright central flash (white-hot)
+  for (let i = 0; i < 5; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const spd = 20 + Math.random() * 60;
+    particles.push(new Particle(x, y,
+      Math.cos(a)*spd, Math.sin(a)*spd,
+      0.08 + Math.random() * 0.06, 15 + Math.random() * 10,
+      `rgba(255,255,240,0.95)`, 0, 0.8, true, 40
+    ));
+  }
+
+  // 2. Fire particles
+  for (let i = 0; i < 35; i++) {
     const a = Math.random() * Math.PI * 2;
     const spd = 100 + Math.random() * 400;
     particles.push(new Particle(x, y,
       Math.cos(a)*spd, Math.sin(a)*spd,
-      0.2 + Math.random()*0.4, 5 + Math.random()*8,
-      `hsl(${20+Math.random()*30}, 100%, ${50+Math.random()*50}%)`,
+      0.2 + Math.random()*0.5, 5 + Math.random()*8,
+      `hsl(${15+Math.random()*35}, 100%, ${45+Math.random()*55}%)`,
       0, 0.95, true, 20
     ));
   }
+
+  // 3. Expanding smoke ring
+  for (let i = 0; i < 20; i++) {
+    const a = (i / 20) * Math.PI * 2 + Math.random() * 0.2;
+    const spd = 200 + Math.random() * 150;
+    particles.push(new Particle(x, y,
+      Math.cos(a)*spd, Math.sin(a)*spd,
+      0.6 + Math.random()*0.8, 3 + Math.random()*3,
+      `rgba(60,60,60,0.5)`, 0, 0.97, false, 0
+    ));
+  }
+
+  // 4. Heavy smoke column
   for (let i = 0; i < 15; i++) {
     const a = Math.random() * Math.PI * 2;
     const spd = 150 + Math.random() * 300;
@@ -312,28 +388,55 @@ function spawnExplosion(x, y, radius) {
       400, 0.97, true, 0
     ));
   }
-  for (let i = 0; i < 20; i++) {
+
+  // 5. Debris / rubble particles
+  for (let i = 0; i < 25; i++) {
     const a = Math.random() * Math.PI * 2;
-    const d = Math.random() * r * 0.5;
-    particles.push(new Particle(x + Math.cos(a)*d, y + Math.sin(a)*d,
-      (Math.random()-0.5)*40, -30 - Math.random()*50,
-      1.5 + Math.random()*2, 8 + Math.random()*12,
-      `rgba(60,60,60,0.6)`, -20, 0.99, false, 0
+    const spd = 200 + Math.random() * 500;
+    particles.push(new Particle(x + Math.cos(a)*r*0.2, y + Math.sin(a)*r*0.2,
+      Math.cos(a)*spd, Math.sin(a)*spd,
+      0.8 + Math.random()*1.2, 2 + Math.random()*4,
+      `hsl(${20+Math.random()*20}, ${10+Math.random()*20}%, ${25+Math.random()*20}%)`,
+      500, 0.98, true, 0
     ));
   }
-  camera.shakeX = (Math.random()-0.5) * 30;
-  camera.shakeY = (Math.random()-0.5) * 30;
-  setTimeout(() => { camera.shakeX = 0; camera.shakeY = 0; }, 400);
+
+  // 6. Lingering smoke clouds
+  for (let i = 0; i < 12; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = Math.random() * r * 0.4;
+    particles.push(new Particle(x + Math.cos(a)*d, y + Math.sin(a)*d,
+      (Math.random()-0.5)*40, -30 - Math.random()*50,
+      2 + Math.random()*2, 10 + Math.random()*15,
+      `rgba(50,50,50,0.5)`, -20, 0.99, false, 0
+    ));
+  }
+
+  camera.shakeX = (Math.random()-0.5) * 35;
+  camera.shakeY = (Math.random()-0.5) * 35;
+  setTimeout(() => { camera.shakeX = 0; camera.shakeY = 0; }, 500);
 }
 
 function spawnSmokeEffect(x, y, radius) {
-  for (let i = 0; i < 15; i++) {
+  const r = radius || 80;
+  // Dense core puffs
+  for (let i = 0; i < 20; i++) {
     const a = Math.random() * Math.PI * 2;
-    const d = Math.random() * (radius || 80);
-    particles.push(new Particle(x + Math.cos(a)*d*0.3, y + Math.sin(a)*d*0.3,
-      Math.cos(a)*20, Math.sin(a)*20,
-      2 + Math.random()*3, 6 + Math.random()*10,
-      `rgba(80,80,80,0.5)`, -5, 0.99, false, 0
+    const d = Math.random() * r * 0.4;
+    particles.push(new Particle(x + Math.cos(a)*d, y + Math.sin(a)*d,
+      Math.cos(a)*15, Math.sin(a)*15,
+      2.5 + Math.random()*3, 8 + Math.random()*12,
+      `rgba(75,75,75,0.6)`, -5, 0.99, false, 0
+    ));
+  }
+  // Outer wispy edges
+  for (let i = 0; i < 10; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const d = r * 0.5 + Math.random() * r * 0.4;
+    particles.push(new Particle(x + Math.cos(a)*d, y + Math.sin(a)*d,
+      Math.cos(a)*25, Math.sin(a)*25 - 8,
+      1.5 + Math.random()*2, 5 + Math.random()*8,
+      `rgba(85,85,85,0.35)`, -3, 0.99, false, 0
     ));
   }
 }
@@ -1099,32 +1202,48 @@ function preRenderMap() {
   mapOffscreen.height = mapHeightPx;
   const mc = mapOffscreen.getContext('2d');
 
+  // Base floor
   mc.fillStyle = '#1a1a28';
   mc.fillRect(0, 0, mapWidthPx, mapHeightPx);
 
+  // Subtle concrete-like floor texture
   for (let y = 0; y < mapHeight; y++) {
     for (let x = 0; x < mapWidth; x++) {
       const t = mapData[y][x], px = x * TILE_SIZE, py = y * TILE_SIZE;
       switch (t) {
         case TILE_WALL:
+          // Wall with 3D depth effect - darker base, lighter top edge
           mc.fillStyle = '#3d3d52';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = '#4a4a62';
+          // Top highlight (light catching top edge)
+          mc.fillStyle = '#555570';
           mc.fillRect(px, py, TILE_SIZE, 3);
-          mc.fillStyle = '#32324a';
-          mc.fillRect(px, py + TILE_SIZE - 2, TILE_SIZE, 2);
-          mc.fillStyle = '#353550';
+          // Left highlight
+          mc.fillStyle = '#4a4a64';
           mc.fillRect(px, py, 2, TILE_SIZE);
-          mc.strokeStyle = 'rgba(0,0,0,0.15)';
+          // Bottom shadow
+          mc.fillStyle = '#2a2a40';
+          mc.fillRect(px, py + TILE_SIZE - 2, TILE_SIZE, 2);
+          // Right shadow
+          mc.fillStyle = '#333348';
+          mc.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
+          // Inner brick pattern
+          mc.strokeStyle = 'rgba(0,0,0,0.12)';
           mc.lineWidth = 0.5;
           mc.strokeRect(px+1, py+1, TILE_SIZE-2, TILE_SIZE-2);
           if ((x+y)%2===0) mc.strokeRect(px+4, py+4, TILE_SIZE-8, TILE_SIZE/2-4);
+          // Subtle noise texture on wall
+          mc.fillStyle = `rgba(255,255,255,${Math.random()*0.02})`;
+          mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           break;
         case TILE_CRATE:
+          // Crate with wood texture
           mc.fillStyle = '#5c4a38';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          // Wood grain
           mc.fillStyle = '#6b5743';
           mc.fillRect(px+2, py+2, TILE_SIZE-4, TILE_SIZE-4);
+          // Cross planks
           mc.strokeStyle = '#4a3828';
           mc.lineWidth = 1.5;
           mc.strokeRect(px+3, py+3, TILE_SIZE-6, TILE_SIZE-6);
@@ -1132,27 +1251,49 @@ function preRenderMap() {
           mc.moveTo(px+3, py+3); mc.lineTo(px+TILE_SIZE-3, py+TILE_SIZE-3);
           mc.moveTo(px+TILE_SIZE-3, py+3); mc.lineTo(px+3, py+TILE_SIZE-3);
           mc.strokeStyle = 'rgba(0,0,0,0.2)'; mc.stroke();
-          mc.fillStyle = 'rgba(255,255,255,0.05)';
+          // Top edge highlight
+          mc.fillStyle = 'rgba(255,255,255,0.08)';
           mc.fillRect(px+2, py+2, TILE_SIZE-4, 2);
+          // Bottom shadow
+          mc.fillStyle = 'rgba(0,0,0,0.15)';
+          mc.fillRect(px+2, py+TILE_SIZE-4, TILE_SIZE-4, 2);
           break;
         case TILE_BS_A:
+          // Bombsite A - visible colored zone
           mc.fillStyle = '#1e1e2a';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = `rgba(255,80,60,${0.04 + Math.random()*0.03})`;
+          // Colored zone overlay with checker pattern
+          const aAlpha = 0.06 + Math.random()*0.03;
+          mc.fillStyle = `rgba(255,80,60,${aAlpha})`;
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          // Subtle zone border marking
+          mc.fillStyle = `rgba(255,80,60,0.08)`;
+          mc.fillRect(px, py, 2, TILE_SIZE);
+          mc.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
           break;
         case TILE_BS_B:
+          // Bombsite B - visible colored zone
           mc.fillStyle = '#1e1e2a';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          mc.fillStyle = `rgba(60,80,255,${0.04 + Math.random()*0.03})`;
+          const bAlpha = 0.06 + Math.random()*0.03;
+          mc.fillStyle = `rgba(60,80,255,${bAlpha})`;
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          mc.fillStyle = `rgba(60,80,255,0.08)`;
+          mc.fillRect(px, py, 2, TILE_SIZE);
+          mc.fillRect(px + TILE_SIZE - 2, py, 2, TILE_SIZE);
           break;
         case TILE_T_SPAWN:
+          // T Spawn - warm highlight
           mc.fillStyle = '#221e18';
+          mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          mc.fillStyle = 'rgba(212,165,55,0.04)';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           break;
         case TILE_CT_SPAWN:
+          // CT Spawn - cool highlight
           mc.fillStyle = '#181e24';
+          mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          mc.fillStyle = 'rgba(74,144,217,0.04)';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           break;
         case TILE_DOOR:
@@ -1160,23 +1301,84 @@ function preRenderMap() {
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
           mc.fillStyle = '#554530';
           mc.fillRect(px+2, py+2, TILE_SIZE-4, TILE_SIZE-4);
+          // Door handle detail
+          mc.fillStyle = '#888';
+          mc.beginPath();
+          mc.arc(px + TILE_SIZE - 8, py + TILE_SIZE/2, 2, 0, Math.PI * 2);
+          mc.fill();
           break;
         default:
+          // Floor tile with subtle concrete texture
           mc.fillStyle = '#1a1a28';
           mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
-          if (Math.random() < 0.15) {
-            mc.fillStyle = `rgba(255,255,255,${Math.random()*0.02})`;
-            mc.fillRect(px, py, TILE_SIZE, TILE_SIZE);
+          // Random subtle noise specks
+          if (Math.random() < 0.2) {
+            mc.fillStyle = `rgba(255,255,255,${Math.random()*0.015})`;
+            mc.fillRect(px + Math.random()*20, py + Math.random()*20, Math.random()*8+2, Math.random()*8+2);
+          }
+          if (Math.random() < 0.1) {
+            mc.fillStyle = `rgba(0,0,0,${Math.random()*0.03})`;
+            mc.fillRect(px + Math.random()*20, py + Math.random()*20, Math.random()*6+1, Math.random()*6+1);
           }
           break;
       }
+      // Subtle grid lines on non-solid tiles
       if (t !== TILE_WALL && t !== TILE_CRATE) {
-        mc.strokeStyle = 'rgba(255,255,255,0.012)';
+        mc.strokeStyle = 'rgba(255,255,255,0.015)';
         mc.lineWidth = 0.5;
         mc.strokeRect(px, py, TILE_SIZE, TILE_SIZE);
       }
     }
   }
+
+  // Ambient occlusion: darken floor tiles adjacent to walls
+  mc.save();
+  for (let y = 0; y < mapHeight; y++) {
+    for (let x = 0; x < mapWidth; x++) {
+      if (mapData[y][x] === TILE_WALL || mapData[y][x] === TILE_CRATE) continue;
+      const px = x * TILE_SIZE, py = y * TILE_SIZE;
+      // Check each neighbor for walls
+      const wallTop = y > 0 && (mapData[y-1][x] === TILE_WALL || mapData[y-1][x] === TILE_CRATE);
+      const wallBottom = y < mapHeight-1 && (mapData[y+1][x] === TILE_WALL || mapData[y+1][x] === TILE_CRATE);
+      const wallLeft = x > 0 && (mapData[y][x-1] === TILE_WALL || mapData[y][x-1] === TILE_CRATE);
+      const wallRight = x < mapWidth-1 && (mapData[y][x+1] === TILE_WALL || mapData[y][x+1] === TILE_CRATE);
+
+      if (wallTop) {
+        const g = mc.createLinearGradient(px, py, px, py + TILE_SIZE * 0.4);
+        g.addColorStop(0, 'rgba(0,0,0,0.15)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        mc.fillStyle = g;
+        mc.fillRect(px, py, TILE_SIZE, TILE_SIZE * 0.4);
+      }
+      if (wallBottom) {
+        const g = mc.createLinearGradient(px, py + TILE_SIZE, px, py + TILE_SIZE * 0.6);
+        g.addColorStop(0, 'rgba(0,0,0,0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        mc.fillStyle = g;
+        mc.fillRect(px, py + TILE_SIZE * 0.6, TILE_SIZE, TILE_SIZE * 0.4);
+      }
+      if (wallLeft) {
+        const g = mc.createLinearGradient(px, py, px + TILE_SIZE * 0.4, py);
+        g.addColorStop(0, 'rgba(0,0,0,0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        mc.fillStyle = g;
+        mc.fillRect(px, py, TILE_SIZE * 0.4, TILE_SIZE);
+      }
+      if (wallRight) {
+        const g = mc.createLinearGradient(px + TILE_SIZE, py, px + TILE_SIZE * 0.6, py);
+        g.addColorStop(0, 'rgba(0,0,0,0.12)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        mc.fillStyle = g;
+        mc.fillRect(px + TILE_SIZE * 0.6, py, TILE_SIZE * 0.4, TILE_SIZE);
+      }
+      // Corner darkening
+      if ((wallTop || wallLeft) && y > 0 && x > 0 && (mapData[y-1][x] === TILE_WALL || mapData[y][x-1] === TILE_WALL)) {
+        mc.fillStyle = 'rgba(0,0,0,0.08)';
+        mc.fillRect(px, py, TILE_SIZE * 0.3, TILE_SIZE * 0.3);
+      }
+    }
+  }
+  mc.restore();
 
   if (bombsites) {
     mc.font = 'bold 52px sans-serif'; mc.textAlign = 'center'; mc.textBaseline = 'middle';
@@ -1195,6 +1397,19 @@ function preRenderMap() {
   // Initialize free cam pos
   freeCamPos.x = mapWidthPx / 2;
   freeCamPos.y = mapHeightPx / 2;
+
+  // Pre-render vignette
+  vignetteCanvas = document.createElement('canvas');
+  vignetteCanvas.width = 1920;
+  vignetteCanvas.height = 1080;
+  const vc = vignetteCanvas.getContext('2d');
+  const vg = vc.createRadialGradient(960, 540, 300, 960, 540, 960);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(0.5, 'rgba(0,0,0,0)');
+  vg.addColorStop(0.75, 'rgba(0,0,0,0.15)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.5)');
+  vc.fillStyle = vg;
+  vc.fillRect(0, 0, 1920, 1080);
 }
 
 function drawBombsiteOutline(mc, site, color) {
