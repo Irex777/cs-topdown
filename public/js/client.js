@@ -46,7 +46,7 @@ let bullets = [];
 let adsActive = false;
 let adsZoom = 1.0;
 let adsTargetZoom = 1.0;
-const ADS_ZOOM_LEVELS = { pistol: 0.85, rifle: 0.8, smg: 0.85, sniper: 0.75, shotgun: 0.9 };
+const ADS_ZOOM_LEVELS = { pistol: 1.3, rifle: 1.5, smg: 1.3, sniper: 0.5, shotgun: 1.2 };
 
 function getPlayerWeaponType() {
   const p = players[myId];
@@ -1418,16 +1418,17 @@ function renderBuyMenu() {
     p.weapons.forEach((w, i) => {
       const wInfo = WEAPONS[w];
       const name = wInfo ? wInfo.name : w;
-      loadoutHtml += `<div class="buy-loadout-item owned">${i+1}. ${name}</div>`;
+      const sellPrice = getSellPrice(w);
+      loadoutHtml += `<div class="buy-loadout-item owned">${i+1}. ${name}<button class="sell-btn" onclick="sellItem('${w}')" title="Sell for $${sellPrice}">SELL $${sellPrice}</button></div>`;
     });
   }
   if (p.grenades) {
-    if (p.grenades.he > 0) loadoutHtml += '<div class="buy-loadout-item owned">HE Grenade x' + p.grenades.he + '</div>';
-    if (p.grenades.flash > 0) loadoutHtml += '<div class="buy-loadout-item owned">Flashbang x' + p.grenades.flash + '</div>';
-    if (p.grenades.smoke > 0) loadoutHtml += '<div class="buy-loadout-item owned">Smoke x' + p.grenades.smoke + '</div>';
+    if (p.grenades.he > 0) { const sp = getSellPrice('he_grenade'); loadoutHtml += `<div class="buy-loadout-item owned">HE Grenade x${p.grenades.he}<button class="sell-btn" onclick="sellItem('he_grenade')" title="Sell for $${sp}">SELL $${sp}</button></div>`; }
+    if (p.grenades.flash > 0) { const sp = getSellPrice('flashbang'); loadoutHtml += `<div class="buy-loadout-item owned">Flashbang x${p.grenades.flash}<button class="sell-btn" onclick="sellItem('flashbang')" title="Sell for $${sp}">SELL $${sp}</button></div>`; }
+    if (p.grenades.smoke > 0) { const sp = getSellPrice('smoke'); loadoutHtml += `<div class="buy-loadout-item owned">Smoke x${p.grenades.smoke}<button class="sell-btn" onclick="sellItem('smoke')" title="Sell for $${sp}">SELL $${sp}</button></div>`; }
   }
-  if (p.hasDefuseKit) loadoutHtml += '<div class="buy-loadout-item owned">Defuse Kit</div>';
-  if (p.armor > 0) loadoutHtml += '<div class="buy-loadout-item owned">Armor' + (p.armor >= 100 ? '+Helm' : '') + '</div>';
+  if (p.hasDefuseKit) { const sp = getSellPrice('defuse_kit'); loadoutHtml += `<div class="buy-loadout-item owned">Defuse Kit<button class="sell-btn" onclick="sellItem('defuse_kit')" title="Sell for $${sp}">SELL $${sp}</button></div>`; }
+  if (p.armor > 0) { const akey = p.helmet ? 'helmet' : 'kevlar'; const sp = getSellPrice(akey); loadoutHtml += `<div class="buy-loadout-item owned">Armor${p.helmet ? '+Helm' : ''}<button class="sell-btn" onclick="sellItem('${akey}')" title="Sell for $${sp}">SELL $${sp}</button></div>`; }
   loadoutEl.innerHTML = loadoutHtml;
 
   let h = '';
@@ -1464,6 +1465,15 @@ function renderBuyMenu() {
   window._buyKeys = buyKeys;
 }
 function buyItem(k) { if (socket) socket.emit('buy', k); renderBuyMenu(); }
+function sellItem(k) { if (socket) socket.emit('sell', k); renderBuyMenu(); }
+function getSellPrice(key) {
+  // Look up price from BUY_ITEMS, then compute 50% refund
+  for (const items of Object.values(BUY_ITEMS)) {
+    const item = items.find(it => it.key === key);
+    if (item) return Math.floor((item.price || 0) * 0.5);
+  }
+  return 0;
+}
 
 // ==================== HUD ====================
 function updateHUD() {
@@ -2383,7 +2393,7 @@ function render(timestamp) {
     fogCtx.globalCompositeOperation = 'destination-out';
     const cx = viewPlayer.x - camera.x + camera.shakeX;
     const cy = viewPlayer.y - camera.y + camera.shakeY;
-    const effectiveFogRadius = FOG_VISIBILITY_RADIUS * adsZoom;
+    const effectiveFogRadius = FOG_VISIBILITY_RADIUS;
     const fogGrad = fogCtx.createRadialGradient(cx, cy, effectiveFogRadius * 0.25, cx, cy, effectiveFogRadius);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
     fogGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.95)');
@@ -2683,7 +2693,7 @@ function render(timestamp) {
   ctx.restore();
 
   // Sniper scope overlay when ADS
-  if (adsActive && adsZoom > 2.0) {
+  if (adsActive && adsZoom < 0.8) {
     ctx.save();
     ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);

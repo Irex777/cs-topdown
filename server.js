@@ -522,6 +522,57 @@ function handleBuy(player, item) {
   return true;
 }
 
+function handleSell(player, itemKey) {
+  if (!player.alive) return false;
+  const weapon = C.WEAPONS[itemKey];
+  if (!weapon) return false;
+
+  // Refund 50% of the item's price
+  const refund = Math.floor((weapon.price || 0) * 0.5);
+
+  if (weapon.type === 'armor') {
+    // Selling kevlar/helmet
+    if (player.armor <= 0) return false;
+    player.armor = 0;
+    player.helmet = false;
+    player.money = Math.min(C.MAX_MONEY, player.money + refund);
+    return true;
+  }
+
+  if (weapon.type === 'utility') {
+    if (itemKey === 'defuse_kit') {
+      if (!player.hasDefuseKit) return false;
+      player.hasDefuseKit = false;
+      player.money = Math.min(C.MAX_MONEY, player.money + refund);
+      return true;
+    }
+    return false;
+  }
+
+  if (weapon.type === 'grenade') {
+    const gType = itemKey === 'he_grenade' ? 'he' : itemKey === 'flashbang' ? 'flash' : 'smoke';
+    if (!player.grenades || player.grenades[gType] <= 0) return false;
+    player.grenades[gType]--;
+    player.money = Math.min(C.MAX_MONEY, player.money + refund);
+    return true;
+  }
+
+  // Weapon
+  const idx = player.weapons.indexOf(itemKey);
+  if (idx < 0) return false;
+  player.weapons.splice(idx, 1);
+  delete player.ammo[itemKey];
+
+  // If sold currently equipped weapon, switch to knife
+  if (player.currentWeapon >= player.weapons.length) {
+    player.currentWeapon = player.weapons.length - 1;
+  }
+  player.reloading = false;
+
+  player.money = Math.min(C.MAX_MONEY, player.money + refund);
+  return true;
+}
+
 // ==================== DROPPED WEAPONS ====================
 function dropWeaponOnGround(weaponKey, x, y, reserveAmmo) {
   if (!weaponKey || weaponKey === 'knife') return;
@@ -548,8 +599,22 @@ function dropPrimaryWeaponOnDeath(player) {
         player.currentWeapon = player.weapons.length - 1;
       }
       emitSound(player.x, player.y, SOUNDS.weapon_drop(), 500);
-      return;
+      break;
     }
+  }
+
+  // Drop kevlar/armor if player has any
+  if (player.armor > 0) {
+    droppedWeapons.push({
+      id: ++droppedIdCounter,
+      weaponKey: '__armor__',
+      itemType: 'armor',
+      armorAmount: player.armor,
+      x: player.x + (Math.random() - 0.5) * 20,
+      y: player.y + (Math.random() - 0.5) * 20,
+    });
+    player.armor = 0;
+    player.helmet = false;
   }
 }
 
@@ -563,6 +628,17 @@ function checkWeaponPickup(player) {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 30) {
+      // Handle armor pickup
+      if (dw.itemType === 'armor') {
+        if (player.armor < 100) {
+          player.armor = Math.min(100, player.armor + (dw.armorAmount || 50));
+          droppedWeapons.splice(i, 1);
+          emitSound(player.x, player.y, SOUNDS.weapon_pickup(), 400);
+          break;
+        }
+        continue;
+      }
+
       const wData = C.WEAPONS[dw.weaponKey];
       if (!wData) continue;
 
@@ -1736,6 +1812,13 @@ io.on('connection', (socket) => {
     const p = players[socket.id];
     if (!p) return;
     handleBuy(p, item);
+    socket.emit('player_update', serializePlayer(p));
+  });
+
+  socket.on('sell', (itemKey) => {
+    const p = players[socket.id];
+    if (!p) return;
+    handleSell(p, itemKey);
     socket.emit('player_update', serializePlayer(p));
   });
 
