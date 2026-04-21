@@ -7,7 +7,7 @@ import {
 } from './constants.js';
 import { getInterpolatedState } from './interpolation.js';
 import { SoundManager } from './audio.js';
-import { drawDamageIndicators, drawDeathScreen, updateDeathScreen } from './effects.js';
+import { drawDamageIndicators, drawDeathScreen, updateDeathScreen, Particle, spawnMuzzleFlash, spawnShellCasing, spawnFootstepParticles, spawnAmbientDust, spawnBlood, spawnExplosion, spawnBulletImpact, spawnSmokeEffect, spawnDeathEffect, spawnDamageNumber, addDamageIndicator } from './effects.js';
 import { updateHUD, drawBombHud, hideRoundResult, drawRoundRect } from './hud.js';
 
 const canvas = document.getElementById('game-canvas');
