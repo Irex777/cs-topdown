@@ -12,7 +12,7 @@ state.updateScoreboard = updateScoreboard;
 
 // Expose to HTML onclick handlers
 window.connect = connect;
-window.joinTeam = function(t) { console.log('[DEBUG] joinTeam called, t:', t); return joinTeam(t); };
+window.joinTeam = joinTeam;
 window.startGame = startGame;
 window.addBots = addBots;
 window.reconnectGame = reconnectGame;
@@ -28,7 +28,7 @@ window.buyItem = buyItem;
 window.sellItem = sellItem;
 window.cycleSpectateTarget = cycleSpectateTarget;
 window.renderBuyMenu = renderBuyMenu;
-window.__state = state;
+
 
 // Init
 document.getElementById('connect-btn').addEventListener('click', connect);
