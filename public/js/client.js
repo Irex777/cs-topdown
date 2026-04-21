@@ -46,7 +46,7 @@ let bullets = [];
 let adsActive = false;
 let adsZoom = 1.0;
 let adsTargetZoom = 1.0;
-const ADS_ZOOM_LEVELS = { pistol: 1.3, rifle: 1.5, smg: 1.3, sniper: 0.5, shotgun: 1.2 };
+const ADS_ZOOM_LEVELS = { pistol: 0.7, rifle: 0.55, smg: 0.7, sniper: 0.35, shotgun: 0.75 };
 
 function getPlayerWeaponType() {
   const p = players[myId];
