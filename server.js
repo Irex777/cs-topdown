@@ -190,6 +190,8 @@ function giveDefaultWeapons(player) {
   player.currentWeapon = 0; // slot 0 in weapons array = pistol; knife is implicit at index -1
   player.grenades = { he: 0, flash: 0, smoke: 0 };
   player.hasDefuseKit = false;
+  player.armor = 0;
+  player.helmet = false;
 }
 
 // ==================== WEAPON HELPERS ====================
@@ -522,54 +524,57 @@ function handleBuy(player, item) {
   return true;
 }
 
-function handleSell(player, itemKey) {
+// ==================== SELL SYSTEM ====================
+function handleSell(player, item) {
   if (!player.alive) return false;
-  const weapon = C.WEAPONS[itemKey];
+  // Allow selling during freeze, waiting, round_end, and first 15 seconds of round
+  const buyTimeLeft = C.ROUND_TIME - roundTimer;
+  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > C.FREEZE_TIME) return false;
+
+  const weapon = C.WEAPONS[item];
   if (!weapon) return false;
 
-  // Refund 50% of the item's price
-  const refund = Math.floor((weapon.price || 0) * 0.5);
+  // Sell price is 50% of purchase price
+  const sellPrice = Math.floor(weapon.price * 0.5);
+  if (sellPrice <= 0) return false;
 
   if (weapon.type === 'armor') {
-    // Selling kevlar/helmet
-    if (player.armor <= 0) return false;
+    // Can only sell armor if player has it
+    if (item === 'kevlar' && player.armor <= 0) return false;
+    if (item === 'helmet' && (!player.helmet || player.armor <= 0)) return false;
     player.armor = 0;
     player.helmet = false;
-    player.money = Math.min(C.MAX_MONEY, player.money + refund);
+    player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
     return true;
   }
 
   if (weapon.type === 'utility') {
-    if (itemKey === 'defuse_kit') {
+    if (item === 'defuse_kit') {
       if (!player.hasDefuseKit) return false;
       player.hasDefuseKit = false;
-      player.money = Math.min(C.MAX_MONEY, player.money + refund);
+      player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
       return true;
     }
     return false;
   }
 
   if (weapon.type === 'grenade') {
-    const gType = itemKey === 'he_grenade' ? 'he' : itemKey === 'flashbang' ? 'flash' : 'smoke';
+    const gType = item === 'he_grenade' ? 'he' : item === 'flashbang' ? 'flash' : 'smoke';
     if (!player.grenades || player.grenades[gType] <= 0) return false;
     player.grenades[gType]--;
-    player.money = Math.min(C.MAX_MONEY, player.money + refund);
+    player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
     return true;
   }
 
-  // Weapon
-  const idx = player.weapons.indexOf(itemKey);
+  // Weapon sell
+  const idx = player.weapons.indexOf(item);
   if (idx < 0) return false;
   player.weapons.splice(idx, 1);
-  delete player.ammo[itemKey];
-
-  // If sold currently equipped weapon, switch to knife
+  delete player.ammo[item];
   if (player.currentWeapon >= player.weapons.length) {
     player.currentWeapon = player.weapons.length - 1;
   }
-  player.reloading = false;
-
-  player.money = Math.min(C.MAX_MONEY, player.money + refund);
+  player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
   return true;
 }
 
@@ -599,22 +604,8 @@ function dropPrimaryWeaponOnDeath(player) {
         player.currentWeapon = player.weapons.length - 1;
       }
       emitSound(player.x, player.y, SOUNDS.weapon_drop(), 500);
-      break;
+      return;
     }
-  }
-
-  // Drop kevlar/armor if player has any
-  if (player.armor > 0) {
-    droppedWeapons.push({
-      id: ++droppedIdCounter,
-      weaponKey: '__armor__',
-      itemType: 'armor',
-      armorAmount: player.armor,
-      x: player.x + (Math.random() - 0.5) * 20,
-      y: player.y + (Math.random() - 0.5) * 20,
-    });
-    player.armor = 0;
-    player.helmet = false;
   }
 }
 
@@ -628,17 +619,6 @@ function checkWeaponPickup(player) {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 30) {
-      // Handle armor pickup
-      if (dw.itemType === 'armor') {
-        if (player.armor < 100) {
-          player.armor = Math.min(100, player.armor + (dw.armorAmount || 50));
-          droppedWeapons.splice(i, 1);
-          emitSound(player.x, player.y, SOUNDS.weapon_pickup(), 400);
-          break;
-        }
-        continue;
-      }
-
       const wData = C.WEAPONS[dw.weaponKey];
       if (!wData) continue;
 
@@ -1815,10 +1795,10 @@ io.on('connection', (socket) => {
     socket.emit('player_update', serializePlayer(p));
   });
 
-  socket.on('sell', (itemKey) => {
+  socket.on('sell', (item) => {
     const p = players[socket.id];
     if (!p) return;
-    handleSell(p, itemKey);
+    handleSell(p, item);
     socket.emit('player_update', serializePlayer(p));
   });
 
@@ -2053,13 +2033,13 @@ function broadcastPlayerList() {
 const HEAR_RANGE = 500;  // px – enemies shooting within this range are "heard"
 const VISIBILITY_RADIUS = 600; // px – max view distance for fog-of-war
 
-const TICK_RATE = C.TICK_RATE; // 30
-const TICK_MS = 1000 / TICK_RATE;
-let accumulator = 0;
-let lastLoopTime = performance.now();
+let lastTime = Date.now();
+setInterval(() => {
+  const now = Date.now();
+  const dt = (now - lastTime) / 1000;
+  lastTime = now;
 
-function broadcastState() {
-  const now = Date.now(); // Use Date.now() for consistency with lastShotTime (which is set via Date.now()/1000)
+  update(Math.min(dt, 0.05)); // cap dt
 
   // Build base state (non-player data shared to everyone)
   const baseState = {
@@ -2152,25 +2132,7 @@ function broadcastState() {
 
     socket.emit('game_state_update', myState);
   }
-}
-
-function gameLoop() {
-  const now = performance.now();
-  const frameTime = Math.min(now - lastLoopTime, 250); // cap to prevent spiral of death
-  lastLoopTime = now;
-  accumulator += frameTime;
-
-  while (accumulator >= TICK_MS) {
-    update(TICK_MS / 1000); // fixed dt = 1/30
-    accumulator -= TICK_MS;
-  }
-
-  // Build and broadcast state
-  broadcastState();
-
-  setImmediate(gameLoop);
-}
-gameLoop();
+}, 1000 / C.TICK_RATE);
 
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 3000;

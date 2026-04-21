@@ -5,6 +5,7 @@ const { isWall } = require('../shared/map');
 // Cache for path requests
 const pathCache = new Map();
 const CACHE_TTL = 800; // ms
+const MAX_CACHE_SIZE = 200;
 
 function findPath(gameMap, startX, startY, endX, endY) {
   const TS = C.TILE_SIZE;
@@ -185,6 +186,14 @@ function cleanCache() {
   lastClean = now;
   for (const [key, val] of pathCache) {
     if (now - val.time > CACHE_TTL * 2) pathCache.delete(key);
+  }
+  // Enforce max cache size by evicting oldest entries
+  if (pathCache.size > MAX_CACHE_SIZE) {
+    const keys = pathCache.keys();
+    const excess = pathCache.size - MAX_CACHE_SIZE;
+    for (let i = 0; i < excess; i++) {
+      pathCache.delete(keys.next().value);
+    }
   }
 }
 
