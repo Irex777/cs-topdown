@@ -6,6 +6,12 @@ const minimapCtx = minimapCanvas.getContext('2d');
 const menuCanvas = document.getElementById('menu-particles');
 const menuCtx = menuCanvas ? menuCanvas.getContext('2d') : null;
 
+// ==================== STATE INTERPOLATION ====================
+const STATE_BUFFER_SIZE = 10;
+const stateBuffer = [];
+let interpDelay = 80; // ms — interpolate 80ms behind latest server state
+let lastServerTime = 0;
+
 // ==================== CONSTANTS ====================
 const GAME_VERSION = '3.0';
 const PLAYER_RADIUS = 12;
@@ -983,13 +989,22 @@ function connect() {
   });
 
   socket.on('game_state_update', (state) => {
-    players = state.players; bullets = state.bullets;
-    serverGrenades = state.grenades; activeGrenades = state.activeGrenades;
-    droppedWeapons = state.droppedWeapons || [];
-    bomb = state.bomb; roundTimer = state.roundTimer; freezeTimer = state.freezeTimer;
+    state._recvTime = performance.now();
+    state._serverTime = performance.now(); // server doesn't send timestamps yet, use arrival time
+    stateBuffer.push(state);
+    if (stateBuffer.length > STATE_BUFFER_SIZE) stateBuffer.shift();
+
+    // Apply non-interpolated data immediately (timers, scores, etc.)
+    roundTimer = state.roundTimer; freezeTimer = state.freezeTimer;
     gameState = state.gameState; roundNumber = state.round;
     tScore = state.tScore; ctScore = state.ctScore;
     if (state.roundHistory) { roundHistory = state.roundHistory; updateRoundHistory(); }
+    bomb = state.bomb;
+    droppedWeapons = state.droppedWeapons || [];
+    activeGrenades = state.activeGrenades;
+    serverGrenades = state.grenades;
+    bullets = state.bullets;
+
     if (players[myId]) myPlayer = players[myId];
     // Update action progress from state
     if (state.plantProgress !== undefined && state.plantProgress > 0) {
@@ -2248,6 +2263,52 @@ function drawRoundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+// ==================== INTERPOLATION HELPERS ====================
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function getInterpolatedState() {
+  if (stateBuffer.length < 2) return stateBuffer[stateBuffer.length - 1] || null;
+
+  const now = performance.now();
+  const renderTime = now - interpDelay;
+
+  // Find the two states to interpolate between
+  let older = null, newer = null;
+  for (let i = 0; i < stateBuffer.length - 1; i++) {
+    if (stateBuffer[i]._recvTime <= renderTime && stateBuffer[i + 1]._recvTime >= renderTime) {
+      older = stateBuffer[i];
+      newer = stateBuffer[i + 1];
+      break;
+    }
+  }
+
+  if (!older || !newer) {
+    // Not enough buffered states yet or we fell behind — use latest
+    return stateBuffer[stateBuffer.length - 1];
+  }
+
+  const t = (renderTime - older._recvTime) / (newer._recvTime - older._recvTime);
+  const alpha = Math.max(0, Math.min(1, t));
+
+  // Interpolate player positions
+  const interpPlayers = {};
+  for (const id of Object.keys(newer.players)) {
+    const np = newer.players[id];
+    const op = older.players[id];
+    if (op) {
+      interpPlayers[id] = {
+        ...np,
+        x: lerp(op.x, np.x, alpha),
+        y: lerp(op.y, np.y, alpha),
+        angle: lerp(op.angle, np.angle, alpha),
+      };
+    } else {
+      interpPlayers[id] = np; // New player, no previous state
+    }
+  }
+  return { ...newer, players: interpPlayers };
+}
+
 // ==================== MAIN RENDER LOOP ====================
 let lastTime = 0;
 let muzzleFlashTimers = {};
@@ -2256,6 +2317,18 @@ let prevPositions = {}; // For detecting movement
 function render(timestamp) {
   const dt = Math.min((timestamp - lastTime) / 1000, 0.05);
   lastTime = timestamp;
+
+  // Apply interpolated state for rendering
+  const interpState = getInterpolatedState();
+  if (interpState) {
+    const myServerState = players[myId]; // save my own server position
+    players = interpState.players;
+    // Keep my own position from latest server state (no self-interpolation delay)
+    if (myServerState) {
+      players[myId] = myServerState;
+      myPlayer = myServerState;
+    }
+  }
 
   // Update effects
   flashTimer = Math.max(0, flashTimer - dt);

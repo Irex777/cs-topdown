@@ -2053,13 +2053,13 @@ function broadcastPlayerList() {
 const HEAR_RANGE = 500;  // px – enemies shooting within this range are "heard"
 const VISIBILITY_RADIUS = 600; // px – max view distance for fog-of-war
 
-let lastTime = Date.now();
-setInterval(() => {
-  const now = Date.now();
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
+const TICK_RATE = C.TICK_RATE; // 30
+const TICK_MS = 1000 / TICK_RATE;
+let accumulator = 0;
+let lastLoopTime = performance.now();
 
-  update(Math.min(dt, 0.05)); // cap dt
+function broadcastState() {
+  const now = Date.now(); // Use Date.now() for consistency with lastShotTime (which is set via Date.now()/1000)
 
   // Build base state (non-player data shared to everyone)
   const baseState = {
@@ -2152,7 +2152,25 @@ setInterval(() => {
 
     socket.emit('game_state_update', myState);
   }
-}, 1000 / C.TICK_RATE);
+}
+
+function gameLoop() {
+  const now = performance.now();
+  const frameTime = Math.min(now - lastLoopTime, 250); // cap to prevent spiral of death
+  lastLoopTime = now;
+  accumulator += frameTime;
+
+  while (accumulator >= TICK_MS) {
+    update(TICK_MS / 1000); // fixed dt = 1/30
+    accumulator -= TICK_MS;
+  }
+
+  // Build and broadcast state
+  broadcastState();
+
+  setImmediate(gameLoop);
+}
+gameLoop();
 
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 3000;
