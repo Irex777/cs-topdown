@@ -46,7 +46,7 @@ let bullets = [];
 let adsActive = false;
 let adsZoom = 1.0;
 let adsTargetZoom = 1.0;
-const ADS_ZOOM_LEVELS = { pistol: 1.3, rifle: 1.5, smg: 1.3, sniper: 2.5, shotgun: 1.2 };
+const ADS_ZOOM_LEVELS = { pistol: 0.85, rifle: 0.8, smg: 0.85, sniper: 2.5, shotgun: 0.9 };
 
 function getPlayerWeaponType() {
   const p = players[myId];
@@ -1276,7 +1276,16 @@ document.addEventListener('keyup', (e) => {
   keys[e.code] = false;
   if (e.code === 'Tab') document.getElementById('scoreboard').classList.remove('show');
 });
-canvas.addEventListener('mousemove', (e) => { mouse.x = e.clientX; mouse.y = e.clientY; });
+canvas.addEventListener('mousemove', (e) => {
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+  // BUG FIX: Update crosshair position to follow mouse cursor
+  const crosshairEl = document.getElementById('crosshair');
+  if (crosshairEl && crosshairEl.style.display !== 'none') {
+    crosshairEl.style.left = mouse.x + 'px';
+    crosshairEl.style.top = mouse.y + 'px';
+  }
+});
 canvas.addEventListener('mousedown', (e) => {
   if (e.button === 0) {
     mouse.down = true;
@@ -1389,17 +1398,17 @@ function renderBuyMenu() {
 
   // Buy availability feedback
   const buyTimeLeft = 115 - roundTimer;
-  const canBuy = gameState === 'freeze' || gameState === 'waiting' || gameState === 'round_end' || buyTimeLeft <= 15;
+  const canBuy = gameState === 'freeze' || gameState === 'waiting' || gameState === 'round_end' || buyTimeLeft <= 4;
   const statusEl = document.querySelector('.buy-title');
   if (statusEl) {
-    if (gameState === 'playing' && buyTimeLeft > 15) {
+    if (gameState === 'playing' && buyTimeLeft > 4) {
       statusEl.innerHTML = 'BUY MENU <span style="color:#ff4444;font-size:11px;">[BUY TIME EXPIRED]</span>';
     } else if (gameState === 'freeze') {
       statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[FREEZE TIME]</span>';
     } else if (gameState === 'round_end') {
       statusEl.innerHTML = 'BUY MENU <span style="color:#ffaa00;font-size:11px;">[ROUND OVER]</span>';
     } else {
-      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[' + Math.max(0, 15 - Math.floor(buyTimeLeft)) + 's left]</span>';
+      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[' + Math.max(0, 4 - Math.floor(buyTimeLeft)) + 's left]</span>';
     }
   }
   // Show current loadout
