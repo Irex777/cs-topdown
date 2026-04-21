@@ -108,9 +108,7 @@ export function updateMenuParticles() {
 }
 
 
-
 // ==================== RESIZE ====================
-const FOG_VISIBILITY_RADIUS = 600;
 
 export function resize() {
   canvas.width = window.innerWidth;
