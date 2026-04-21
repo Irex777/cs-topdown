@@ -14,6 +14,8 @@ const canvas = document.getElementById('game-canvas');
 const ctx = canvas.getContext('2d');
 const menuCanvas = document.getElementById('menu-particles');
 const menuCtx = menuCanvas ? menuCanvas.getContext('2d') : null;
+const minimapCanvas = document.getElementById('minimap');
+const minimapCtx = minimapCanvas.getContext('2d');
 
 // ==================== MENU PARTICLES ====================
 state.menuParticles = [];
