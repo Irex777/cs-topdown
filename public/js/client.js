@@ -4,6 +4,7 @@ import { initInput, toggleControls } from './input.js';
 import { connect, joinTeam, startGame, addBots, reconnectGame } from './network.js';
 import { escSwitchTeam, escDisconnect, escSpectate, escRestartGame, escRemoveBots, closeEscMenu, toggleBuyMenu, buyItem, sellItem, renderBuyMenu, updateScoreboard, showCenterMsg, cycleSpectateTarget } from './hud.js';
 import { render, preRenderMap, initMenuParticles, updateMenuParticles } from './renderer.js';
+import { SoundManager } from './audio.js';
 
 // Wire up callbacks that cross module boundaries
 state.preRenderMap = preRenderMap;
@@ -29,6 +30,9 @@ window.cycleSpectateTarget = cycleSpectateTarget;
 window.renderBuyMenu = renderBuyMenu;
 
 // Init
+document.getElementById('connect-btn').addEventListener('click', connect);
+document.addEventListener('click', () => SoundManager.init(), { once: true });
+document.addEventListener('keydown', () => SoundManager.init(), { once: true });
 initInput();
 initMenuParticles();
 updateMenuParticles();
