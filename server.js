@@ -51,6 +51,10 @@ const SOUNDS = {
 };
 
 function emitSound(x, y, soundData, range = 800) {
+  const key = soundData.type;
+  const now = Date.now();
+  if (lastSoundEmit[key] && now - lastSoundEmit[key] < 50) return; // max 20 sounds/sec per type
+  lastSoundEmit[key] = now;
   io.emit('sound', { ...soundData, x, y, range });
 }
 
@@ -93,6 +97,7 @@ let bombState = null;     // { site, x, y, planter, timer, defuser, defuseTimer,
 let damageIndicators = [];
 let droppedWeapons = [];  // { id, weaponKey, x, y, ammo }
 let droppedIdCounter = 0;
+let lastSoundEmit = {};
 
 // Round history (last 5 rounds)
 let roundHistory = []; // [{ round, winner, reason, mvp }]
@@ -313,6 +318,7 @@ function endRound(winner, reason) {
 
   for (const p of Object.values(players)) {
     if (p.team !== C.TEAM_SPEC) {
+      p._survived = p.alive;
       const reward = p.team === winner ? winReward : (loseReward || C.ROUND_LOSS_REWARD);
       p.money = Math.min(C.MAX_MONEY, p.money + reward);
     }
@@ -370,8 +376,21 @@ function handleNextRound() {
 
   for (const p of Object.values(players)) {
     if (p.team !== C.TEAM_SPEC) {
-      giveDefaultWeapons(p);
-      spawnPlayer(p);
+      if (p._survived) {
+        // Keep weapons, just respawn and refill ammo
+        spawnPlayer(p);
+        // Refill ammo for all carried weapons
+        for (const wKey of p.weapons) {
+          if (C.WEAPONS[wKey]) {
+            p.ammo[wKey] = { mag: C.WEAPONS[wKey].magSize, reserve: C.WEAPONS[wKey].reserveAmmo };
+          }
+        }
+        // Keep grenades too if survived
+        delete p._survived;
+      } else {
+        giveDefaultWeapons(p);
+        spawnPlayer(p);
+      }
       if (p.isBot) p._botBought = false;
     }
   }
@@ -1752,6 +1771,10 @@ io.on('connection', (socket) => {
   socket.on('defuse_bomb', () => {
     const p = players[socket.id];
     if (!p || p.team !== 'CT' || !p.alive || !bombState?.planted) return;
+    // Already defusing — don't reset
+    if (bombState.defuser === p.id) return;
+    // Someone else is defusing
+    if (bombState.defuser && bombState.defuser !== p.id) return;
 
     const dx = p.x - bombState.x;
     const dy = p.y - bombState.y;

@@ -46,7 +46,7 @@ let bullets = [];
 let adsActive = false;
 let adsZoom = 1.0;
 let adsTargetZoom = 1.0;
-const ADS_ZOOM_LEVELS = { pistol: 0.85, rifle: 0.8, smg: 0.85, sniper: 2.5, shotgun: 0.9 };
+const ADS_ZOOM_LEVELS = { pistol: 0.85, rifle: 0.8, smg: 0.85, sniper: 0.75, shotgun: 0.9 };
 
 function getPlayerWeaponType() {
   const p = players[myId];
@@ -620,7 +620,7 @@ function spawnMuzzleFlash(x, y, angle, weaponType) {
   if (adsActive) crosshairTargetSpread *= 0.4;
 
   // Core bright flash
-  for (let i = 0; i < Math.ceil(6 * countMult); i++) {
+  for (let i = 0; i < Math.ceil(3 * countMult); i++) {
     const spread = (Math.random() - 0.5) * 0.8;
     const spd = (200 + Math.random() * 300) * sizeMult;
     particles.push(new Particle(
@@ -632,7 +632,7 @@ function spawnMuzzleFlash(x, y, angle, weaponType) {
     ));
   }
   // Smoke wisps
-  for (let i = 0; i < Math.ceil(3 * countMult); i++) {
+  for (let i = 0; i < Math.ceil(2 * countMult); i++) {
     particles.push(new Particle(
       x + cos * (barrelLen + 2), y + sin * (barrelLen + 2),
       cos * 30 + (Math.random()-0.5) * 60, sin * 30 + (Math.random()-0.5) * 60,
@@ -676,7 +676,7 @@ function spawnBulletImpact(x, y) {
 
 function spawnBlood(x, y, angle) {
   // More particles, darker, directional spray
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < 8; i++) {
     const a = angle + (Math.random() - 0.5) * 1.4;
     const spd = 40 + Math.random() * 180;
     particles.push(new Particle(x, y,
@@ -2256,6 +2256,8 @@ function render(timestamp) {
     return m.timer > 0;
   });
   particles = particles.filter(p => p.update(dt));
+  // Cap particles to prevent memory buildup
+  if (particles.length > 500) particles.splice(0, particles.length - 500);
 
   // Update damage numbers
   damageNumbers = damageNumbers.filter(d => {
