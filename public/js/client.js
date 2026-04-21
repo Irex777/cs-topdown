@@ -2393,10 +2393,13 @@ function render(timestamp) {
     fogCtx.globalCompositeOperation = 'destination-out';
     const cx = viewPlayer.x - camera.x + camera.shakeX;
     const cy = viewPlayer.y - camera.y + camera.shakeY;
-    const effectiveFogRadius = FOG_VISIBILITY_RADIUS;
-    const fogGrad = fogCtx.createRadialGradient(cx, cy, effectiveFogRadius * 0.25, cx, cy, effectiveFogRadius);
+    // Scale fog radius to always cover the full viewport when zoomed out
+    const maxHalfView = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2 / adsZoom;
+    const effectiveFogRadius = Math.max(FOG_VISIBILITY_RADIUS, maxHalfView + 50);
+    const fogGrad = fogCtx.createRadialGradient(cx, cy, FOG_VISIBILITY_RADIUS * 0.25, cx, cy, effectiveFogRadius);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    fogGrad.addColorStop(0.6, 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(Math.min(0.99, FOG_VISIBILITY_RADIUS / effectiveFogRadius * 0.6), 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(Math.min(0.999, FOG_VISIBILITY_RADIUS / effectiveFogRadius), 'rgba(0, 0, 0, 0)');
     fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     fogCtx.fillStyle = fogGrad;
     fogCtx.beginPath();
