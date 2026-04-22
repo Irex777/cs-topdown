@@ -128,11 +128,39 @@ export function connect() {
     state.serverGrenades = gs.grenades;
     state.bullets = gs.bullets;
 
-    // Update own player data directly from server state so the render loop's
-    // self-interpolation bypass has the latest team/position instead of stale data.
+    // Merge non-spatial fields from server for own player.
+    // DO NOT replace the entire player object — spatial fields (x, y, angle, vx, vy)
+    // are managed by the interpolation / prediction system. Overwriting them with
+    // raw server snapshots would bypass client-side prediction and cause choppy controls.
     if (gs.players && gs.players[state.myId]) {
-      state.players[state.myId] = gs.players[state.myId];
-      state.myPlayer = gs.players[state.myId];
+      const serverMe = gs.players[state.myId];
+      if (state.players[state.myId]) {
+        // Merge only non-spatial properties the client doesn't predict
+        state.players[state.myId].team = serverMe.team;
+        state.players[state.myId].hp = serverMe.hp;
+        state.players[state.myId].armor = serverMe.armor;
+        state.players[state.myId].helmet = serverMe.helmet;
+        state.players[state.myId].money = serverMe.money;
+        state.players[state.myId].alive = serverMe.alive;
+        state.players[state.myId].weapons = serverMe.weapons;
+        state.players[state.myId].currentWeapon = serverMe.currentWeapon;
+        state.players[state.myId].ammo = serverMe.ammo;
+        state.players[state.myId].grenades = serverMe.grenades;
+        state.players[state.myId].hasDefuseKit = serverMe.hasDefuseKit;
+        state.players[state.myId].reloading = serverMe.reloading;
+        state.players[state.myId].kills = serverMe.kills;
+        state.players[state.myId].deaths = serverMe.deaths;
+        state.players[state.myId].assists = serverMe.assists;
+        state.players[state.myId].isBot = serverMe.isBot;
+        state.players[state.myId].crouching = serverMe.crouching;
+        state.players[state.myId].sprinting = serverMe.sprinting;
+        state.players[state.myId].weaponType = serverMe.weaponType;
+        state.players[state.myId].specTarget = serverMe.specTarget;
+      } else {
+        // First snapshot — no local player object yet, accept full server state
+        state.players[state.myId] = serverMe;
+      }
+      state.myPlayer = state.players[state.myId];
     } else if (state.players[state.myId]) {
       state.myPlayer = state.players[state.myId];
     }
