@@ -72,6 +72,14 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Debug endpoint
+app.get('/debug/players', (req, res) => {
+  const playerList = Object.values(players).map(p => ({
+    id: p.id, name: p.name, team: p.team, alive: p.alive, isBot: p.isBot
+  }));
+  res.json({ gameState, playerCount: playerList.length, players: playerList });
+});
+
 // ==================== GAME STATE ====================
 let gameId = 0;
 let gameState = 'waiting'; // waiting, warmup, freeze, playing, round_end, game_over
@@ -1667,12 +1675,15 @@ io.on('connection', (socket) => {
   broadcastPlayerList();
 
   socket.on('join_team', (team) => {
+    console.log(`join_team: socket=${socket.id} team=${team} players=${JSON.stringify(Object.keys(players))}`);
     const p = players[socket.id];
-    if (!p) return;
+    if (!p) { console.log(`join_team: player not found for socket ${socket.id}`); return; }
+    console.log(`join_team: found player, team=${p.team}, gameState=${gameState}`);
     if (team !== 'T' && team !== 'CT' && team !== 'SPEC') return;
 
     // Block mid-match team switching via join_team (use switch_team instead)
     if (gameState === 'playing' && p.team !== C.TEAM_SPEC && p.team !== team) {
+      console.log(`join_team: blocked mid-match switch`);
       socket.emit('error', 'Cannot switch teams during a round. Use ESC menu.');
       return;
     }
