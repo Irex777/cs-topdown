@@ -693,38 +693,31 @@ export function render(timestamp) {
       state.fogCanvas.width = canvas.width;
       state.fogCanvas.height = canvas.height;
     }
+    // Clear previous frame's fog content (replaces the old width/height reset that cleared the canvas)
+    state.fogCtx.clearRect(0, 0, state.fogCanvas.width, state.fogCanvas.height);
 
     state.fogCtx.fillStyle = 'rgba(0, 0, 10, 0.82)';
     state.fogCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     state.fogCtx.globalCompositeOperation = 'destination-out';
-    // Player position in true screen space (accounts for ADS zoom transform)
-    const cx = (viewPlayer.x - state.camera.x + state.camera.shakeX) * state.adsZoom
-             + canvas.width / 2 * (1 - state.adsZoom);
-    const cy = (viewPlayer.y - state.camera.y + state.camera.shakeY) * state.adsZoom
-             + canvas.height / 2 * (1 - state.adsZoom);
-    // Fog visibility radius in screen pixels (world radius scaled by zoom)
-    const fogScreenRadius = Math.max(FOG_VISIBILITY_RADIUS * state.adsZoom, 80);
-    // Outer gradient radius - large enough to cover the full fog canvas
-    const outerR = Math.max(fogScreenRadius * 1.5, Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2);
-    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, fogScreenRadius * 0.25, cx, cy, outerR);
+    // Player position in camera space (matches the ctx transform already applied)
+    const cx = viewPlayer.x - state.camera.x + state.camera.shakeX;
+    const cy = viewPlayer.y - state.camera.y + state.camera.shakeY;
+    // Scale fog radius to always cover the full viewport when zoomed out
+    const maxHalfView = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2 / state.adsZoom;
+    const effectiveFogRadius = Math.max(FOG_VISIBILITY_RADIUS, maxHalfView + 50);
+    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, FOG_VISIBILITY_RADIUS * 0.25, cx, cy, effectiveFogRadius);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    fogGrad.addColorStop(Math.min(0.99, fogScreenRadius / outerR * 0.6), 'rgba(0, 0, 0, 0.95)');
-    fogGrad.addColorStop(Math.min(0.999, fogScreenRadius / outerR), 'rgba(0, 0, 0, 0)');
+    fogGrad.addColorStop(Math.min(0.99, FOG_VISIBILITY_RADIUS / effectiveFogRadius * 0.6), 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(Math.min(0.999, FOG_VISIBILITY_RADIUS / effectiveFogRadius), 'rgba(0, 0, 0, 0)');
     fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     state.fogCtx.fillStyle = fogGrad;
     state.fogCtx.beginPath();
-    state.fogCtx.arc(cx, cy, outerR, 0, Math.PI * 2);
+    state.fogCtx.arc(cx, cy, effectiveFogRadius, 0, Math.PI * 2);
     state.fogCtx.fill();
     state.fogCtx.globalCompositeOperation = 'source-over';
 
-    // Draw fog scaled to cover the full viewport in the zoom-transformed context
-    const invZoom = 1 / state.adsZoom;
-    const fogW = canvas.width * invZoom;
-    const fogH = canvas.height * invZoom;
-    const fogX = state.camera.x - state.camera.shakeX - canvas.width / 2 * (invZoom - 1);
-    const fogY = state.camera.y - state.camera.shakeY - canvas.height / 2 * (invZoom - 1);
-    ctx.drawImage(state.fogCanvas, fogX, fogY, fogW, fogH);
+    ctx.drawImage(state.fogCanvas, state.camera.x - state.camera.shakeX, state.camera.y - state.camera.shakeY);
   }
 
   // Shadow layer
