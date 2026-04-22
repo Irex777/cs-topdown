@@ -2030,7 +2030,20 @@ io.on('connection', (socket) => {
     console.log(`Player disconnected: ${socket.id}`);
     const p = players[socket.id];
     if (p) {
-      delete players[socket.id];
+      if (p.isBot) {
+        // Bots: delete immediately
+        delete players[socket.id];
+      } else {
+        // Human players: delay deletion for reconnect detection (10s)
+        // On reconnect with same name, the connection handler will find and reuse this player
+        setTimeout(() => {
+          if (players[socket.id] && !players[socket.id].isBot) {
+            // Still here after 10s — truly disconnected
+            delete players[socket.id];
+            broadcastPlayerList();
+          }
+        }, 10000);
+      }
       broadcastPlayerList();
       // If someone was spectating this player, reset their target
       for (const other of Object.values(players)) {
