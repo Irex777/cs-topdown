@@ -64,10 +64,15 @@ export function connect() {
     state.tScore = data.tScore; state.ctScore = data.ctScore;
     if (data.playerCount !== undefined) state.playerCount = data.playerCount;
     document.getElementById('menu-screen').classList.add('hidden');
-    // On reconnect, auto-join previous team; only show team-select for new players
-    if (state.myPlayer && state.myPlayer.team && state.myPlayer.team !== 'SPEC') {
-      // Reconnecting with known team — re-join without showing team-select
-      state.socket.emit('join_team', state.myPlayer.team);
+    // Handle reconnect vs new player
+    if (data.team && data.team !== 'SPEC') {
+      // Server already restored our team — update client state without showing team-select
+      state.myPlayer = { team: data.team };
+      state.spectating = false;
+      document.getElementById('team-select').classList.remove('show');
+      document.getElementById('hud').classList.remove('hidden');
+      document.getElementById('crosshair').style.display = '';
+      document.getElementById('spectator-info').classList.add('hidden');
     } else if (state.pendingTeam) {
       // Pending team join from before reconnect — re-emit
       state.socket.emit('join_team', state.pendingTeam);

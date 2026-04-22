@@ -1652,10 +1652,30 @@ function removeAllBots() {
 // ==================== NETWORKING ====================
 io.on('connection', (socket) => {
   console.log(`Player connected: ${socket.id}`);
+  const connectName = socket.handshake.query.name;
 
-  players[socket.id] = createPlayer(socket.id, socket.handshake.query.name);
+  // Check for reconnecting player with same name (socket.io behind proxy changes ID)
+  let existingPlayer = null;
+  for (const p of Object.values(players)) {
+    if (!p.isBot && p.name === connectName && p.team !== 'SPEC') {
+      existingPlayer = p;
+      break;
+    }
+  }
+
+  if (existingPlayer) {
+    // Reconnecting player — transfer to new socket
+    console.log(`Reconnect detected: ${connectName} (old=${existingPlayer.id}, new=${socket.id})`);
+    delete players[existingPlayer.id];
+    existingPlayer.id = socket.id;
+    existingPlayer.alive = true;
+    players[socket.id] = existingPlayer;
+  } else {
+    players[socket.id] = createPlayer(socket.id, connectName);
+  }
 
   // Send initial state
+  const p = players[socket.id];
   socket.emit('welcome', {
     id: socket.id,
     mapWidth: C.MAP_WIDTH,
@@ -1666,6 +1686,7 @@ io.on('connection', (socket) => {
     tScore,
     ctScore,
     roundHistory,
+    team: p ? p.team : undefined,  // Include current team for reconnect detection
   });
 
   // Send map
@@ -1675,15 +1696,12 @@ io.on('connection', (socket) => {
   broadcastPlayerList();
 
   socket.on('join_team', (team) => {
-    console.log(`join_team: socket=${socket.id} team=${team} players=${JSON.stringify(Object.keys(players))}`);
     const p = players[socket.id];
-    if (!p) { console.log(`join_team: player not found for socket ${socket.id}`); return; }
-    console.log(`join_team: found player, team=${p.team}, gameState=${gameState}`);
+    if (!p) return;
     if (team !== 'T' && team !== 'CT' && team !== 'SPEC') return;
 
     // Block mid-match team switching via join_team (use switch_team instead)
     if (gameState === 'playing' && p.team !== C.TEAM_SPEC && p.team !== team) {
-      console.log(`join_team: blocked mid-match switch`);
       socket.emit('error', 'Cannot switch teams during a round. Use ESC menu.');
       return;
     }
