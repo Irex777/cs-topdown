@@ -64,7 +64,13 @@ export function connect() {
     state.tScore = data.tScore; state.ctScore = data.ctScore;
     if (data.playerCount !== undefined) state.playerCount = data.playerCount;
     document.getElementById('menu-screen').classList.add('hidden');
-    document.getElementById('team-select').classList.add('show');
+    // On reconnect, auto-join previous team; only show team-select for new players
+    if (state.myPlayer && state.myPlayer.team && state.myPlayer.team !== 'SPEC') {
+      // Reconnecting — re-join previous team without showing team-select
+      state.socket.emit('join_team', state.myPlayer.team);
+    } else {
+      document.getElementById('team-select').classList.add('show');
+    }
   });
 
   state.socket.on('map_data', (data) => {
