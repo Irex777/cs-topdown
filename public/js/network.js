@@ -66,8 +66,11 @@ export function connect() {
     document.getElementById('menu-screen').classList.add('hidden');
     // On reconnect, auto-join previous team; only show team-select for new players
     if (state.myPlayer && state.myPlayer.team && state.myPlayer.team !== 'SPEC') {
-      // Reconnecting — re-join previous team without showing team-select
+      // Reconnecting with known team — re-join without showing team-select
       state.socket.emit('join_team', state.myPlayer.team);
+    } else if (state.pendingTeam) {
+      // Pending team join from before reconnect — re-emit
+      state.socket.emit('join_team', state.pendingTeam);
     } else {
       document.getElementById('team-select').classList.add('show');
     }
@@ -316,7 +319,10 @@ export function connect() {
 }
 
 // ==================== TEAM / GAME ACTIONS ====================
-export function joinTeam(t) { if (state.socket) state.socket.emit('join_team', t); }
+export function joinTeam(t) {
+  state.pendingTeam = t;  // Store for reconnection recovery
+  if (state.socket) state.socket.emit('join_team', t);
+}
 export function startGame() { if (state.socket) state.socket.emit('start_game'); }
 export function addBots() {
   if (!state.socket) return;
