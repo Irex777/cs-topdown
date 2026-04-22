@@ -128,7 +128,14 @@ export function connect() {
     state.serverGrenades = gs.grenades;
     state.bullets = gs.bullets;
 
-    if (state.players[state.myId]) state.myPlayer = state.players[state.myId];
+    // Update own player data directly from server state so the render loop's
+    // self-interpolation bypass has the latest team/position instead of stale data.
+    if (gs.players && gs.players[state.myId]) {
+      state.players[state.myId] = gs.players[state.myId];
+      state.myPlayer = gs.players[state.myId];
+    } else if (state.players[state.myId]) {
+      state.myPlayer = state.players[state.myId];
+    }
     // Update action progress from state
     if (gs.plantProgress !== undefined && gs.plantProgress > 0) {
       state.actionProgress = { active: true, type: 'planting', progress: gs.plantProgress };

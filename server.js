@@ -94,7 +94,6 @@ let bullets = [];
 let grenades = [];
 let activeGrenades = [];  // thrown grenades in flight
 let bombState = null;     // { site, x, y, planter, timer, defuser, defuseTimer, planted, exploded, defused, plantProgress }
-let damageIndicators = [];
 let droppedWeapons = [];  // { id, weaponKey, x, y, ammo }
 let droppedIdCounter = 0;
 let lastSoundEmit = {};
@@ -190,8 +189,6 @@ function giveDefaultWeapons(player) {
   player.currentWeapon = 0; // slot 0 in weapons array = pistol; knife is implicit at index -1
   player.grenades = { he: 0, flash: 0, smoke: 0 };
   player.hasDefuseKit = false;
-  player.armor = 0;
-  player.helmet = false;
 }
 
 // ==================== WEAPON HELPERS ====================
@@ -524,63 +521,64 @@ function handleBuy(player, item) {
   return true;
 }
 
-// ==================== SELL SYSTEM ====================
-function handleSell(player, item) {
+function handleSell(player, itemKey) {
   if (!player.alive) return false;
-  // Allow selling during freeze, waiting, round_end, and first 15 seconds of round
-  const buyTimeLeft = C.ROUND_TIME - roundTimer;
-  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > C.FREEZE_TIME) return false;
-
-  const weapon = C.WEAPONS[item];
+  const weapon = C.WEAPONS[itemKey];
   if (!weapon) return false;
 
-  // Sell price is 50% of purchase price
-  const sellPrice = Math.floor(weapon.price * 0.5);
-  if (sellPrice <= 0) return false;
+  // Refund 50% of the item's price
+  const refund = Math.floor((weapon.price || 0) * 0.5);
 
   if (weapon.type === 'armor') {
-    // Can only sell armor if player has it
-    if (item === 'kevlar' && player.armor <= 0) return false;
-    if (item === 'helmet' && (!player.helmet || player.armor <= 0)) return false;
+    // Selling kevlar/helmet
+    if (player.armor <= 0) return false;
     player.armor = 0;
     player.helmet = false;
-    player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
+    player.money = Math.min(C.MAX_MONEY, player.money + refund);
     return true;
   }
 
   if (weapon.type === 'utility') {
-    if (item === 'defuse_kit') {
+    if (itemKey === 'defuse_kit') {
       if (!player.hasDefuseKit) return false;
       player.hasDefuseKit = false;
-      player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
+      player.money = Math.min(C.MAX_MONEY, player.money + refund);
       return true;
     }
     return false;
   }
 
   if (weapon.type === 'grenade') {
-    const gType = item === 'he_grenade' ? 'he' : item === 'flashbang' ? 'flash' : 'smoke';
+    const gType = itemKey === 'he_grenade' ? 'he' : itemKey === 'flashbang' ? 'flash' : 'smoke';
     if (!player.grenades || player.grenades[gType] <= 0) return false;
     player.grenades[gType]--;
-    player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
+    player.money = Math.min(C.MAX_MONEY, player.money + refund);
     return true;
   }
 
-  // Weapon sell
-  const idx = player.weapons.indexOf(item);
+  // Weapon
+  const idx = player.weapons.indexOf(itemKey);
   if (idx < 0) return false;
   player.weapons.splice(idx, 1);
-  delete player.ammo[item];
+  delete player.ammo[itemKey];
+
+  // If sold currently equipped weapon, switch to knife
   if (player.currentWeapon >= player.weapons.length) {
     player.currentWeapon = player.weapons.length - 1;
   }
-  player.money = Math.min(C.MAX_MONEY, player.money + sellPrice);
+  player.reloading = false;
+
+  player.money = Math.min(C.MAX_MONEY, player.money + refund);
   return true;
 }
 
 // ==================== DROPPED WEAPONS ====================
 function dropWeaponOnGround(weaponKey, x, y, reserveAmmo) {
   if (!weaponKey || weaponKey === 'knife') return;
+  // Cap dropped weapons to prevent unbounded growth
+  if (droppedWeapons.length > 30) {
+    droppedWeapons.shift();
+  }
   droppedWeapons.push({
     id: ++droppedIdCounter,
     weaponKey,
@@ -604,8 +602,22 @@ function dropPrimaryWeaponOnDeath(player) {
         player.currentWeapon = player.weapons.length - 1;
       }
       emitSound(player.x, player.y, SOUNDS.weapon_drop(), 500);
-      return;
+      break;
     }
+  }
+
+  // Drop kevlar/armor if player has any
+  if (player.armor > 0) {
+    droppedWeapons.push({
+      id: ++droppedIdCounter,
+      weaponKey: '__armor__',
+      itemType: 'armor',
+      armorAmount: player.armor,
+      x: player.x + (Math.random() - 0.5) * 20,
+      y: player.y + (Math.random() - 0.5) * 20,
+    });
+    player.armor = 0;
+    player.helmet = false;
   }
 }
 
@@ -619,6 +631,17 @@ function checkWeaponPickup(player) {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     if (dist < 30) {
+      // Handle armor pickup
+      if (dw.itemType === 'armor') {
+        if (player.armor < 100) {
+          player.armor = Math.min(100, player.armor + (dw.armorAmount || 50));
+          droppedWeapons.splice(i, 1);
+          emitSound(player.x, player.y, SOUNDS.weapon_pickup(), 400);
+          break;
+        }
+        continue;
+      }
+
       const wData = C.WEAPONS[dw.weaponKey];
       if (!wData) continue;
 
@@ -1795,10 +1818,10 @@ io.on('connection', (socket) => {
     socket.emit('player_update', serializePlayer(p));
   });
 
-  socket.on('sell', (item) => {
+  socket.on('sell', (itemKey) => {
     const p = players[socket.id];
     if (!p) return;
-    handleSell(p, item);
+    handleSell(p, itemKey);
     socket.emit('player_update', serializePlayer(p));
   });
 
@@ -2033,68 +2056,72 @@ function broadcastPlayerList() {
 const HEAR_RANGE = 500;  // px – enemies shooting within this range are "heard"
 const VISIBILITY_RADIUS = 600; // px – max view distance for fog-of-war
 
-let lastTime = Date.now();
-setInterval(() => {
-  const now = Date.now();
-  const dt = (now - lastTime) / 1000;
-  lastTime = now;
+const TICK_RATE = C.TICK_RATE; // 30
+const TICK_MS = 1000 / TICK_RATE;
+let accumulator = 0;
+let lastLoopTime = performance.now();
 
-  update(Math.min(dt, 0.05)); // cap dt
+// Pre-allocated reusable state object to reduce GC pressure
+const _reusableBaseState = {};
 
-  // Build base state (non-player data shared to everyone)
-  const baseState = {
-    players: {},
-    bullets,
-    grenades: grenades.map(g => ({ type: g.type, x: g.x, y: g.y, radius: g.radius, timer: g.timer })),
-    activeGrenades: activeGrenades.map(g => ({ type: g.type, x: g.x, y: g.y })),
-    bomb: bombState,
-    droppedWeapons: droppedWeapons.map(dw => ({ id: dw.id, weaponKey: dw.weaponKey, x: dw.x, y: dw.y })),
-    roundTimer,
-    freezeTimer,
-    roundEndTimer,
-    gameState,
-    round: roundNumber,
-    tScore,
-    ctScore,
-    roundHistory,
-    mvp: roundMVP,
-  };
+function broadcastState() {
+  const now = Date.now(); // Use Date.now() for consistency with lastShotTime (which is set via Date.now()/1000)
+
+  // Reuse base state object — overwrite properties in-place
+  _reusableBaseState.players = null; // set per-client below
+  _reusableBaseState.bullets = bullets;
+  _reusableBaseState.grenades = grenades.map(g => ({ type: g.type, x: g.x, y: g.y, radius: g.radius, timer: g.timer }));
+  _reusableBaseState.activeGrenades = activeGrenades.map(g => ({ type: g.type, x: g.x, y: g.y }));
+  _reusableBaseState.bomb = bombState;
+  _reusableBaseState.droppedWeapons = droppedWeapons.map(dw => ({ id: dw.id, weaponKey: dw.weaponKey, x: dw.x, y: dw.y }));
+  _reusableBaseState.roundTimer = roundTimer;
+  _reusableBaseState.freezeTimer = freezeTimer;
+  _reusableBaseState.roundEndTimer = roundEndTimer;
+  _reusableBaseState.gameState = gameState;
+  _reusableBaseState.round = roundNumber;
+  _reusableBaseState.tScore = tScore;
+  _reusableBaseState.ctScore = ctScore;
+  _reusableBaseState.roundHistory = roundHistory;
+  _reusableBaseState.mvp = roundMVP;
 
   // Find all connected sockets
   const connectedSockets = io.sockets.sockets;
+
+  // Pre-serialize all players once (instead of per-socket)
+  const serializedPlayers = new Map();
+  for (const [id, p] of Object.entries(players)) {
+    serializedPlayers.set(id, serializePlayer(p));
+  }
 
   // Send state to each client with fog-of-war filtering
   for (const [socketId, socket] of connectedSockets) {
     const me = players[socketId];
     if (!me) continue;
 
-    const myState = { ...baseState, players: {} };
+    const myPlayers = {};
 
     // Determine bomb carrier for T team visibility
     let bombCarrier = null;
     if (bombState && !bombState.planted && bombState.planter) {
       bombCarrier = bombState.planter;
     }
-    // If bomb not planted and no planter set, find the T player who "has" the bomb
-    // (In this implementation, any T on a bombsite can plant, so we show bomb carrier as
-    //  the first alive T player as a visual indicator)
 
     for (const [id, p] of Object.entries(players)) {
       // Always include self
       if (id === socketId) {
-        myState.players[id] = serializePlayer(p);
+        myPlayers[id] = serializedPlayers.get(id);
         continue;
       }
 
       // Always include teammates (full visibility)
       if (p.team === me.team && me.team !== C.TEAM_SPEC) {
-        myState.players[id] = serializePlayer(p);
+        myPlayers[id] = serializedPlayers.get(id);
         continue;
       }
 
       // Spectators see everyone
       if (me.team === C.TEAM_SPEC) {
-        myState.players[id] = serializePlayer(p);
+        myPlayers[id] = serializedPlayers.get(id);
         continue;
       }
 
@@ -2114,25 +2141,50 @@ setInterval(() => {
       const canHear = shootingNow && dist <= HEAR_RANGE;
 
       if (canSee) {
-        myState.players[id] = serializePlayer(p);
+        myPlayers[id] = serializedPlayers.get(id);
       } else if (canHear) {
-        // Heard but not seen – send limited data + flag
-        myState.players[id] = {
-          ...serializePlayer(p),
-          noiseVisible: true,  // client shows as dimmed minimap dot
-        };
+        // Heard but not seen – send limited data + flag (copy to avoid mutating shared serialized data)
+        const sp = serializedPlayers.get(id);
+        const noisePlayer = {};
+        for (const k in sp) noisePlayer[k] = sp[k];
+        noisePlayer.noiseVisible = true;
+        myPlayers[id] = noisePlayer;
       }
       // Otherwise enemy is completely hidden – do not include
     }
 
     // Include bomb carrier indicator
-    if (bombCarrier && myState.players[bombCarrier]) {
-      myState.players[bombCarrier].hasBomb = true;
+    if (bombCarrier && myPlayers[bombCarrier]) {
+      myPlayers[bombCarrier].hasBomb = true;
     }
 
-    socket.emit('game_state_update', myState);
+    // Emit as a plain object (no spread — avoids copying the whole baseState)
+    _reusableBaseState.players = myPlayers;
+    socket.emit('game_state_update', _reusableBaseState);
   }
-}, 1000 / C.TICK_RATE);
+
+  // Clear player references to allow GC of per-tick serialized data
+  _reusableBaseState.players = null;
+}
+
+let _loopTimer = null;
+function gameLoop() {
+  const now = performance.now();
+  const frameTime = Math.min(now - lastLoopTime, 250); // cap to prevent spiral of death
+  lastLoopTime = now;
+  accumulator += frameTime;
+
+  while (accumulator >= TICK_MS) {
+    update(TICK_MS / 1000); // fixed dt = 1/30
+    accumulator -= TICK_MS;
+  }
+
+  // Build and broadcast state
+  broadcastState();
+
+  _loopTimer = setTimeout(gameLoop, 1);
+}
+gameLoop();
 
 // ==================== START SERVER ====================
 const PORT = process.env.PORT || 3000;

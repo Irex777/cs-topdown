@@ -5,7 +5,7 @@ const { isWall } = require('../shared/map');
 // Cache for path requests
 const pathCache = new Map();
 const CACHE_TTL = 800; // ms
-const MAX_CACHE_SIZE = 200;
+const MAX_CACHE_SIZE = 200; // prevent unbounded growth
 
 function findPath(gameMap, startX, startY, endX, endY) {
   const TS = C.TILE_SIZE;
@@ -126,6 +126,22 @@ function findPath(gameMap, startX, startY, endX, endY) {
       pixelPath[pixelPath.length - 1] = { x: endX, y: endY };
 
       const simplified = simplifyPath(pixelPath, gameMap);
+      // Evict oldest entries if cache is too large
+      if (pathCache.size >= MAX_CACHE_SIZE) {
+        const keysToDelete = [];
+        for (const [k, v] of pathCache) {
+          if (now - v.time > CACHE_TTL) keysToDelete.push(k);
+        }
+        if (keysToDelete.length === 0) {
+          // All entries are fresh, clear half
+          let count = 0;
+          for (const k of pathCache.keys()) {
+            keysToDelete.push(k);
+            if (++count >= MAX_CACHE_SIZE / 2) break;
+          }
+        }
+        for (const k of keysToDelete) pathCache.delete(k);
+      }
       pathCache.set(key, { path: simplified, time: now });
       return simplified;
     }
@@ -186,14 +202,6 @@ function cleanCache() {
   lastClean = now;
   for (const [key, val] of pathCache) {
     if (now - val.time > CACHE_TTL * 2) pathCache.delete(key);
-  }
-  // Enforce max cache size by evicting oldest entries
-  if (pathCache.size > MAX_CACHE_SIZE) {
-    const keys = pathCache.keys();
-    const excess = pathCache.size - MAX_CACHE_SIZE;
-    for (let i = 0; i < excess; i++) {
-      pathCache.delete(keys.next().value);
-    }
   }
 }
 

@@ -4,5 +4,4 @@ COPY package*.json ./
 RUN npm ci --production
 COPY . .
 EXPOSE 3000
-ENV NODE_OPTIONS=--max-old-space-size=512
-CMD ["node", "server.js"]
+CMD ["node", "--max-old-space-size=512", "server.js"]
