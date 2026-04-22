@@ -608,6 +608,10 @@ function dropPrimaryWeaponOnDeath(player) {
 
   // Drop kevlar/armor if player has any
   if (player.armor > 0) {
+    // Respect the droppedWeapons cap (same as dropWeaponOnGround)
+    if (droppedWeapons.length > 30) {
+      droppedWeapons.shift();
+    }
     droppedWeapons.push({
       id: ++droppedIdCounter,
       weaponKey: '__armor__',
@@ -866,6 +870,13 @@ function updatePlayers(dt) {
 
     // Track shoot state for semi-auto rising-edge detection
     p.prevShoot = p.input.shoot;
+
+    // Tick-based shoot reset: clear shoot flag after processing so next
+    // client 'shoot' event can re-arm it (replaces per-shot setTimeout)
+    if (p.input._shootTick) {
+      p.input.shoot = false;
+      p.input._shootTick = false;
+    }
 
     // Check weapon pickup
     if (!p.isBot) {
@@ -1755,7 +1766,7 @@ io.on('connection', (socket) => {
     if (!p) return;
     if (gameState === 'freeze') return; // No shooting during freeze
     p.input.shoot = true;
-    setTimeout(() => { if (players[socket.id]) players[socket.id].input.shoot = false; }, 50);
+    p.input._shootTick = true; // flag for tick-based reset
   });
 
   socket.on('reload', () => {
@@ -2063,6 +2074,10 @@ let lastLoopTime = performance.now();
 
 // Pre-allocated reusable state object to reduce GC pressure
 const _reusableBaseState = {};
+// Reusable serialized players object (clear + refill instead of new Map each tick)
+const _reusableSerializedPlayers = {};
+// Reusable per-client visible players object
+const _reusableMyPlayers = {};
 
 function broadcastState() {
   const now = Date.now(); // Use Date.now() for consistency with lastShotTime (which is set via Date.now()/1000)
@@ -2087,10 +2102,10 @@ function broadcastState() {
   // Find all connected sockets
   const connectedSockets = io.sockets.sockets;
 
-  // Pre-serialize all players once (instead of per-socket)
-  const serializedPlayers = new Map();
+  // Pre-serialize all players once (reuse object — clear then refill)
+  for (const k in _reusableSerializedPlayers) delete _reusableSerializedPlayers[k];
   for (const [id, p] of Object.entries(players)) {
-    serializedPlayers.set(id, serializePlayer(p));
+    _reusableSerializedPlayers[id] = serializePlayer(p);
   }
 
   // Send state to each client with fog-of-war filtering
@@ -2098,7 +2113,8 @@ function broadcastState() {
     const me = players[socketId];
     if (!me) continue;
 
-    const myPlayers = {};
+    // Reuse per-client visible players object
+    for (const k in _reusableMyPlayers) delete _reusableMyPlayers[k];
 
     // Determine bomb carrier for T team visibility
     let bombCarrier = null;
@@ -2109,19 +2125,19 @@ function broadcastState() {
     for (const [id, p] of Object.entries(players)) {
       // Always include self
       if (id === socketId) {
-        myPlayers[id] = serializedPlayers.get(id);
+        _reusableMyPlayers[id] = _reusableSerializedPlayers[id];
         continue;
       }
 
       // Always include teammates (full visibility)
       if (p.team === me.team && me.team !== C.TEAM_SPEC) {
-        myPlayers[id] = serializedPlayers.get(id);
+        _reusableMyPlayers[id] = _reusableSerializedPlayers[id];
         continue;
       }
 
       // Spectators see everyone
       if (me.team === C.TEAM_SPEC) {
-        myPlayers[id] = serializedPlayers.get(id);
+        _reusableMyPlayers[id] = _reusableSerializedPlayers[id];
         continue;
       }
 
@@ -2141,25 +2157,25 @@ function broadcastState() {
       const canHear = shootingNow && dist <= HEAR_RANGE;
 
       if (canSee) {
-        myPlayers[id] = serializedPlayers.get(id);
+        _reusableMyPlayers[id] = _reusableSerializedPlayers[id];
       } else if (canHear) {
         // Heard but not seen – send limited data + flag (copy to avoid mutating shared serialized data)
-        const sp = serializedPlayers.get(id);
+        const sp = _reusableSerializedPlayers[id];
         const noisePlayer = {};
         for (const k in sp) noisePlayer[k] = sp[k];
         noisePlayer.noiseVisible = true;
-        myPlayers[id] = noisePlayer;
+        _reusableMyPlayers[id] = noisePlayer;
       }
       // Otherwise enemy is completely hidden – do not include
     }
 
     // Include bomb carrier indicator
-    if (bombCarrier && myPlayers[bombCarrier]) {
-      myPlayers[bombCarrier].hasBomb = true;
+    if (bombCarrier && _reusableMyPlayers[bombCarrier]) {
+      _reusableMyPlayers[bombCarrier].hasBomb = true;
     }
 
     // Emit as a plain object (no spread — avoids copying the whole baseState)
-    _reusableBaseState.players = myPlayers;
+    _reusableBaseState.players = _reusableMyPlayers;
     socket.emit('game_state_update', _reusableBaseState);
   }
 

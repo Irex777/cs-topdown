@@ -325,9 +325,36 @@ export function reconnectGame() {
   if (state.socket) state.socket.disconnect();
   document.getElementById('hud').classList.add('hidden');
   document.getElementById('menu-screen').classList.remove('hidden');
+
+  // Reset all state arrays/objects to prevent stale data leaks on reconnect
+  state.players = {};
+  state.bullets = [];
+  state.serverGrenades = [];
+  state.activeGrenades = [];
+  state.droppedWeapons = [];
+  state.bomb = null;
+  state.effects = [];
+  state.particles = [];
+  state.damageNumbers = [];
+  state.deathAnimations = [];
+  state.shellCasings = [];
+  state.ambientParticles = [];
+  state.soundIndicators = [];
+  state.damageIndicators = [];
+  state.muzzleFlashTimers = {};
+  state.prevPositions = {};
+  state.footstepTimers = {};
+  state.stateBuffer = [];
+  state.centerMessages = [];
+  state.bulletHoles = [];
   state.myPlayer = null;
+  state.myId = null;
   state.spectating = false;
   state.spectateTarget = null;
+  state.deathScreenData = null;
+  state.deathScreenTimer = 0;
+  state.gameState = 'waiting';
+
   connect();
 }
 

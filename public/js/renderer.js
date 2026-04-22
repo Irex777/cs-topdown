@@ -688,30 +688,43 @@ export function render(timestamp) {
       state.fogCanvas = document.createElement('canvas');
       state.fogCtx = state.fogCanvas.getContext('2d');
     }
-    state.fogCanvas.width = canvas.width;
-    state.fogCanvas.height = canvas.height;
+    // Only resize fog canvas when dimensions actually change (avoids reallocating backing buffer every frame)
+    if (state.fogCanvas.width !== canvas.width || state.fogCanvas.height !== canvas.height) {
+      state.fogCanvas.width = canvas.width;
+      state.fogCanvas.height = canvas.height;
+    }
 
     state.fogCtx.fillStyle = 'rgba(0, 0, 10, 0.82)';
     state.fogCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     state.fogCtx.globalCompositeOperation = 'destination-out';
-    const cx = viewPlayer.x - state.camera.x + state.camera.shakeX;
-    const cy = viewPlayer.y - state.camera.y + state.camera.shakeY;
-    // Scale fog radius to always cover the full viewport when zoomed out
-    const maxHalfView = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2 / state.adsZoom;
-    const effectiveFogRadius = Math.max(FOG_VISIBILITY_RADIUS, maxHalfView + 50);
-    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, FOG_VISIBILITY_RADIUS * 0.25, cx, cy, effectiveFogRadius);
+    // Player position in true screen space (accounts for ADS zoom transform)
+    const cx = (viewPlayer.x - state.camera.x + state.camera.shakeX) * state.adsZoom
+             + canvas.width / 2 * (1 - state.adsZoom);
+    const cy = (viewPlayer.y - state.camera.y + state.camera.shakeY) * state.adsZoom
+             + canvas.height / 2 * (1 - state.adsZoom);
+    // Fog visibility radius in screen pixels (world radius scaled by zoom)
+    const fogScreenRadius = Math.max(FOG_VISIBILITY_RADIUS * state.adsZoom, 80);
+    // Outer gradient radius - large enough to cover the full fog canvas
+    const outerR = Math.max(fogScreenRadius * 1.5, Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2);
+    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, fogScreenRadius * 0.25, cx, cy, outerR);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    fogGrad.addColorStop(Math.min(0.99, FOG_VISIBILITY_RADIUS / effectiveFogRadius * 0.6), 'rgba(0, 0, 0, 0.95)');
-    fogGrad.addColorStop(Math.min(0.999, FOG_VISIBILITY_RADIUS / effectiveFogRadius), 'rgba(0, 0, 0, 0)');
+    fogGrad.addColorStop(Math.min(0.99, fogScreenRadius / outerR * 0.6), 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(Math.min(0.999, fogScreenRadius / outerR), 'rgba(0, 0, 0, 0)');
     fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     state.fogCtx.fillStyle = fogGrad;
     state.fogCtx.beginPath();
-    state.fogCtx.arc(cx, cy, effectiveFogRadius, 0, Math.PI * 2);
+    state.fogCtx.arc(cx, cy, outerR, 0, Math.PI * 2);
     state.fogCtx.fill();
     state.fogCtx.globalCompositeOperation = 'source-over';
 
-    ctx.drawImage(state.fogCanvas, state.camera.x - state.camera.shakeX, state.camera.y - state.camera.shakeY);
+    // Draw fog scaled to cover the full viewport in the zoom-transformed context
+    const invZoom = 1 / state.adsZoom;
+    const fogW = canvas.width * invZoom;
+    const fogH = canvas.height * invZoom;
+    const fogX = state.camera.x - state.camera.shakeX - canvas.width / 2 * (invZoom - 1);
+    const fogY = state.camera.y - state.camera.shakeY - canvas.height / 2 * (invZoom - 1);
+    ctx.drawImage(state.fogCanvas, fogX, fogY, fogW, fogH);
   }
 
   // Shadow layer
@@ -934,6 +947,13 @@ export function render(timestamp) {
   }
 
   // Players
+  // Clean stale entries from prevPositions/footstepTimers for disconnected players
+  for (const id in state.prevPositions) {
+    if (!state.players[id]) delete state.prevPositions[id];
+  }
+  for (const id in state.footstepTimers) {
+    if (!state.players[id]) delete state.footstepTimers[id];
+  }
   for (const [id, pl] of Object.entries(state.players)) {
     if (!pl.alive || pl.team === 'SPEC') continue;
     const isMe = id === state.myId;
@@ -1001,16 +1021,14 @@ export function render(timestamp) {
 
   // Sniper scope overlay when ADS
   if (state.adsActive && state.adsZoom < 0.8) {
-    ctx.save();
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    // Clear circle in center
-    ctx.globalCompositeOperation = 'destination-out';
     const scopeRadius = Math.min(canvas.width, canvas.height) * 0.35;
+    ctx.save();
+    // Draw dark overlay with a circular hole (no destination-out needed)
     ctx.beginPath();
-    ctx.arc(canvas.width / 2, canvas.height / 2, scopeRadius, 0, Math.PI * 2);
+    ctx.rect(0, 0, canvas.width, canvas.height);
+    ctx.arc(canvas.width / 2, canvas.height / 2, scopeRadius, 0, Math.PI * 2, true);
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
     ctx.fill();
-    ctx.globalCompositeOperation = 'source-over';
     // Scope crosshair lines
     ctx.strokeStyle = 'rgba(0, 0, 0, 0.9)';
     ctx.lineWidth = 1.5;
