@@ -700,24 +700,32 @@ export function render(timestamp) {
     state.fogCtx.fillRect(0, 0, canvas.width, canvas.height);
 
     state.fogCtx.globalCompositeOperation = 'destination-out';
-    // Player position in camera space (matches the ctx transform already applied)
-    const cx = viewPlayer.x - state.camera.x + state.camera.shakeX;
-    const cy = viewPlayer.y - state.camera.y + state.camera.shakeY;
-    // Scale fog radius to always cover the full viewport when zoomed out
-    const maxHalfView = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height) / 2 / state.adsZoom;
-    const effectiveFogRadius = Math.max(FOG_VISIBILITY_RADIUS, maxHalfView + 50);
-    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, FOG_VISIBILITY_RADIUS * 0.25, cx, cy, effectiveFogRadius);
+    // Player position in screen space (accounts for zoom transform)
+    const cx = (viewPlayer.x - state.camera.x + state.camera.shakeX) * state.adsZoom
+      + canvas.width / 2 * (1 - state.adsZoom);
+    const cy = (viewPlayer.y - state.camera.y + state.camera.shakeY) * state.adsZoom
+      + canvas.height / 2 * (1 - state.adsZoom);
+    // Fog visibility radius in screen pixels (constant screen size regardless of zoom)
+    const fogRadius = FOG_VISIBILITY_RADIUS;
+    // Outer radius covers full screen diagonal so fog always reaches edges
+    const screenDiag = Math.sqrt(canvas.width * canvas.width + canvas.height * canvas.height);
+    const outerRadius = Math.max(fogRadius, screenDiag);
+    const fogGrad = state.fogCtx.createRadialGradient(cx, cy, fogRadius * 0.25, cx, cy, outerRadius);
     fogGrad.addColorStop(0, 'rgba(0, 0, 0, 1)');
-    fogGrad.addColorStop(Math.min(0.99, FOG_VISIBILITY_RADIUS / effectiveFogRadius * 0.6), 'rgba(0, 0, 0, 0.95)');
-    fogGrad.addColorStop(Math.min(0.999, FOG_VISIBILITY_RADIUS / effectiveFogRadius), 'rgba(0, 0, 0, 0)');
+    fogGrad.addColorStop(Math.min(0.99, fogRadius / outerRadius * 0.6), 'rgba(0, 0, 0, 0.95)');
+    fogGrad.addColorStop(Math.min(0.999, fogRadius / outerRadius), 'rgba(0, 0, 0, 0)');
     fogGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
     state.fogCtx.fillStyle = fogGrad;
     state.fogCtx.beginPath();
-    state.fogCtx.arc(cx, cy, effectiveFogRadius, 0, Math.PI * 2);
+    state.fogCtx.arc(cx, cy, outerRadius, 0, Math.PI * 2);
     state.fogCtx.fill();
     state.fogCtx.globalCompositeOperation = 'source-over';
 
-    ctx.drawImage(state.fogCanvas, state.camera.x - state.camera.shakeX, state.camera.y - state.camera.shakeY);
+    // Draw fog in screen space (reset transform to guarantee full viewport coverage at any zoom)
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(state.fogCanvas, 0, 0);
+    ctx.restore();
   }
 
   // Shadow layer
