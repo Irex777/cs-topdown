@@ -705,7 +705,7 @@ export function render(timestamp) {
       + canvas.width / 2 * (1 - state.adsZoom);
     const cy = (viewPlayer.y - state.camera.y + state.camera.shakeY) * state.adsZoom
       + canvas.height / 2 * (1 - state.adsZoom);
-    if (!state._fogDebugged) { state._fogDebugged = true; console.log('[FOG DEBUG]', {px: viewPlayer.x, py: viewPlayer.y, camX: state.camera.x, camY: state.camera.y, cx, cy, zoom: state.adsZoom, canvasW: canvas.width, canvasH: canvas.height}); }
+    console.log('[FOG]', viewPlayer.x, viewPlayer.y, state.camera.x, state.camera.y);
     // Fog visibility radius in screen pixels (constant screen size regardless of zoom)
     const fogRadius = FOG_VISIBILITY_RADIUS;
     // Outer radius covers full screen diagonal so fog always reaches edges
