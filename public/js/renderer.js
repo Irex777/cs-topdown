@@ -683,7 +683,8 @@ export function render(timestamp) {
   const viewPlayer = state.spectating
     ? (state.spectateTarget ? state.players[state.spectateTarget] : null)
     : p;
-  if (viewPlayer && viewPlayer.alive && viewPlayer.team !== 'SPEC' && state.mapOffscreen) {
+  if (viewPlayer && viewPlayer.alive && viewPlayer.team !== 'SPEC' && state.mapOffscreen
+      && (viewPlayer.x !== 0 || viewPlayer.y !== 0)) {
     if (!state.fogCanvas) {
       state.fogCanvas = document.createElement('canvas');
       state.fogCtx = state.fogCanvas.getContext('2d');
@@ -705,7 +706,6 @@ export function render(timestamp) {
       + canvas.width / 2 * (1 - state.adsZoom);
     const cy = (viewPlayer.y - state.camera.y + state.camera.shakeY) * state.adsZoom
       + canvas.height / 2 * (1 - state.adsZoom);
-    console.log('[FOG]', viewPlayer.x, viewPlayer.y, state.camera.x, state.camera.y);
     // Fog visibility radius in screen pixels (constant screen size regardless of zoom)
     const fogRadius = FOG_VISIBILITY_RADIUS;
     // Outer radius covers full screen diagonal so fog always reaches edges
