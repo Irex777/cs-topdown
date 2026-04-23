@@ -41,16 +41,20 @@ export function connect() {
     upgrade: true,
   });
 
-  // Suppress known "WebSocket is already in CLOSING or CLOSED state" errors
-  // from socket.io's engine transport behind Cloudflare proxy.
-  // This is a cosmetic issue — socket.io handles reconnection gracefully,
-  // but the browser's native WebSocket throws when engine.io tries to
-  // write to a transport that's mid-close during the polling↔WS upgrade cycle.
-  const _origError = console.error;
+  // Suppress known WebSocket transport errors behind Cloudflare proxy.
+  // These are cosmetic — socket.io handles reconnection gracefully via polling
+  // fallback, but the browser logs errors when engine.io writes to a transport
+  // that's mid-close during the polling↔WebSocket upgrade cycle.
+  const _origConsoleError = console.error;
+  const _wsErrorPatterns = ['WebSocket is already in CLOSING', 'Data frame received after close'];
   console.error = function(msg, ...args) {
-    if (typeof msg === 'string' && msg.includes('WebSocket is already in CLOSING')) return;
-    _origError.apply(console, [msg, ...args]);
+    if (typeof msg === 'string' && _wsErrorPatterns.some(p => msg.includes(p))) return;
+    _origConsoleError.apply(console, [msg, ...args]);
   };
+  // Also suppress native WebSocket close errors that bypass console.error
+  window.addEventListener('error', (e) => {
+    if (e.message && _wsErrorPatterns.some(p => e.message.includes(p))) e.preventDefault();
+  });
 
   state.socket.on('connect', () => {
     document.getElementById('status-dot').className = 'status-dot online';
