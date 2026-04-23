@@ -1665,10 +1665,12 @@ io.on('connection', (socket) => {
 
   if (existingPlayer) {
     // Reconnecting player — transfer to new socket
-    console.log(`Reconnect detected: ${connectName} (old=${existingPlayer.id}, new=${socket.id})`);
-    delete players[existingPlayer.id];
+    const oldSocketId = existingPlayer.id;
+    console.log(`Reconnect detected: ${connectName} (old=${oldSocketId}, new=${socket.id})`);
+    delete players[oldSocketId];
     existingPlayer.id = socket.id;
-    existingPlayer.alive = true;
+    // Don't set alive=true — preserve actual alive state (dead players stay dead)
+    existingPlayer._reconnectToken = socket.id; // mark as transferred so old disconnect timer won't delete
     players[socket.id] = existingPlayer;
   } else {
     players[socket.id] = createPlayer(socket.id, connectName);
@@ -1813,6 +1815,7 @@ io.on('connection', (socket) => {
     if (index === -1 || index === 'knife') {
       p.currentWeapon = -1; // knife
       p.reloading = false;
+      p.prevShoot = false; // reset semi-auto tracking on weapon switch
       return;
     }
 
@@ -1826,6 +1829,7 @@ io.on('connection', (socket) => {
     if (isNaN(idx) || idx < 0 || idx >= p.weapons.length) return;
     p.currentWeapon = idx;
     p.reloading = false;
+    p.prevShoot = false; // reset semi-auto tracking on weapon switch
   });
 
   // Scroll weapon switch (up/down cycle)
@@ -1849,6 +1853,7 @@ io.on('connection', (socket) => {
     const newSlot = ((currentSlot + direction) % totalSlots + totalSlots) % totalSlots;
     p.currentWeapon = newSlot - 1; // back to -1 for knife
     p.reloading = false;
+    p.prevShoot = false; // reset semi-auto tracking on weapon switch
   });
 
   socket.on('buy', (item) => {
@@ -2036,10 +2041,16 @@ io.on('connection', (socket) => {
       } else {
         // Human players: delay deletion for reconnect detection (10s)
         // On reconnect with same name, the connection handler will find and reuse this player
+        const disconnectSocketId = socket.id;
+        const reconnectToken = p._reconnectToken;
         setTimeout(() => {
-          if (players[socket.id] && !players[socket.id].isBot) {
+          const entry = players[disconnectSocketId];
+          if (!entry) return; // already cleaned up
+          // If the player was transferred to a new socket (reconnected), don't delete
+          if (reconnectToken && reconnectToken !== disconnectSocketId) return;
+          if (!entry.isBot) {
             // Still here after 10s — truly disconnected
-            delete players[socket.id];
+            delete players[disconnectSocketId];
             broadcastPlayerList();
           }
         }, 10000);
@@ -2211,8 +2222,15 @@ function broadcastState() {
       // Otherwise enemy is completely hidden – do not include
     }
 
-    // Include bomb carrier indicator
+    // Include bomb carrier indicator (copy to avoid mutating shared serialized data)
     if (bombCarrier && _reusableMyPlayers[bombCarrier]) {
+      const carrier = _reusableMyPlayers[bombCarrier];
+      if (carrier === _reusableSerializedPlayers[bombCarrier]) {
+        // Still referencing shared data — make a copy before mutating
+        const copy = {};
+        for (const k in carrier) copy[k] = carrier[k];
+        _reusableMyPlayers[bombCarrier] = copy;
+      }
       _reusableMyPlayers[bombCarrier].hasBomb = true;
     }
 

@@ -951,7 +951,29 @@ export function render(timestamp) {
     if (!pl.alive || pl.team === 'SPEC') continue;
     const isMe = id === state.myId;
     const isAlly = pl.team === viewPlayer?.team;
-    if (pl.noiseVisible && !isMe && !isAlly) continue;
+    if (pl.noiseVisible && !isMe && !isAlly) {
+      // Draw noise indicator — pulsing red circle with "?" for heard enemies
+      const sx = pl.x - state.camera.x - state.camera.shakeX;
+      const sy = pl.y - state.camera.y - state.camera.shakeY;
+      // Skip if off-screen
+      if (sx < -60 || sx > canvas.width + 60 || sy < -60 || sy > canvas.height + 60) continue;
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 200);
+      ctx.save();
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = 'rgba(255, 60, 60, 0.7)';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+      ctx.fill();
+      // Draw "?" symbol
+      ctx.globalAlpha = pulse;
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('?', sx, sy);
+      ctx.restore();
+      continue;
+    }
     drawPlayer(pl, isMe, isAlly, dt);
 
     // Footstep state.particles
@@ -1479,8 +1501,6 @@ export function drawMinimap() {
 }
 
 // ==================== INIT ====================
-initMenuParticles();
-updateMenuParticles();
-requestAnimationFrame(render);
+// Initialization is done in client.js (the entry point) to avoid double-init
 
 
