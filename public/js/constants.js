@@ -30,6 +30,10 @@ export const BUY_ITEMS = {
 };
 export const ADS_ZOOM_LEVELS = { pistol: 0.7, rifle: 0.55, smg: 0.65, sniper: 0.35, shotgun: 0.75 };
 
+// Game timing constants
+export const FREEZE_TIME = 5;
+export const BUY_TIME = 20;
+
 // Additional constants used across modules
 export const STATE_BUFFER_SIZE = 10;
 export const MAX_DAMAGE_INDICATORS = 8;

@@ -1,6 +1,6 @@
 // CS Top-Down - HUD / UI Functions
 import { state } from './state.js';
-import { WEAPONS, WEAPON_ICONS, BUY_ITEMS } from './constants.js';
+import { WEAPONS, WEAPON_ICONS, BUY_ITEMS, BUY_TIME } from './constants.js';
 import { SoundManager } from './audio.js';
 
 const canvas = document.getElementById('game-canvas');
@@ -130,17 +130,17 @@ export function renderBuyMenu() {
 
   // Buy availability feedback
   const buyTimeLeft = 115 - state.roundTimer;
-  const canBuy = state.gameState === 'freeze' || state.gameState === 'waiting' || state.gameState === 'round_end' || buyTimeLeft <= 4;
+  const canBuy = state.gameState === 'freeze' || state.gameState === 'waiting' || state.gameState === 'round_end' || buyTimeLeft <= BUY_TIME;
   const statusEl = document.querySelector('.buy-title');
   if (statusEl) {
-    if (state.gameState === 'playing' && buyTimeLeft > 4) {
+    if (state.gameState === 'playing' && buyTimeLeft > BUY_TIME) {
       statusEl.innerHTML = 'BUY MENU <span style="color:#ff4444;font-size:11px;">[BUY TIME EXPIRED]</span>';
     } else if (state.gameState === 'freeze') {
       statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[FREEZE TIME]</span>';
     } else if (state.gameState === 'round_end') {
       statusEl.innerHTML = 'BUY MENU <span style="color:#ffaa00;font-size:11px;">[ROUND OVER]</span>';
     } else {
-      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[' + Math.max(0, 4 - Math.floor(buyTimeLeft)) + 's left]</span>';
+      statusEl.innerHTML = 'BUY MENU <span style="color:#4caf50;font-size:11px;">[' + Math.max(0, BUY_TIME - Math.floor(buyTimeLeft)) + 's left]</span>';
     }
   }
   // Show current loadout
