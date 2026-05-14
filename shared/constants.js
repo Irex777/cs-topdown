@@ -21,7 +21,8 @@ module.exports = {
 
   // Round
   ROUND_TIME: 115,          // seconds
-  FREEZE_TIME: 4,           // seconds (buy time)
+  FREEZE_TIME: 5,           // seconds (freeze period)
+  BUY_TIME: 20,             // seconds after freeze ends to allow buying
   BOMB_PLANT_TIME: 3.2,     // seconds
   BOMB_DEFUSE_TIME: 5,      // seconds
   BOMB_TIMER: 40,           // seconds before explosion
@@ -30,7 +31,7 @@ module.exports = {
   OVERTAKE_ROUNDS: 4,       // overtime rounds to win
 
   // Economy
-  START_MONEY: 800,
+  START_MONEY: 1000,
   MAX_MONEY: 16000,
   KILL_REWARD: 300,
   ROUND_WIN_REWARD: 3250,

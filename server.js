@@ -452,7 +452,7 @@ function handleBuy(player, item) {
   if (!player.alive) return false;
   // Allow buying during freeze, waiting, round_end, and first 15 seconds of round
   const buyTimeLeft = C.ROUND_TIME - roundTimer;
-  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > C.FREEZE_TIME) return false;
+  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > C.BUY_TIME) return false;
   const weapon = C.WEAPONS[item];
   if (!weapon) return false;
 
@@ -531,6 +531,10 @@ function handleBuy(player, item) {
 
 function handleSell(player, itemKey) {
   if (!player.alive) return false;
+  // Allow selling during freeze, waiting, round_end, and buy time
+  const buyTimeLeft = C.ROUND_TIME - roundTimer;
+  if (gameState !== 'freeze' && gameState !== 'waiting' && gameState !== 'round_end' && buyTimeLeft > C.BUY_TIME) return false;
+
   const weapon = C.WEAPONS[itemKey];
   if (!weapon) return false;
 
