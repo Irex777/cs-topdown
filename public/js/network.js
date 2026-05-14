@@ -142,10 +142,7 @@ export function connect() {
     state.serverGrenades = gs.grenades;
     state.bullets = gs.bullets;
 
-    // Merge non-spatial fields from server for own player.
-    // DO NOT replace the entire player object — spatial fields (x, y, angle, vx, vy)
-    // are managed by the interpolation / prediction system. Overwriting them with
-    // raw server snapshots would bypass client-side prediction and cause choppy controls.
+    // Merge all fields from server for own player, including spatial (x, y, angle).
     if (gs.players && gs.players[state.myId]) {
       const serverMe = gs.players[state.myId];
       if (state.players[state.myId]) {
@@ -170,6 +167,11 @@ export function connect() {
         state.players[state.myId].sprinting = serverMe.sprinting;
         state.players[state.myId].weaponType = serverMe.weaponType;
         state.players[state.myId].specTarget = serverMe.specTarget;
+        state.players[state.myId].x = serverMe.x;
+        state.players[state.myId].y = serverMe.y;
+        state.players[state.myId].vx = serverMe.vx;
+        state.players[state.myId].vy = serverMe.vy;
+        state.players[state.myId].angle = serverMe.angle;
       } else {
         // First snapshot — no local player object yet, accept full server state
         state.players[state.myId] = serverMe;
