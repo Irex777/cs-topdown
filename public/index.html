@@ -6,7 +6,7 @@
 <title>CS Top-Down</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #0a0a14; color: #eee; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; user-select: none; }
+  body { background: #0a0a14; color: #eee; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; overflow: hidden; overflow-x: hidden; user-select: none; }
 
   /* MENU SCREEN */
   #menu-screen {
@@ -16,7 +16,7 @@
   }
   #menu-screen.hidden { display: none; }
   #menu-particles { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
-  .menu-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; }
+  .menu-content { position: relative; z-index: 1; display: flex; flex-direction: column; align-items: center; max-width: 100vw; box-sizing: border-box; padding: 0 16px; }
   .menu-title {
     font-size: 64px; font-weight: 900; letter-spacing: 8px; text-transform: uppercase;
     background: linear-gradient(135deg, #ff6b35 0%, #ffd700 30%, #ff6b35 60%, #ffd700 100%);
@@ -39,10 +39,24 @@
   @keyframes pulse-dot { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
   .menu-input {
     padding: 14px 24px; font-size: 16px; border: 1px solid rgba(255,255,255,0.1); border-radius: 12px;
-    background: rgba(255,255,255,0.05); color: #eee; width: 320px; text-align: center; margin-bottom: 12px;
+    background: rgba(255,255,255,0.05); color: #eee; width: 320px; max-width: calc(100vw - 48px);
+    box-sizing: border-box; text-align: center; margin-bottom: 12px;
     backdrop-filter: blur(10px); transition: all 0.3s;
   }
-  .menu-input:focus { outline: none; border-color: #ff6b35; background: rgba(255,107,53,0.05); box-shadow: 0 0 20px rgba(255,107,53,0.1); }
+  .menu-input:focus { border-color: #ff6b35; background: rgba(255,107,53,0.05); box-shadow: 0 0 20px rgba(255,107,53,0.1); }
+  .menu-input:focus-visible { outline: 2px solid #f59e0b; outline-offset: 2px; }
+
+  /* Focus-visible for all interactive elements */
+  .menu-btn:focus-visible, .controls-toggle:focus-visible,
+  .esc-btn:focus-visible, .game-over-btn:focus-visible,
+  .buy-item:focus-visible, .sell-btn:focus-visible,
+  .btn-t:focus-visible, .btn-ct:focus-visible, .btn-spec:focus-visible,
+  .btn-start:focus-visible, #chat-input:focus-visible {
+    outline: 2px solid #f59e0b; outline-offset: 2px;
+  }
+
+  /* Screen-reader only utility */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   .menu-btn {
     padding: 14px 40px; font-size: 15px; font-weight: 700; border: none; border-radius: 12px;
     cursor: pointer; transition: all 0.3s; text-transform: uppercase; letter-spacing: 2px;
@@ -560,7 +574,9 @@
       <span style="color:#333;">|</span>
       <span id="player-count-text" style="color:#444;">0 online</span>
     </div>
+    <label for="name-input" class="sr-only">Your name</label>
     <input type="text" class="menu-input" id="name-input" placeholder="Your name" maxlength="20" value="">
+    <label for="server-input" class="sr-only">Server address</label>
     <input type="text" class="menu-input" id="server-input" placeholder="Leave empty for this server" value="">
     <button class="menu-btn btn-connect" id="connect-btn">CONNECT</button>
     <div id="menu-status"></div>
