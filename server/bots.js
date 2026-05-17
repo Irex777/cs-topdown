@@ -274,6 +274,8 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
     if (!bot.aiSearchPoint || distance(bot, bot.aiSearchPoint) < 80) {
       const siteKeys = Object.keys(bombsites || {});
       if (siteKeys.length) {
+        // Fix 5: Vary bombsite target — 40% chance to pick randomly each time
+        // instead of all bots rushing the same site
         const siteKey = siteKeys[Math.floor(Math.random() * siteKeys.length)];
         const site = bombsites[siteKey];
         bot.aiSearchPoint = { x: site.centerX || site.x, y: site.centerY || site.y };
@@ -281,6 +283,7 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
       }
     }
     if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
+    bot.input.sprint = true;
     return;
   }
 
@@ -300,31 +303,94 @@ function handleRoaming(bot, dt, players, gameMap, gameState, bombState, bombsite
 
   // CT — hold or rotate between bombsites when no enemies / bomb not planted
   if (bot.team === 'CT' && gameState === 'playing') {
-    if (!bot.aiHoldSite || !bot.aiSearchPoint || distance(bot, bot.aiSearchPoint) < 90) {
-      const siteKeys = Object.keys(bombsites || {});
-      if (siteKeys.length) {
-        // Pick site — prefer staying if already assigned
-        const siteKey = bot.aiHoldSite && Math.random() < 0.6
-          ? bot.aiHoldSite
-          : siteKeys[Math.floor(Math.random() * siteKeys.length)];
-        const site = bombsites[siteKey];
-        if (site) {
+    const mapW = gameMap[0].length * C.TILE_SIZE;
+    const mapH = gameMap.length * C.TILE_SIZE;
+    const centerMapX = mapW / 2;
+    const centerMapY = mapH / 2;
+
+    // Initialize CT aggression state
+    if (!bot._ctPhase) bot._ctPhase = 'push'; // 'push' or 'hold'
+    if (!bot._ctPhaseTimer) bot._ctPhaseTimer = 8 + Math.random() * 6; // switch phase every 8-14s
+    bot._ctPhaseTimer -= dt;
+
+    // Phase switching: push → hold → rotate → push
+    if (bot._ctPhaseTimer <= 0) {
+      if (bot._ctPhase === 'push') {
+        bot._ctPhase = 'hold';
+        bot._ctPhaseTimer = 5 + Math.random() * 5;
+        // Assign a site to hold
+        const siteKeys = Object.keys(bombsites || {});
+        if (siteKeys.length) {
+          const siteKey = siteKeys[Math.floor(Math.random() * siteKeys.length)];
+          const site = bombsites[siteKey];
           bot.aiHoldSite = siteKey;
           bot.aiSearchPoint = {
-            x: (site.centerX || site.x) + (Math.random() - 0.5) * 160,
-            y: (site.centerY || site.y) + (Math.random() - 0.5) * 160,
+            x: (site.centerX || site.x) + (Math.random() - 0.5) * 120,
+            y: (site.centerY || site.y) + (Math.random() - 0.5) * 120,
           };
           bot._path = null;
           botSay(bot, 'siteHolding', { site: siteKey });
         }
+      } else {
+        bot._ctPhase = 'push';
+        bot._ctPhaseTimer = 8 + Math.random() * 6;
+        bot.aiSearchPoint = null;
+        bot._path = null;
       }
     }
-    if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
-    // Face toward likely enemy approach (center of map)
+
+    if (bot._ctPhase === 'push') {
+      // Aggressive push: move toward map center (between CT spawn and T approach routes)
+      // Pick a point between the bombsites (center of map) with randomness
+      if (!bot.aiSearchPoint || distance(bot, bot.aiSearchPoint) < 100) {
+        // Push toward the midpoint between the two bombsites with spread
+        const siteKeys = Object.keys(bombsites || {});
+        if (siteKeys.length >= 2) {
+          const sA = bombsites[siteKeys[0]];
+          const sB = bombsites[siteKeys[1]];
+          const midX = ((sA.centerX || sA.x) + (sB.centerX || sB.x)) / 2 + (Math.random() - 0.5) * 300;
+          const midY = ((sA.centerY || sA.y) + (sB.centerY || sB.y)) / 2 + (Math.random() - 0.5) * 300;
+          bot.aiSearchPoint = { x: midX, y: midY };
+        } else {
+          // Fallback: push toward map center
+          bot.aiSearchPoint = {
+            x: centerMapX + (Math.random() - 0.5) * 400,
+            y: centerMapY + (Math.random() - 0.5) * 400,
+          };
+        }
+        bot._path = null;
+      }
+      if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
+      bot.input.sprint = true;
+    } else {
+      // Hold phase: go to assigned bombsite area
+      if (!bot.aiSearchPoint || distance(bot, bot.aiSearchPoint) < 90) {
+        const siteKeys = Object.keys(bombsites || {});
+        if (siteKeys.length) {
+          // Rotate to a different site occasionally (40% chance)
+          const siteKey = bot.aiHoldSite && Math.random() < 0.6
+            ? bot.aiHoldSite
+            : siteKeys[Math.floor(Math.random() * siteKeys.length)];
+          const site = bombsites[siteKey];
+          if (site) {
+            bot.aiHoldSite = siteKey;
+            bot.aiSearchPoint = {
+              x: (site.centerX || site.x) + (Math.random() - 0.5) * 140,
+              y: (site.centerY || site.y) + (Math.random() - 0.5) * 140,
+            };
+            bot._path = null;
+            botSay(bot, 'siteHolding', { site: siteKey });
+          }
+        }
+      }
+      if (bot.aiSearchPoint) navigateTo(bot, bot.aiSearchPoint.x, bot.aiSearchPoint.y, gameMap, dt);
+    }
+
+    // Face toward likely enemy approach (toward center/T spawn direction)
     if (!nearestEnemyPos) {
-      const toCenterX = gameMap[0].length * C.TILE_SIZE / 2 - bot.x;
-      const toCenterY = gameMap.length * C.TILE_SIZE / 2 - bot.y;
-      bot.angle = Math.atan2(toCenterY, toCenterX) + (Math.random() - 0.5) * 1.0;
+      const toCenterX = centerMapX - bot.x;
+      const toCenterY = centerMapY - bot.y;
+      bot.angle = Math.atan2(toCenterY, toCenterX) + (Math.random() - 0.5) * 0.6;
     }
     return;
   }
@@ -692,7 +758,11 @@ function getCurrentWeapon(p) {
 function spawnBotsForTeam(existingPlayers, team, count) {
   const bots = [];
   for (let i = 0; i < count; i++) {
-    const skill = 0.2 + Math.random() * 0.5; // 0.2-0.7 range for more variety
+    // CT bots get higher skill (0.6-0.8) to compensate for T numbers advantage
+    // T bots get lower skill (0.35-0.5) since they have more players
+    const skill = team === 'CT'
+      ? 0.6 + Math.random() * 0.2  // 0.6-0.8
+      : 0.35 + Math.random() * 0.15; // 0.35-0.5
     const bot = createBot(team, skill);
     bots.push(bot);
   }

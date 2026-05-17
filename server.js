@@ -1616,10 +1616,15 @@ function addBotsToGame() {
   const ctPlayers = Object.values(players).filter(p => p.team === 'CT');
   const tBots = tPlayers.filter(p => p.isBot).length;
   const ctBots = ctPlayers.filter(p => p.isBot).length;
+  const tHumans = tPlayers.filter(p => !p.isBot).length;
+  const ctHumans = ctPlayers.filter(p => !p.isBot).length;
 
-  // Ensure each team has at least 3 bots
-  const tNeeded = Math.max(0, 3 - tBots);
-  const ctNeeded = Math.max(0, 3 - ctBots);
+  // Balance fix: keep teams equal by reducing bots on the team with a human player.
+  // If a human is on T, T gets 2 bots (2+1=3 total) vs CT's 3 bots = 3v3.
+  // If balanced humans, both get 3 bots = full teams.
+  const targetTeamSize = 3;
+  const tNeeded = Math.max(0, targetTeamSize - tHumans - tBots);
+  const ctNeeded = Math.max(0, targetTeamSize - ctHumans - ctBots);
 
   const tNew = spawnBotsForTeam(players, 'T', tNeeded);
   const ctNew = spawnBotsForTeam(players, 'CT', ctNeeded);

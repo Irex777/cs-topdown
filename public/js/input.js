@@ -173,7 +173,7 @@ export function initInput() {
   }, { passive: false });
 
   // ==================== INPUT SENDING (30Hz) ====================
-  setInterval(() => {
+  function sendInput() {
     if (!state.socket || !state.myPlayer || state.chatOpen || state.escMenuOpen) return;
 
     // Spectator free camera
@@ -198,5 +198,15 @@ export function initInput() {
       ads: state.adsActive,
     });
     state.socket.emit('update_angle', Math.atan2(wmy, wmx));
-  }, 1000/30);
+  }
+
+  setInterval(sendInput, 1000/30);
+
+  // Fix 4: Send input immediately when freeze ends to eliminate movement delay
+  state.socket.on('freeze_end', () => {
+    sendInput();
+  });
+  state.socket.on('round_live', () => {
+    sendInput();
+  });
 }
