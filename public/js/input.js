@@ -202,11 +202,7 @@ export function initInput() {
 
   setInterval(sendInput, 1000/30);
 
-  // Fix 4: Send input immediately when freeze ends to eliminate movement delay
-  state.socket.on('freeze_end', () => {
-    sendInput();
-  });
-  state.socket.on('round_live', () => {
-    sendInput();
-  });
+  // Expose sendInput so network.js can register freeze_end/round_live handlers
+  // after socket is created (state.socket is null at initInput() time)
+  state._sendInput = sendInput;
 }

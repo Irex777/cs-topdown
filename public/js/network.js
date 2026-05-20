@@ -323,6 +323,11 @@ export function connect() {
   });
   state.socket.on('bomb_defuse_cancelled', () => { hideDefuseProgress(); });
   state.socket.on('sound', (d) => { playSound(d); });
+
+  // Send input immediately when freeze ends to eliminate movement delay
+  // (Must be here, not in initInput(), because state.socket is null at init time)
+  state.socket.on('freeze_end', () => { state._sendInput?.(); });
+  state.socket.on('round_live', () => { state._sendInput?.(); });
 }
 
 // ==================== TEAM / GAME ACTIONS ====================
