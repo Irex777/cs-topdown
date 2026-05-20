@@ -583,6 +583,7 @@
   /* Responsive — tablet (481px–1024px) */
   @media (min-width: 481px) and (max-width: 1024px) {
     .menu-title { font-size: 48px; letter-spacing: 6px; }
+    .controls-toggle { min-height: 44px; display: flex; align-items: center; justify-content: center; }
     #team-select { min-width: unset; width: 90vw; max-width: 560px; }
     #buy-menu { min-width: unset; width: 90vw; max-width: 680px; }
     #scoreboard { min-width: unset; width: 90vw; max-width: 800px; }
@@ -778,7 +779,7 @@
 
 <!-- Chat -->
 <div id="chat-box"></div>
-<input type="text" id="chat-input" placeholder="Type message..." maxlength="100">
+<input type="text" id="chat-input" placeholder="Type message..." maxlength="100" aria-label="Chat message">
 
 <!-- Scoreboard -->
 <div id="scoreboard">
