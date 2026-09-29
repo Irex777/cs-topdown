@@ -5,89 +5,95 @@ export const TICK = 60;             // simulation ticks per second
 export const DT = 1 / TICK;
 export const SNAP_EVERY = 2;        // snapshot every N ticks -> 30 Hz
 export const PLAYER_R = 11;
-export const BASE_SPEED = 205;      // px/s with a knife out
+export const BASE_SPEED = 205;      // px/s for a soldier running with a knife out
+export const SPRINT_MUL = 1.38;
 
-export const T = 0;
-export const CT = 1;
+export const T = 0;                 // team 0: Crimson (red)
+export const CT = 1;                // team 1: Azure (blue)
 export const SPEC = 2;
-export const TEAM_NAMES = ['Terrorists', 'Counter-Terrorists', 'Spectators'];
-export const TEAM_SHORT = ['T', 'CT', 'SPEC'];
+export const RED = T, BLUE = CT;
+export const TEAM_NAMES = ['Crimson Army', 'Azure Legion', 'Spectators'];
+export const TEAM_SHORT = ['CRM', 'AZR', 'SPEC'];
 export const otherTeam = (t) => (t === T ? CT : T);
 
 // Bits of the per-tick input command
-export const KEY = { UP: 1, DOWN: 2, LEFT: 4, RIGHT: 8, FIRE: 16, WALK: 32, SCOPE: 64, USE: 128 };
+export const KEY = {
+  UP: 1, DOWN: 2, LEFT: 4, RIGHT: 8, FIRE: 16, WALK: 32, SCOPE: 64, USE: 128, SPRINT: 256, BRAKE: 512,
+};
 
-export const PHASE = { LOBBY: 0, FREEZE: 1, LIVE: 2, POST: 3, OVER: 4 };
+export const PHASE = { LOBBY: 0, PRE: 1, LIVE: 2, POST: 3, OVER: 4 };
+
+export const MODES = {
+  conquest: { name: 'Conquest', desc: 'Capture and hold flags. Bleed the enemy tickets dry.' },
+  rush: { name: 'Rush', desc: 'Attackers arm and blow up M-COM stations stage by stage. Defenders hold the line.' },
+  tdm: { name: 'Team Deathmatch', desc: 'First team to the kill target wins. Infantry and light vehicles.' },
+};
 
 // Movement feel
 export const ACCEL = 16;     // 1/s, responsiveness when a key is held
 export const FRICTION = 20;  // 1/s, responsiveness when no key is held
 export const WALK_MUL = 0.5;
 
-// Vision
+// Vision. scope levels: 0 iron sights, 1 = 4x, 2 = 8x, 3 = 12x
 export const VISION = {
   near: 96,          // radius of 360° awareness around a player
-  range: 980,        // cone range
+  range: 1000,       // cone range
   fov: 112 * Math.PI / 180,
-  scopeRange: 1500,
-  scopeFov: 62 * Math.PI / 180,
-  lightScopeRange: 1200,
-  lightScopeFov: 84 * Math.PI / 180,
-  aimRange: 1120,    // aiming down sights with any gun: narrower but longer sight
+  aimRange: 1160,    // aiming down any sights: narrower but longer sight
   aimFov: 86 * Math.PI / 180,
+  scopes: [null, { range: 1300, fov: 74 * Math.PI / 180 }, { range: 1700, fov: 56 * Math.PI / 180 }, { range: 2100, fov: 42 * Math.PI / 180 }],
   serverFovPad: 24 * Math.PI / 180,   // server sends slightly more than the client will draw
 };
 
 export const RULES = {
-  freezeTime: 8,
-  roundTime: 115,
-  postTime: 5,
-  buyTime: 20,           // seconds after freeze during which buying is still allowed
-  plantTime: 3.2,
-  defuseTime: 10,
-  defuseTimeKit: 5,
-  bombTimer: 40,
-  bombRadius: 380,
-  bombDamage: 500,
-  startMoney: 800,
-  maxMoney: 16000,
-  winMoney: 3250,
-  lossBase: 1400,
-  lossStep: 500,
-  lossMax: 3400,
-  plantTeamBonus: 800,
-  plantReward: 300,
-  defuseReward: 300,
-  teamkillPenalty: 300,
-  overtimeMoney: 10000,
-  overtimeRounds: 6,
-  respawnDelay: 3,       // deathmatch
-  dmTime: 600,
-  dmKills: 40,
+  respawnDelay: 6,           // seconds before a dead soldier can redeploy
+  spawnProtect: 2.5,
+  regenDelay: 5.5,           // seconds without damage before health comes back
+  regenRate: 11,             // hp / s
+  reviveWindow: 22,          // seconds a body can be revived
+  reviveTime: 1.1,
+  reviveHp: 40,
+  ticketOptions: [150, 250, 400, 600],
+  flagRadius: 118,
+  flagCapRate: 0.055,        // per second per (player^0.8)
+  flagCapMax: 0.3,
+  bleedPerExcess: 0.075,     // tickets / s for every flag over half
+  matchTime: 30 * 60,
+  tdmKills: 100,
+  rushTickets: 60,           // attackers' reinforcements
+  mcomArmTime: 4,
+  mcomDisarmTime: 4,
+  mcomFuse: 30,
+  mcomHp: 400,
+  overTime: 15,
+  squadSize: 4,
+  spotTime: 9,
+  score: {
+    kill: 100, assist: 50, capture: 100, neutralize: 50, defend: 50, revive: 75, heal: 10, resupply: 10, repair: 10,
+    vehicle: 200, roadkill: 100, spot: 15, arm: 100, disarm: 100, mcom: 200, destroyGadget: 50, beaconSpawn: 20,
+  },
 };
 
 export const GRENADE = {
-  he:    { name: 'HE Grenade',       price: 300, max: 1, fuse: 1.7 },
-  flash: { name: 'Flashbang',        price: 200, max: 2, fuse: 1.4 },
-  smoke: { name: 'Smoke Grenade',    price: 300, max: 1, fuse: 1.8 },
-  molo:  { name: 'Molotov',          price: 400, max: 1, fuse: 1.6 },
+  he:    { name: 'Frag Grenade',     max: 3, fuse: 1.7 },
+  flash: { name: 'Flashbang',        max: 2, fuse: 1.4 },
+  smoke: { name: 'Smoke Grenade',    max: 2, fuse: 1.8 },
+  molo:  { name: 'Incendiary',       max: 2, fuse: 1.6 },
 };
 export const GREN_ORDER = ['he', 'flash', 'smoke', 'molo'];
-export const MAX_GRENADES = 4;
 export const GREN_DRAG = 2.4;          // exponential drag; total travel = v0 / drag
 export const GREN_MIN_DIST = 60;
 export const GREN_MAX_DIST = 620;
-export const HE_RADIUS = 230;
-export const HE_DAMAGE = 98;
+export const HE_RADIUS = 220;
+export const HE_DAMAGE = 105;
 export const FLASH_RADIUS = 760;
 export const FLASH_MAX = 3.6;
-export const SMOKE_RADIUS = 78;
-export const SMOKE_TIME = 16;
+export const SMOKE_RADIUS = 92;
+export const SMOKE_TIME = 18;
 export const FIRE_RADIUS = 84;
 export const FIRE_TIME = 7;
 export const FIRE_DPS = 34;
 
-export const armorCost = { kevlar: 650, helmet: 1000, helmetUpgrade: 350, kit: 400 };
-
-export const MAX_PLAYERS_PER_ROOM = 16;
+export const MAX_PLAYERS_PER_ROOM = 24;
 export const NAME_MAX = 16;
+export const SQUAD_NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Foxtrot', 'Golf', 'Hotel'];

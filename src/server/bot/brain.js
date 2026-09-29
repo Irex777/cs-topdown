@@ -1,127 +1,134 @@
 // Bot AI. Bots drive the exact same movement/combat code as humans and only know what they can see or hear.
-import { KEY, T, CT, SPEC, PHASE, RULES } from '../../shared/constants.js';
-import { WEAPONS } from '../../shared/weapons.js';
+// They play the objective (flags, M-COM stations), use every class's gadgets, revive and repair, and drive vehicles.
+import { KEY, T, CT, SPEC, PHASE, TILE, RULES } from '../../shared/constants.js';
+import { WEAPONS, CLASSES, CLASS_ORDER, SIDEARMS, attachOptions, normAtt, GADGETS } from '../../shared/weapons.js';
+import { VEHICLES } from '../../shared/vehicles.js';
 import { canSee, viewParams } from '../../shared/vision.js';
-import { angleDiff } from '../../shared/gamemap.js';
+import { angleDiff, rayCircle } from '../../shared/gamemap.js';
 import { startReload, selectSlot } from '../combat.js';
 
 export const BOT_NAMES = [
   'Viper', 'Ghost', 'Rook', 'Nova', 'Blitz', 'Echo', 'Dagger', 'Hex', 'Raven', 'Tango', 'Sable', 'Onyx', 'Flint', 'Jinx',
   'Kilo', 'Mako', 'Orbit', 'Pixel', 'Quill', 'Rex', 'Slate', 'Talon', 'Umber', 'Vex', 'Wolf', 'Yeti', 'Zed', 'Bishop',
+  'Cobra', 'Drift', 'Ember', 'Fable', 'Gizmo', 'Havoc', 'Iron', 'Joker',
 ];
 
 const DIFF = {
-  easy:   { sight: 480, react: 0.60, turn: 6,  sigma: 0.10,  burst: 0.55, nades: 0.25, aggr: 0.25, hold: 0.45 },
-  normal: { sight: 600, react: 0.34, turn: 9,  sigma: 0.058, burst: 0.75, nades: 0.55, aggr: 0.45, hold: 0.7 },
-  hard:   { sight: 720, react: 0.21, turn: 13, sigma: 0.032, burst: 0.9,  nades: 0.8,  aggr: 0.6,  hold: 0.85 },
-  expert: { sight: 840, react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  nades: 1.0,  aggr: 0.75, hold: 1.0 },
+  easy:   { sight: 520, react: 0.60, turn: 6,  sigma: 0.10,  burst: 0.55, aggr: 0.25, hold: 0.45 },
+  normal: { sight: 680, react: 0.34, turn: 9,  sigma: 0.058, burst: 0.75, aggr: 0.45, hold: 0.7 },
+  hard:   { sight: 820, react: 0.21, turn: 13, sigma: 0.032, burst: 0.9,  aggr: 0.6,  hold: 0.85 },
+  expert: { sight: 960, react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  aggr: 0.75, hold: 1.0 },
 };
 
-const NO_BIAS = [1, 1];
 const rnd = Math.random;
 const pick = (a) => a[Math.floor(rnd() * a.length)];
 const gauss = () => (rnd() + rnd() + rnd() - 1.5) * 1.15;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const norm = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
-/** Shared per-team planning: who attacks which site, who holds where, and what has been spotted. */
+/** How far each weapon kind is worth firing at, in pixels. */
+const RANGE = { pistol: 480, smg: 560, shotgun: 340, rifle: 820, lmg: 780, dmr: 1150, sniper: 2600, knife: 60 };
+
+// ------------------------------------------------------------------------------------------------ team planning
 export class TeamMind {
   constructor(game) {
     this.g = game;
-    this.contact = [null, null];        // last enemy contact reported by each team: {x,y,t,site}
-    this.defuser = 0;
-    this.awper = [false, false];
-    this.eco = [false, false];
-    this.style = 'default';
-    this.mainSite = 0;
-    this.execute = [false, false];      // attackers push a site once enough of them are staged (or time is up)
-    this.executeAt = [0, 0];
+    this.contact = [null, null];        // last enemy contact reported by each team: {x,y,t}
+    this.squadTarget = new Map();       // "team:squad" -> { id, since }
     this.checkT = 0;
+    this.classCount = [{}, {}];
   }
 
-  /** Called every tick by the game; cheap. */
   update(dt) {
     this.checkT -= dt;
     if (this.checkT > 0) return;
-    this.checkT = 0.5;
+    this.checkT = 2.5;
     const g = this.g;
-    if (g.phase !== PHASE.LIVE || g.mode === 'dm') return;
-    const since = g.time - g.roundStartedAt;
-    for (let s = 0; s < 2; s++) {
-      if (this.execute[s]) continue;
-      let n = 0, staged = 0;
-      for (const p of g.teamPlayers(T)) {
-        if (!p.alive || !p.bot || p.bot.role !== 'attack' || p.bot.site !== s) continue;
-        n++; if (p.bot.staged) staged++;
-      }
-      if (n === 0) continue;
-      if (staged >= Math.ceil(n * 0.8) || since > this.executeAt[s]) this.execute[s] = true;
-    }
-    // a fight at a staging point or a dead teammate forces the issue: nobody waits around to be picked off
-    const c = this.contact[T];
-    if (c && g.time - c.t < 2 && c.site >= 0) this.execute[c.site] = true;
+    if (g.phase !== PHASE.LIVE) return;
+    if (g.modeId === 'conquest') this.planConquest();
   }
 
-  report(team, x, y) {
+  report(team, x, y) { this.contact[team] = { x, y, t: this.g.time }; }
+
+  /** Each squad picks a flag: enemy/neutral flags near it are worth the most; contested own flags need defenders. */
+  planConquest() {
     const g = this.g;
-    let site = -1, bd = 900;
-    for (let s = 0; s < 2; s++) {
-      const c = g.nav.siteCentre[s];
-      if (!c) continue;
-      const d = Math.hypot(c.x - x, c.y - y);
-      if (d < bd) { bd = d; site = s; }
-    }
-    this.contact[team] = { x, y, t: g.time, site };
-  }
-
-  hotSite(team) {
-    const c = this.contact[team];
-    return c && this.g.time - c.t < 9 ? c.site : -1;
-  }
-
-  newRound() {
-    const g = this.g, nav = g.nav;
-    this.contact = [null, null]; this.defuser = 0; this.awper = [false, false];
-    this.execute = [false, false];
-    this.executeAt = [16 + rnd() * 14, 16 + rnd() * 14];
-    const bots = (team) => g.teamPlayers(team).filter((p) => p.bot && p.alive);
-    // ----- economy read (T and CT)
     for (const team of [T, CT]) {
-      const list = g.teamPlayers(team).filter((p) => p.alive || p.bot);
-      const avg = list.length ? list.reduce((s, p) => s + p.money, 0) / list.length : 0;
-      this.eco[team] = avg < 2100 && g.round > 1;
-    }
-    // ----- attackers
-    const r = rnd();
-    this.style = r < 0.4 ? 'rush' : r < 0.7 ? 'split' : 'default';
-    this.mainSite = rnd() < 0.5 ? 0 : 1;
-    const ts = bots(T);
-    ts.sort(() => rnd() - 0.5);
-    ts.forEach((p, i) => {
-      let site = this.mainSite;
-      if (this.style === 'split') site = i % 2;
-      else if (this.style === 'default') site = i < Math.ceil(ts.length * 0.6) ? this.mainSite : 1 - this.mainSite;
-      const spots = nav.siteSpots[site].length ? nav.siteSpots[site] : [nav.siteCentre[site]];
-      p.bot.assign({ role: 'attack', site, spot: spots[i % spots.length], delay: this.style === 'default' ? rnd() * 7 : rnd() * 1.5 });
-    });
-    // ----- defenders
-    const cts = bots(CT);
-    cts.sort(() => rnd() - 0.5);
-    const per = Math.max(1, Math.round(cts.length * 0.4));
-    cts.forEach((p, i) => {
-      let site, spot, role = 'defend';
-      if (i < per) site = 0; else if (i < per * 2) site = 1; else { role = 'roam'; site = rnd() < 0.5 ? 0 : 1; }
-      if (role === 'roam') spot = nav.midSpots.length ? pick(nav.midSpots) : nav.siteCentre[site];
-      else {
-        const good = nav.holdSpots[site];
-        const opts = good.length ? good : nav.siteSpots[site].concat(nav.lanes[site]);
-        spot = opts.length ? opts[(i + Math.floor(rnd() * 2)) % opts.length] : nav.siteCentre[site];
+      const squads = new Map();
+      for (const p of g.players.values()) {
+        if (p.team !== team || !p.alive || !p.bot) continue;
+        if (!squads.has(p.squad)) squads.set(p.squad, []);
+        squads.get(p.squad).push(p);
       }
-      p.bot.assign({ role, site, spot, delay: 0 });
-    });
+      const load = new Map();
+      const list = [...squads.entries()];
+      list.sort((a, b) => a[0] - b[0]);
+      for (const [sq, members] of list) {
+        let cx = 0, cy = 0;
+        for (const m of members) { cx += m.x; cy += m.y; }
+        cx /= members.length; cy /= members.length;
+        const key = `${team}:${sq}`;
+        const cur = this.squadTarget.get(key);
+        let best = null, bv = -1, curV = -1;
+        for (const f of g.flags) {
+          let need;
+          if (f.owner === team) need = f.n[1 - team] > 0 ? 1.7 : (f.contested ? 1.5 : 0.18);
+          else need = f.owner === -1 ? 1.0 : 1.15;
+          const d = Math.hypot(f.x - cx, f.y - cy);
+          const crowd = (load.get(f.id) || 0) * 0.55;
+          const v = need / (1 + d / 1400) - crowd;
+          if (cur && cur.id === f.id) curV = v;
+          if (v > bv) { bv = v; best = f; }
+        }
+        let chosen = best;
+        if (cur && curV >= 0 && curV * 1.35 >= bv) chosen = g.flags[cur.id];
+        if (chosen) {
+          load.set(chosen.id, (load.get(chosen.id) || 0) + 1);
+          if (!cur || cur.id !== chosen.id) this.squadTarget.set(key, { id: chosen.id, since: g.time });
+        }
+      }
+    }
+  }
+
+  /** The objective this bot should be working on: {x, y, r, kind, id} */
+  targetFor(p) {
+    const g = this.g;
+    if (g.modeId === 'conquest') {
+      const st = this.squadTarget.get(`${p.team}:${p.squad}`);
+      const f = st ? g.flags[st.id] : g.flags[0];
+      if (f) return { x: f.x, y: f.y, r: f.r * 0.75, kind: 'flag', id: f.id };
+    } else if (g.modeId === 'rush') {
+      const ms = g.mcoms.filter((m) => m.stage === g.stage && m.state !== 2);
+      if (ms.length) {
+        if (p.team === T) {
+          const intact = ms.filter((m) => m.state === 0);
+          const pool = intact.length ? intact : ms;
+          let b = pool[0], bd = Infinity;
+          for (const m of pool) { const d = Math.hypot(m.x - p.x, m.y - p.y) + (m.id % 2) * 40 * (p.id % 3); if (d < bd) { bd = d; b = m; } }
+          return { x: b.x, y: b.y, r: b.state === 1 ? 260 : 46, kind: 'mcom', id: b.id, armed: b.state === 1 };
+        }
+        const armed = ms.filter((m) => m.state === 1);
+        if (armed.length) {
+          let b = armed[0], bd = Infinity;
+          for (const m of armed) { const d = Math.hypot(m.x - p.x, m.y - p.y); if (d < bd) { bd = d; b = m; } }
+          return { x: b.x, y: b.y, r: 40, kind: 'mcom', id: b.id, disarm: true };
+        }
+        const m = ms[(p.id + p.squad) % ms.length];
+        return { x: m.x, y: m.y, r: 240, kind: 'mcom', id: m.id };
+      }
+    }
+    // deathmatch (or nothing left to do): head for the last known enemy contact, else somewhere in the middle
+    const c = this.contact[p.team === T ? CT : T] || this.contact[p.team];
+    if (c && g.time - c.t < 20) return { x: c.x, y: c.y, r: 200, kind: 'hunt' };
+    const e = g.map.spawnCenter[p.team === T ? CT : T];
+    const me = g.map.spawnCenter[p.team];
+    const k = 0.3 + ((p.id * 37) % 5) * 0.1;
+    return { x: me.x + (e.x - me.x) * k, y: me.y + (e.y - me.y) * k, r: 260, kind: 'hunt' };
   }
 }
 
+// ------------------------------------------------------------------------------------------------ the brain
 export class BotBrain {
   constructor(game, p, difficulty = 'normal') {
     this.g = game; this.p = p;
@@ -134,106 +141,259 @@ export class BotBrain {
   reset() {
     const p = this.p;
     this.aim = p.angle || 0;
-    this.path = null; this.pathIdx = 0; this.goal = null; this.pathT = 0;
-    this.target = 0; this.targetSince = 0; this.visible = false; this.lastSeen = null;
+    this.path = null; this.pathIdx = 0; this.goal = null; this.pathT = 0; this.pathAge = 0;
+    this.target = null; this.targetSince = 0; this.visible = false; this.lastSeen = null;
     this.heard = null;
-    this.role = 'hold'; this.site = 0; this.spot = null; this.delay = 0; this.postSpot = null; this.watch = undefined;
     this.strafeDir = rnd() < 0.5 ? -1 : 1; this.strafeT = 0; this.strafeMove = false;
     this.errA = 0; this.errT = 0;
     this.noFireT = 0; this.stuckT = 0; this.travel = 0; this.moveWant = 0; this.lastTX = p.x; this.lastTY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
-    this.buyAt = 0; this.bought = false;
-    this.nadeJob = null; this.nadeCd = 3 + rnd() * 3; this.smokedThisRound = false; this.floodedThisRound = false;
     this.burstLeft = 4; this.burstPause = 0; this.pulse = false; this.lastClip = 99;
     this.flashedUntil = 0;
-    this.percT = 0; this.roundT = 0; this.wanderT = 0;
-    this.searchUntil = 0; this.defusePick = 0;
-    this.savedRound = false;
+    this.percT = 0; this.holdPos = null; this.holdT = 0;
+    this.job = null; this.jobCd = 4 + rnd() * 6;
+    this.wantVeh = 0; this.vehWait = 0; this.vehStuck = 0; this.vehRev = 0;
+    this.searchUntil = 0; this.usedBeacon = false; this.spawnedAt = this.g.time;
+    this.usePulse = 0;
   }
 
   // ---------------------------------------------------------------- events from the game
   onSpawn() {
     this.reset();
-    this.buyAt = this.g.time + 0.4 + rnd() * 2.2;
+    this.deployT = undefined;
     this.aim = this.p.angle;
+    this.considerVehicle();
   }
-  onRoundStart() { /* the team plan assigns roles afterwards */ }
-  assign(o) {
-    this.role = o.role; this.site = o.site; this.spot = o.spot; this.delay = o.delay || 0;
-    this.watch = undefined; this.postSpot = null; this.staged = false; this.stagePos = null;
-    if (o.role === 'attack') {
-      const e = this.g.nav.entries[o.site];
-      if (e) {
-        const near = this.g.nav.spotWithLos(e.x, e.y, 20, 110);
-        this.stagePos = near || e;
-      }
-    }
-    if (this.spot) {
-      const enemy = this.g.map.spawnCenter[this.p.team === T ? CT : T];
-      this.watch = this.g.nav.watchAngle(this.spot.x, this.spot.y, enemy.x, enemy.y);
-    }
-  }
-  onBombPlanted() { this.path = null; this.goal = null; this.postSpot = null; }
   onFlashed(dur) { this.flashedUntil = Math.max(this.flashedUntil, this.g.time + dur * 0.8); }
   onDeathSeen(v) {
     if (this.p.team === v.team && Math.hypot(v.x - this.p.x, v.y - this.p.y) < 900 && !this.visible) this.heard = { x: v.x, y: v.y, t: this.g.time };
   }
-  onNadeThrown(g) { void g; }
   hear(x, y, kind) {
     if (this.visible) return;
     const d = Math.hypot(x - this.p.x, y - this.p.y);
     this.heard = { x, y, t: this.g.time, kind, d };
-    this.g.mind.report(this.p.team, x, y);   // our team now knows roughly where the enemy is
+    this.g.mind.report(this.p.team, x, y);
   }
+
+  // ---------------------------------------------------------------- deploying
+  pickLoadout() {
+    const g = this.g, p = this.p;
+    // keep the team's class mix healthy: everyone gets a class, engineers only matter when there are vehicles
+    const mate = [...g.players.values()].filter((q) => q.team === p.team && q !== p);
+    const count = { assault: 0, engineer: 0, support: 0, recon: 0 };
+    for (const q of mate) if (q.cls) count[q.cls]++;
+    const weights = { assault: 3, engineer: g.settings.vehicles ? 2 : 1, support: 2.2, recon: 1.2 };
+    for (const k of CLASS_ORDER) weights[k] = Math.max(0.15, weights[k] - count[k] * 0.35);
+    let sum = 0; for (const k of CLASS_ORDER) sum += weights[k];
+    let r = rnd() * sum, cls = 'assault';
+    for (const k of CLASS_ORDER) { r -= weights[k]; if (r <= 0) { cls = k; break; } }
+    const c = CLASSES[cls];
+    const pid = pick(c.primaries);
+    const w = WEAPONS[pid];
+    const choose = (slot, wp, banned = []) => { const opts = attachOptions(wp, slot).filter((o) => !banned.includes(o)); return opts.length ? pick(opts) : undefined; };
+    const att = {
+      optic: w.kind === 'sniper' ? pick(['scope8', 'scope12', 'scope8']) : pick(attachOptions(w, 'optic').filter((o) => o !== 'scope12' || w.kind === 'dmr')),
+      barrel: choose('barrel', w, ['long']), under: choose('under', w, ['ugl', 'mk']), mag: choose('mag', w, ['slug']),
+    };
+    const sid = pick(SIDEARMS);
+    const gadgets = c.gadgets.map((list) => {
+      if (list.includes('rpg') && rnd() < 0.7) return 'rpg';
+      return pick(list.filter((x) => x !== 'stinger'));
+    });
+    this.loadout = {
+      cls, primary: { id: pid, att: normAtt(w, att) }, secondary: { id: sid, att: normAtt(WEAPONS[sid], { optic: rnd() < 0.3 ? 'reddot' : 'iron' }) },
+      gadgets, gren: cls === 'recon' ? 'smoke' : pick(['he', 'he', 'he', 'flash', 'smoke']),
+    };
+    return this.loadout;
+  }
+
+  deployNow() {
+    const g = this.g, p = this.p;
+    if (this.deployT === undefined) this.deployT = g.time + 0.4 + rnd() * 2.2;
+    if (g.time < this.deployT) return;
+    p.loadout = this.pickLoadout();
+    const opts = g.spawnOptions(p).filter((o) => o.ok);
+    if (!opts.length) return;
+    let choice = null;
+    const squadVeh = opts.filter((o) => o.k === 'squad' && o.veh);
+    if (squadVeh.length && rnd() < 0.85) choice = pick(squadVeh);
+    if (!choice) {
+      const tgt = g.mind.targetFor(p);
+      let bd = Infinity;
+      for (const o of opts) {
+        let d = Math.hypot(o.x - tgt.x, o.y - tgt.y);
+        if (o.k === 'squad') d *= 0.8;
+        if (o.k === 'base') d += 260;
+        if (d < bd) { bd = d; choice = o; }
+      }
+    }
+    g.deploy(p, { k: choice.k, id: choice.id, loadout: p.loadout });
+  }
+
+  // ---------------------------------------------------------------- vehicles
+  considerVehicle() {
+    const g = this.g, p = this.p;
+    if (!g.settings.vehicles || p.veh || g.vehicles.length === 0) return;
+    let best = null, bd = 300;
+    for (const v of g.vehicles) {
+      if (v.dead || v.def.kind === 'air' || v.def.kind === 'boat') continue;
+      if (v.team !== -1 && v.team !== p.team) continue;
+      const d = Math.hypot(v.x - p.x, v.y - p.y);
+      if (d > bd) continue;
+      const occ = v.occupants();
+      const driverOk = !v.seats[0] && !this.g.players.get(v.seats[0]);
+      const gunnerSeat = v.seats.findIndex((s, i) => i > 0 && !s && v.def.seats[i].weapon);
+      const seatOk = driverOk ? 0 : (v.team === p.team && v.seats[0] && this.g.players.get(v.seats[0]) && gunnerSeat > 0 ? gunnerSeat : -1);
+      if (seatOk < 0) continue;
+      if (occ.length && v.team !== p.team) continue;
+      bd = d; best = { v, seat: seatOk };
+    }
+    if (!best) return;
+    const kindP = best.v.def.kind === 'tracked' ? 0.75 : best.v.type === 'quad' ? 0.35 : 0.55;
+    if (rnd() > kindP) return;
+    this.wantVeh = best.v.id; this.wantSeat = best.seat;
+  }
+
+  thinkVehicle(dt) {
+    const g = this.g, p = this.p;
+    const v = g.vehicleById(p.veh);
+    const cmd = { keys: 0, angle: this.aim, aimDist: 300, ax: 0, ay: 0 };
+    if (!v) return cmd;
+    const seat = p.seat, sd = v.def.seats[seat];
+    const eyes = { x: v.x, y: v.y };
+    // ---- target selection from the vehicle's sight
+    this.percT -= dt;
+    if (this.percT <= 0) {
+      this.percT = 0.1;
+      let best = null, bd = Infinity;
+      const view = { range: Math.min(v.def.view.range, 980), fov: v.def.view.fov, air: !!v.def.view.air };
+      for (const q of g.players.values()) {
+        if (!q.alive || q.veh || q.team === p.team || q.team === SPEC) continue;
+        const d = Math.hypot(q.x - v.x, q.y - v.y);
+        if (d >= bd) continue;
+        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, view, q.x, q.y, 0)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: PLAYER_RADIUS, soft: 1 }; bd = d; }
+      }
+      for (const q of g.vehicles) {
+        if (q.dead || q.team === p.team || q.team < 0 || !q.occupants().length) continue;
+        const d = Math.hypot(q.x - v.x, q.y - v.y);
+        if (d >= bd) continue;
+        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, { ...view, air: q.def.kind === 'air' }, q.x, q.y, 0, q.def.r)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.def.r, soft: q.def.resist.bullet }; bd = d; }
+      }
+      this.vTarget = best;
+      if (best) g.mind.report(p.team, best.x, best.y);
+    }
+    const tq = this.vTarget;
+    const wantFire = !!(tq && sd.weapon);
+    if (sd.weapon) {
+      const want = tq ? Math.atan2(tq.y + tq.vy * 0.3 - v.y, tq.x + tq.vx * 0.3 - v.x) : (seat === 1 ? v.a : this.aim);
+      this.aim = norm(this.aim + clamp(norm(want - this.aim), -6 * dt, 6 * dt));
+      cmd.angle = this.aim;
+      const cur = sd.aim === 'turret' ? v.ta : sd.aim === 'body' ? v.a : v.seatAim[seat];
+      const armed = !tq || tq.soft > 0.2 || sd.weapon === 'cannon' || sd.weapon === 'pod' || sd.weapon === 'autocannon';
+      if (wantFire && armed && Math.abs(norm(want - cur)) < 0.14 && Math.hypot(tq.x - v.x, tq.y - v.y) < 1000) cmd.keys |= KEY.FIRE;
+    }
+    if (seat !== 0) {
+      // gunners and passengers: leave once the driver has parked or is gone
+      const driver = g.players.get(v.seats[0]);
+      if (!sd.weapon) cmd.angle = v.a;
+      const tgt = g.mind.targetFor(p);
+      const d = Math.hypot(tgt.x - v.x, tgt.y - v.y);
+      if ((!driver && v.speed < 10) || (v.speed < 25 && d < tgt.r + 220 && !sd.weapon && this.vehWait > 2)) cmd.keys |= this.usePulseKey();
+      this.vehWait += dt;
+      return cmd;
+    }
+    // ---- driver
+    this.vehWait += dt;
+    const tgt = g.mind.targetFor(p);
+    const inside = Math.hypot(tgt.x - v.x, tgt.y - v.y) < tgt.r;
+    const dtgt = Math.hypot(tgt.x - v.x, tgt.y - v.y);
+    if (v.def.kind !== 'tracked' && inside && v.speed < 40) { cmd.keys |= this.usePulseKey(); return cmd; }   // troop carriers drop everyone off at the objective
+    if (v.hp < v.def.hp * 0.2 && v.speed < 30) { cmd.keys |= this.usePulseKey(); return cmd; }
+    if (this.vehWait < 4.5 && v.def.seats.length > 1 && v.seats.filter((s) => s).length < Math.min(2, v.seats.length)) return cmd;   // wait a moment for passengers
+    if (!sd.weapon || sd.aim === 'body') { /* aim stays on the heading */ }
+    // steer along a path (vehicles need wide corridors)
+    this.pathT -= dt; this.pathAge += dt;
+    if (!this.path || this.pathT <= 0 || this.pathAge > 5 || !this.goal || Math.hypot(this.goal.x - tgt.x, this.goal.y - tgt.y) > 120) {
+      this.goal = { x: tgt.x, y: tgt.y };
+      this.path = g.nav.findPath(v.x, v.y, tgt.x, tgt.y, true, 1);
+      this.pathIdx = 0; this.pathT = 1.5; this.pathAge = 0;
+    }
+    let wx = tgt.x, wy = tgt.y;
+    if (this.path) {
+      while (this.pathIdx < this.path.length - 1 && Math.hypot(this.path[this.pathIdx].x - v.x, this.path[this.pathIdx].y - v.y) < 60) this.pathIdx++;
+      wx = this.path[this.pathIdx].x; wy = this.path[this.pathIdx].y;
+    }
+    if (v.def.kind === 'tracked' && inside) {
+      // armour parks inside the objective and shoots whatever shows up
+      if (!this.holdPos || Math.hypot(v.x - this.holdPos.x, v.y - this.holdPos.y) < 50) this.holdPos = g.nav.openSpot(tgt.x, tgt.y, 0, tgt.r * 0.8);
+      wx = this.holdPos.x; wy = this.holdPos.y;
+      if (Math.hypot(v.x - wx, v.y - wy) < 60) { cmd.angle = this.aim; return cmd; }
+    }
+    const desired = Math.atan2(wy - v.y, wx - v.x);
+    const err = norm(desired - v.a);
+    // unstick: reverse out when wedged
+    if (v.speed < 12) this.vehStuck += dt; else this.vehStuck = 0;
+    if (this.vehStuck > 1.6) { this.vehRev = 1.1; this.vehStuck = 0; this.path = null; }
+    if (this.vehRev > 0) {
+      this.vehRev -= dt;
+      cmd.keys |= KEY.DOWN | (err > 0 ? KEY.LEFT : KEY.RIGHT);
+      return cmd;
+    }
+    if (Math.abs(err) > 2.1) { cmd.keys |= KEY.DOWN | (err > 0 ? KEY.LEFT : KEY.RIGHT); }
+    else {
+      const slow = Math.abs(err) > 0.9 && v.speed > 150;
+      if (!slow) cmd.keys |= KEY.UP;
+      if (Math.abs(err) > 0.1) cmd.keys |= err > 0 ? KEY.RIGHT : KEY.LEFT;
+    }
+    void eyes; void dtgt;
+    return cmd;
+  }
+
+  usePulseKey() { this.usePulse = (this.usePulse + 1) % 12; return this.usePulse < 3 ? KEY.USE : 0; }
 
   // ---------------------------------------------------------------- main entry
   think(dt) {
     const g = this.g, p = this.p;
+    if (p.veh) return this.thinkVehicle(dt);
     const now = g.time;
-    this.roundT += dt;
     const cmd = { keys: 0, angle: this.aim, aimDist: 300, ax: 0, ay: 0 };
-    if (!this.bought && now >= this.buyAt) this.doBuy();
     const flashed = now < this.flashedUntil;
 
-    // perception runs at ~15 Hz
     this.percT -= dt;
     if (this.percT <= 0) { this.percT = 0.066; if (!flashed) this.perceive(); else this.visible = false; }
 
     const w = p.weapon();
-    const live = g.phase === PHASE.LIVE || g.mode === 'dm';
-    const tq = this.visible && this.target ? g.players.get(this.target) : null;
-    const engaged = !!(tq && tq.alive);
+    const tq = this.visible && this.target ? this.resolveTarget() : null;
+    const engaged = !!tq;
 
-    // what we want to do this tick
-    let mv = { mode: 'stop' };        // 'path' -> {goal}, 'manual' -> {ax, ay}, 'stop'
-    let fire = false, aimAt = null, use = false, walk = false, scope = false, look;
+    let mv = { mode: 'stop' };
+    let fire = false, aimAt = null, use = false, walk = false, scope = false, look, sprint = false, altUse = false;
 
-    if (this.nadeJob && live) {
-      const r = this.runNadeJob();
-      if (r) aimAt = r.aimAt;
+    if (this.job && !engaged) {
+      const r = this.runJob(dt);
+      if (r) { mv = r.mv || mv; aimAt = r.aimAt || null; use = !!r.use; if (r.fire) fire = true; }
     } else if (engaged) {
-      const res = this.fight(tq, w, dt, live);
+      if (this.job) this.job = null;
+      // rocket launchers at armoured vehicles, otherwise the regular gun fight
+      const res = this.fight(tq, w, dt);
       fire = res.fire; aimAt = res.aimAt; scope = res.scope;
       if (res.mv) mv = res.mv;
       else {
-        // enemy is visible but out of range: keep doing the objective (advance / hold) while tracking them
         const obj = this.objective(dt);
         if (obj) { mv = obj.goal ? { mode: 'path', goal: obj.goal } : { mode: 'stop' }; use = !!obj.use; }
       }
-      this.nadeCd -= dt;
-      if (this.nadeCd <= 0 && live) { this.nadeCd = 2 + rnd() * 3; this.considerCombatNade(tq, Math.hypot(tq.x - p.x, tq.y - p.y)); }
     } else {
       if (this.lastSeen && now - this.lastSeen.t < 1.4) aimAt = { x: this.lastSeen.x, y: this.lastSeen.y };
       else if (this.heard && now - this.heard.t < 1.6) aimAt = { x: this.heard.x, y: this.heard.y };
       const obj = this.objective(dt);
       if (obj) {
         mv = obj.goal ? { mode: 'path', goal: obj.goal } : { mode: 'stop' };
-        use = !!obj.use; walk = !!obj.walk; look = obj.look;
+        use = !!obj.use; walk = !!obj.walk; look = obj.look; sprint = !!obj.sprint;
         if (obj.aimAt && !aimAt) aimAt = obj.aimAt;
       }
-      if (w && w.kind !== 'knife' && !p.reloadT && p.ammoOf(w).clip < w.mag * 0.4 && p.ammoOf(w).reserve > 0) startReload(g, p);
-      if ((p.sel === 'grenade' || p.sel === 'knife') && p.drawT <= 0) selectSlot(g, p, p.primary ? 'primary' : 'secondary');
-      this.nadeCd -= dt;
-      if (this.nadeCd <= 0 && live) { this.nadeCd = 2.5 + rnd() * 3; this.considerObjectiveNade(); }
+      if (w && w.kind !== 'knife' && !p.reloadT && p.ammoOf(w).clip < w.mag * 0.45 && p.ammoOf(w).reserve > 0) startReload(g, p);
+      if (p.sel !== 'primary' && p.drawT <= 0 && !this.job) selectSlot(g, p, 'primary');
+      this.jobCd -= dt;
+      if (this.jobCd <= 0) { this.jobCd = 3 + rnd() * 4; this.pickJob(); }
     }
     if (flashed) mv = { mode: 'stop' };
 
@@ -242,10 +402,9 @@ export class BotBrain {
     if (mv.mode === 'manual') { mx = mv.ax; my = mv.ay; }
     else if (mv.mode === 'path') { const d = this.pathDir(mv.goal, dt); if (d) { mx = d.x; my = d.y; } }
     else this.path = null;
-    // stuck handling
     this.stuckT += dt;
     if (mx || my) this.moveWant += dt;
-    this.travel += Math.hypot(p.x - this.lastTX, p.y - this.lastTY);   // distance actually covered (net displacement would flag strafing)
+    this.travel += Math.hypot(p.x - this.lastTX, p.y - this.lastTY);
     this.lastTX = p.x; this.lastTY = p.y;
     if (this.stuckT > 0.5) {
       if (this.moveWant > 0.4 && this.travel < 6) { this.path = null; this.nudgeT = 0.5; this.nudgeDir = rnd() < 0.5 ? -1 : 1; this.pathT = 0; }
@@ -264,7 +423,7 @@ export class BotBrain {
       desired = Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
       if (engaged) {
         this.errT -= dt;
-        if (this.errT <= 0) { this.errT = 0.18 + rnd() * 0.2; this.errA = gauss() * this.d.sigma * this.bias()[1] * (1 + Math.min(1, Math.hypot(aimAt.x - p.x, aimAt.y - p.y) / 900)); }
+        if (this.errT <= 0) { this.errT = 0.18 + rnd() * 0.2; this.errA = gauss() * this.d.sigma * (1 + Math.min(1, Math.hypot(aimAt.x - p.x, aimAt.y - p.y) / 900)); }
         desired += this.errA;
       }
     } else if (look !== undefined && look !== null && !(mx || my)) desired = look;
@@ -276,65 +435,197 @@ export class BotBrain {
     // ---- output
     let keys = 0;
     if (fire && !flashed) {
-      if (w && !w.auto && w.kind !== 'knife') { this.pulse = !this.pulse; if (this.pulse) keys |= KEY.FIRE; }
+      if (w && !w.auto && w.kind !== 'knife' && !this.job) { this.pulse = !this.pulse; if (this.pulse) keys |= KEY.FIRE; }
       else keys |= KEY.FIRE;
     }
-    if (this.nadeJob && this.nadeJob.fire) { keys |= KEY.FIRE; this.nadeJob.fire = false; }
     if (walk) keys |= KEY.WALK;
     if (use) keys |= KEY.USE;
     if (scope) keys |= KEY.SCOPE;
+    if (sprint && !fire && (mx || my) && !engaged) keys |= KEY.SPRINT;
+    if (this.wantVeh) keys |= this.boardKeys();
+    if (this.job && this.job.rmb) keys |= KEY.SCOPE;
     cmd.keys = keys;
     cmd.angle = this.aim;
-    cmd.aimDist = this.nadeJob ? this.nadeJob.dist : 300;
+    cmd.aimDist = this.job && this.job.dist ? this.job.dist : 300;
+    void altUse;
     return cmd;
   }
 
-  /** Combat behaviour against a visible enemy. */
-  fight(tq, w, dt, live) {
+  /** walk to the wanted vehicle and press use when close */
+  boardKeys() {
+    const g = this.g, p = this.p;
+    const v = g.vehicleById(this.wantVeh);
+    if (!v || v.dead || p.veh) { this.wantVeh = 0; return 0; }
+    if (Math.hypot(v.x - p.x, v.y - p.y) - v.def.r < 30) { const k = this.usePulseKey(); if (this.wantSeat > 0 && k) g.seatRequest(p, this.wantSeat); return this.wantSeat > 0 ? 0 : k; }
+    return 0;
+  }
+
+  resolveTarget() {
+    const g = this.g, t = this.target;
+    if (!t) return null;
+    if (t.kind === 'p') { const q = g.players.get(t.id); return q && q.alive && !q.veh ? { x: q.x, y: q.y, vx: q.vx, vy: q.vy, speed: q.speed, veh: null, soft: 1 } : null; }
+    const v = g.vehicleById(t.id);
+    return v && !v.dead ? { x: v.x, y: v.y, vx: v.vx, vy: v.vy, speed: v.speed, veh: v, soft: v.def.resist.bullet } : null;
+  }
+
+  // ---------------------------------------------------------------- jobs (class abilities)
+  pickJob() {
+    const g = this.g, p = this.p;
+    if (this.visible || p.veh) return;
+    const slotOf = (kind) => (p.gadgets[0] && p.gadgets[0].def.kind === kind ? 'gadget0' : p.gadgets[1] && p.gadgets[1].def.kind === kind ? 'gadget1' : null);
+    const slotId = (id) => (p.gadgets[0] && p.gadgets[0].def.id === id ? 'gadget0' : p.gadgets[1] && p.gadgets[1].def.id === id ? 'gadget1' : null);
+    // revive a fallen squadmate (or anyone from the team) when it is quiet
+    const defib = slotId('defib');
+    if (defib) {
+      let best = null, bd = 800;
+      for (const c of g.corpses) {
+        if (c.team !== p.team) continue;
+        const d = Math.hypot(c.x - p.x, c.y - p.y);
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (best) { this.job = { kind: 'revive', c: best, slot: defib, t: 0, stage: 0 }; return; }
+    }
+    // repair a damaged vehicle
+    const rep = slotOf('repair');
+    if (rep) {
+      let best = null, bd = 700;
+      for (const v of g.vehicles) {
+        if (v.dead || v.team !== p.team || v.hp >= v.def.hp * 0.85) continue;
+        const d = Math.hypot(v.x - p.x, v.y - p.y);
+        if (d < bd) { bd = d; best = v; }
+      }
+      if (best) { this.job = { kind: 'repair', v: best, slot: rep, t: 0 }; return; }
+    }
+    // shoot rockets at a nearby enemy vehicle we can see
+    const lau = slotOf('launcher');
+    if (lau && lau) {
+      const g0 = p.gadgets[lau === 'gadget0' ? 0 : 1];
+      if (g0.def.id !== 'stinger' && (g0.loaded || g0.charges > 0)) {
+        for (const v of g.vehicles) {
+          if (v.dead || v.team === p.team || v.team < 0 || !v.occupants().length || v.def.kind === 'air') continue;
+          const d = Math.hypot(v.x - p.x, v.y - p.y);
+          if (d < 900 && d > 150 && g.map.los(p.x, p.y, v.x, v.y)) { this.job = { kind: 'rocket', v, slot: lau, t: 0 }; return; }
+        }
+      }
+    }
+    // drop supplies / medkits / beacons when standing at the objective
+    const tgt = g.mind.targetFor(p);
+    const at = Math.hypot(tgt.x - p.x, tgt.y - p.y) < tgt.r + 60;
+    const med = slotId('medkit');
+    if (med && p.gadgets[med === 'gadget0' ? 0 : 1].charges > 0) {
+      let hurt = 0;
+      for (const q of g.players.values()) if (q.alive && q.team === p.team && !q.veh && q.hp < 75 && Math.hypot(q.x - p.x, q.y - p.y) < 110) hurt++;
+      if (hurt >= 1 && (hurt >= 2 || p.hp < 60)) { this.job = { kind: 'drop', slot: med, t: 0 }; return; }
+    }
+    const ammo = slotId('ammo');
+    if (ammo && at && p.gadgets[ammo === 'gadget0' ? 0 : 1].charges > 0 && !g.gadgets.some((q) => q.owner === p.id && q.type === 'ammo')) { this.job = { kind: 'drop', slot: ammo, t: 0 }; return; }
+    const bcn = slotId('beacon');
+    if (bcn && at && !this.usedBeacon && p.gadgets[bcn === 'gadget0' ? 0 : 1].charges > 0) { this.usedBeacon = true; this.job = { kind: 'drop', slot: bcn, t: 0, still: true }; return; }
+    const sen = slotId('sensor');
+    if (sen && at && p.gadgets[sen === 'gadget0' ? 0 : 1].charges > 0 && !g.gadgets.some((q) => q.owner === p.id && q.type === 'sensor')) { this.job = { kind: 'drop', slot: sen, t: 0 }; return; }
+    const mine = slotId('mine') || slotId('claymore');
+    if (mine && at && p.gadgets[mine === 'gadget0' ? 0 : 1].charges > 0 && g.gadgets.filter((q) => q.owner === p.id).length < 2) this.job = { kind: 'drop', slot: mine, t: 0 };
+  }
+
+  runJob(dt) {
+    const g = this.g, p = this.p, job = this.job;
+    job.t += dt;
+    if (job.t > 12) { this.job = null; return null; }
+    const ensure = () => { if (p.sel !== job.slot) { if (((g.tick + p.id) & 7) === 0) selectSlot(g, p, job.slot); return false; } return p.drawT <= 0; };
+    switch (job.kind) {
+      case 'revive': {
+        if (!g.corpses.includes(job.c)) { this.job = null; return null; }
+        const d = Math.hypot(job.c.x - p.x, job.c.y - p.y);
+        if (d > 34) return { mv: { mode: 'path', goal: { x: job.c.x, y: job.c.y } } };
+        if (!ensure()) return { mv: { mode: 'stop' } };
+        return { mv: { mode: 'stop' }, fire: true, aimAt: { x: job.c.x, y: job.c.y } };
+      }
+      case 'repair': {
+        const v = job.v;
+        if (v.dead || v.hp >= v.def.hp) { this.job = null; return null; }
+        const d = Math.hypot(v.x - p.x, v.y - p.y) - v.def.r;
+        if (d > 40) return { mv: { mode: 'path', goal: { x: v.x, y: v.y } } };
+        if (!ensure()) return { mv: { mode: 'stop' } };
+        return { mv: { mode: 'stop' }, fire: true, aimAt: { x: v.x, y: v.y } };
+      }
+      case 'rocket': {
+        const v = job.v;
+        const gd = p.gadget();
+        if (v.dead || !v.occupants().length || (gd && !gd.loaded && gd.charges <= 0)) { this.job = null; selectSlot(g, p, 'primary'); return null; }
+        const d = Math.hypot(v.x - p.x, v.y - p.y);
+        if (d > 950 || !g.map.los(p.x, p.y, v.x, v.y)) { this.job = null; selectSlot(g, p, 'primary'); return null; }
+        if (!ensure()) return { mv: { mode: 'stop' } };
+        const lead = 0.35 + d / 900;
+        const ax = v.x + v.vx * lead, ay = v.y + v.vy * lead;
+        const err = Math.abs(norm(Math.atan2(ay - p.y, ax - p.x) - this.aim));
+        if (gd && !gd.loaded && p.reloadT <= 0) startReload(g, p);
+        return { mv: { mode: 'stop' }, aimAt: { x: ax, y: ay }, fire: err < 0.06 && !!gd && gd.loaded };
+      }
+      case 'drop': {
+        if (job.still && p.speed > 30) return { mv: { mode: 'stop' } };
+        if (!ensure()) return { mv: { mode: 'stop' } };
+        const before = p.gadget() ? p.gadget().charges : 0;
+        if (job.fired && (p.gadget() ? p.gadget().charges : 0) < before + 1 && job.t > job.fired + 0.4) { this.job = null; selectSlot(g, p, 'primary'); return null; }
+        if (!job.fired) job.fired = job.t;
+        return { mv: { mode: 'stop' }, fire: ((g.tick & 3) === 0) };
+      }
+      default: this.job = null; return null;
+    }
+  }
+
+  // ---------------------------------------------------------------- combat
+  fight(tq, w, dt) {
     const g = this.g, p = this.p, now = g.time;
     const dx = tq.x - p.x, dy = tq.y - p.y;
     const dist = Math.hypot(dx, dy);
     const toEnemy = Math.atan2(dy, dx);
+    // armoured targets: only launchers hurt them, everybody else keeps out of the way
+    if (tq.veh && tq.soft < 0.2) {
+      const gadgetSlot = (p.gadgets[0] && p.gadgets[0].def.kind === 'launcher') ? 'gadget0' : (p.gadgets[1] && p.gadgets[1].def.kind === 'launcher') ? 'gadget1' : null;
+      const gd = gadgetSlot ? p.gadgets[gadgetSlot === 'gadget0' ? 0 : 1] : null;
+      if (gd && gd.def.id !== 'stinger' && (gd.loaded || gd.charges > 0) && dist < 900) {
+        if (p.sel !== gadgetSlot) { if (p.drawT <= 0 || ((g.tick + p.id) & 7) === 0) selectSlot(g, p, gadgetSlot); return { fire: false, aimAt: { x: tq.x, y: tq.y }, scope: false, mv: { mode: 'stop' } }; }
+        if (!gd.loaded && p.reloadT <= 0) startReload(g, p);
+        const lead = 0.3 + dist / 900;
+        const ax = tq.x + tq.vx * lead, ay = tq.y + tq.vy * lead;
+        const err = Math.abs(norm(Math.atan2(ay - p.y, ax - p.x) - this.aim));
+        return { fire: err < 0.07 && gd.loaded && p.drawT <= 0, aimAt: { x: ax, y: ay }, scope: false, mv: { mode: 'stop' } };
+      }
+      // nothing to fight it with: run for cover from the objective's direction
+      return { fire: false, aimAt: { x: tq.x, y: tq.y }, scope: false, mv: dist < 500 ? { mode: 'manual', ax: -Math.cos(toEnemy), ay: -Math.sin(toEnemy) } : null };
+    }
+    if (p.sel !== 'primary' && p.sel !== 'secondary' && p.drawT <= 0) selectSlot(g, p, 'primary');
     const kind = w ? w.kind : 'knife';
-    // sensible engagement ranges: nobody wins a lottery spraying at a sprinting target from across the map
-    const maxEff = kind === 'shotgun' ? 430 : kind === 'smg' ? 620 : kind === 'pistol' ? 560 : kind === 'sniper' ? 3000 : kind === 'knife' ? 60 : (scopeOk(w, p) ? 900 : 720);
+    const maxEff = (RANGE[kind] || 700) * (w && w.scope && p.scoped ? 1.15 : 1);
     const tooFarForMoving = kind !== 'sniper' && dist > 480 && tq.speed > 90;
     const outOfRange = dist >= maxEff;
-    // per-map tuning so bot-vs-bot rounds come out roughly even (see botBias in the map files)
-    const bias = this.bias();
-    const reacted = now - this.targetSince >= this.d.react * bias[0];
+    const reacted = now - this.targetSince >= this.d.react;
     const ammo = w ? p.ammoOf(w) : { clip: 0, reserve: 0 };
-    const scope = !!(w && w.scope && dist > 380 && this.d.hold > 0.6);
-
-    // burst discipline: count shots by watching the magazine
+    const scope = !!(w && w.scope > 0 && dist > 380 && this.d.hold > 0.6);
     if (ammo.clip < this.lastClip) {
       this.burstLeft--;
       if (this.burstLeft <= 0) { this.burstPause = 0.18 + rnd() * 0.3 * (1.6 - this.d.burst); this.burstLeft = 3 + Math.floor(rnd() * 4); }
     }
     this.lastClip = ammo.clip;
     if (this.burstPause > 0) this.burstPause -= dt;
-
     const angErr = Math.abs(angleDiff(toEnemy, this.aim));
-    const tol = Math.atan2(10, Math.max(60, dist)) + 0.03;
+    const tol = Math.atan2(10 * (tq.veh ? tq.veh.def.r / 12 : 1), Math.max(60, dist)) + 0.03;
     let fire = false;
-    if (reacted && live && w && angErr < tol && p.drawT <= 0 && p.reloadT <= 0 && p.spawnProt <= 0) {
+    if (reacted && w && angErr < tol && p.drawT <= 0 && p.reloadT <= 0 && p.spawnProt <= 0) {
       if (kind === 'knife') fire = dist < 56;
       else if (ammo.clip > 0 && dist < maxEff && !tooFarForMoving) fire = !(w.auto && dist > 340 && this.burstPause > 0);
     }
-    // dry magazine handling
     if (w && kind !== 'knife' && ammo.clip <= 0) {
       if (ammo.reserve > 0) { if (dist > 200 || p.sel !== 'primary') startReload(g, p); }
-      else if (p.sel === 'primary' && p.secondary && p.ammoOf(WEAPONS[p.secondary]).clip > 0) selectSlot(g, p, 'secondary');
+      else if (p.sel === 'primary') selectSlot(g, p, 'secondary');
       else if (p.sel !== 'knife') selectSlot(g, p, 'knife');
     }
-    // movement while fighting
     this.strafeT -= dt;
     if (this.strafeT <= 0) {
       this.strafeT = 0.3 + rnd() * 0.6;
       if (rnd() < 0.55) this.strafeDir = -this.strafeDir;
       this.strafeMove = rnd() > this.d.hold * 0.85;
     }
-    // never strafe into a wall: flip direction if the side is blocked
     let perp = toEnemy + Math.PI / 2 * this.strafeDir;
     if (!g.map.clearLineR(p.x, p.y, p.x + Math.cos(perp) * 38, p.y + Math.sin(perp) * 38, 11)) {
       this.strafeDir = -this.strafeDir;
@@ -342,48 +633,49 @@ export class BotBrain {
     }
     let mv;
     if (kind === 'knife' || (kind === 'shotgun' && dist > 90)) mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
-    else if (kind === 'sniper' || dist > 480) mv = this.strafeMove ? { mode: 'manual', ax: Math.cos(perp) * 0.8, ay: Math.sin(perp) * 0.8 } : { mode: 'stop' };
+    else if (kind === 'sniper' || kind === 'dmr' || dist > 480) mv = this.strafeMove ? { mode: 'manual', ax: Math.cos(perp) * 0.8, ay: Math.sin(perp) * 0.8 } : { mode: 'stop' };
     else if (dist > 220) {
       if (fire && this.d.hold > 0.5) mv = { mode: 'stop' };
       else mv = { mode: 'manual', ax: Math.cos(perp) * 0.9 + Math.cos(toEnemy) * 0.15, ay: Math.sin(perp) * 0.9 + Math.sin(toEnemy) * 0.15 };
     } else mv = { mode: 'manual', ax: Math.cos(perp), ay: Math.sin(perp) };
     if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > 300 && p.hp > 45 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
-    // never freeze in a stand-off: if we haven't been able to shoot for a while, carry on with the objective
     this.noFireT = fire ? 0 : this.noFireT + dt;
     return { mv: outOfRange || (this.noFireT > 1.4 && dist > 300) ? null : mv, fire, aimAt: { x: tq.x, y: tq.y }, scope };
-  }
-
-  /** [reaction x, aim error x] for this bot's side on this map: [react, sigma, minTeamSize?] from the map's botBias */
-  bias() {
-    const b = (this.g.map.def.botBias || {})[this.p.team === CT ? 'CT' : 'T'];
-    if (!b || (b[2] && this.g.settings.teamSize < b[2])) return NO_BIAS;
-    return b;
   }
 
   // ---------------------------------------------------------------- perception
   perceive() {
     const g = this.g, p = this.p;
     const w = p.weapon();
-    // bots are not eagle-eyed: they notice enemies only within a difficulty-dependent distance and a slightly narrower cone
-    const full = viewParams(p.scoped, w ? w.scope : 0);
-    const view = { range: Math.min(full.range, this.d.sight), fov: full.fov * 0.9 };
+    const full = viewParams(p.scoped, w && w.kind !== 'knife' ? w.scope : 0);
+    const view = { range: Math.min(full.range, Math.max(this.d.sight, p.scoped ? full.range * 0.85 : 0)), fov: full.fov * 0.9 };
     let best = null, bd = Infinity;
     for (const q of g.players.values()) {
-      if (!q.alive || q.team === p.team || q.team === SPEC) continue;
+      if (!q.alive || q.veh || q.team === p.team || q.team === SPEC) continue;
       const d = Math.hypot(q.x - p.x, q.y - p.y);
       if (d >= bd) continue;
-      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0)) { best = q; bd = d; }
+      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0)) { best = { kind: 'p', id: q.id, x: q.x, y: q.y, vx: q.vx, vy: q.vy }; bd = d; }
+    }
+    // enemy vehicles: a soldier with a rocket launcher wants them; everyone else notices them but only shoots the soft ones
+    for (const v of g.vehicles) {
+      if (v.dead || v.team === p.team || v.team < 0 || !v.occupants().length) continue;
+      const d = Math.hypot(v.x - p.x, v.y - p.y);
+      if (d >= bd + 80) continue;
+      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, { ...view, air: v.def.kind === 'air' }, v.x, v.y, 0, v.def.r)) {
+        if (v.def.kind === 'air' && v.def.resist.bullet < 0.2) continue;
+        best = { kind: 'v', id: v.id, x: v.x, y: v.y, vx: v.vx, vy: v.vy }; bd = d;
+      }
     }
     if (best) {
-      if (this.target !== best.id || !this.visible) {
-        if (this.target !== best.id) this.targetSince = g.time;
-        else if (!this.visible && g.time - this.lastSeen.t > 0.6) this.targetSince = g.time;
+      const id = best.kind + best.id;
+      if (!this.target || this.target.kind + this.target.id !== id || !this.visible) {
+        if (!this.target || this.target.kind + this.target.id !== id) this.targetSince = g.time;
+        else if (!this.visible && this.lastSeen && g.time - this.lastSeen.t > 0.6) this.targetSince = g.time;
       }
-      this.target = best.id;
+      this.target = best;
       this.visible = true;
       this.lastSeen = { x: best.x, y: best.y, t: g.time, vx: best.vx, vy: best.vy };
       g.mind.report(p.team, best.x, best.y);
-      // remember that the enemy is somewhere here for the whole team's rotation logic
       this.searchUntil = g.time + 3 + rnd() * 2;
     } else {
       if (this.visible) this.targetSince = g.time;
@@ -392,118 +684,48 @@ export class BotBrain {
   }
 
   // ---------------------------------------------------------------- objectives
-  /** Returns {goal, use, look, aimAt, walk} or null to idle. */
+  /** Returns {goal, use, look, aimAt, walk, sprint} or null to idle. */
   objective(dt) {
     const g = this.g, p = this.p, now = g.time;
-    if (g.mode === 'dm') return this.wander(dt);
-    if (g.phase === PHASE.FREEZE) return { look: this.watch };
     if (g.phase !== PHASE.LIVE) return null;
     // just lost sight of somebody: pre-aim the spot, then maybe go and look
-    if (this.lastSeen && !this.visible && now - this.lastSeen.t < 2.4 && !p.hasBomb && p.planting === 0 && p.defusing === 0) {
+    if (this.lastSeen && !this.visible && now - this.lastSeen.t < 2.4) {
       const age = now - this.lastSeen.t;
       const s = { x: this.lastSeen.x, y: this.lastSeen.y };
       if (age < 0.9) return { aimAt: s };
-      if (this.d.aggr > 0.5 && p.hp > 50 && now < this.searchUntil) return { goal: s, aimAt: s };
+      if (this.d.aggr > 0.6 && p.hp > 60 && now < this.searchUntil) return { goal: s, aimAt: s };
     }
-    return p.team === T ? this.objectiveT() : this.objectiveCT();
-  }
-
-  wander(dt) {
-    const g = this.g, nav = g.nav, p = this.p;
-    this.wanderT -= dt;
-    if (!this.goal || this.wanderT <= 0) {
-      const pool = [];
-      for (let s = 0; s < 2; s++) { pool.push(...nav.siteSpots[s], ...nav.lanes[s]); }
-      pool.push(...nav.midSpots);
-      const spot = pick(pool.length ? pool : g.map.spawns[p.team]);
-      this.goal = { x: spot.x, y: spot.y };
-      this.wanderT = 6 + rnd() * 8;
-      this.path = null;
+    if (this.wantVeh) {
+      const v = g.vehicleById(this.wantVeh);
+      if (v && !v.dead && !p.veh) return { goal: { x: v.x, y: v.y }, sprint: true };
     }
-    if (Math.hypot(p.x - this.goal.x, p.y - this.goal.y) < 30) { this.wanderT = Math.min(this.wanderT, 0.8 + rnd()); return null; }
-    return { goal: this.goal };
-  }
-
-  objectiveT() {
-    const g = this.g, p = this.p, nav = g.nav, b = g.bomb;
-    if (this.roundT < this.delay && !p.hasBomb) return { look: this.watch };
-    if (b.state !== 'planted' && b.state !== 'dropped' && this.stagePos && !g.mind.execute[this.site]) {
-      // gather at the staging point until the team is ready to push
-      const near = Math.hypot(p.x - this.stagePos.x, p.y - this.stagePos.y) < 46;
-      if (near) this.staged = true;
-      if (!this.staged) return { goal: this.stagePos, walk: this.roundT < 16 && !p.hasBomb };   // creep in quietly early on
-      const site = nav.siteCentre[this.site];
-      return { look: site ? Math.atan2(site.y - p.y, site.x - p.x) : this.watch };
+    const tgt = g.mind.targetFor(p);
+    const d = Math.hypot(tgt.x - p.x, tgt.y - p.y);
+    // M-COM work
+    if (tgt.kind === 'mcom' && d < 44) {
+      if ((p.team === T && !tgt.armed) || (p.team === CT && tgt.disarm)) return { use: true, look: Math.atan2(tgt.y - p.y, tgt.x - p.x) };
     }
-    if (b.state === 'planted') {
-      // post-plant: hold a spot with sight of the bomb
-      if (!this.postSpot) this.postSpot = nav.spotWithLos(b.x, b.y, 90, 300);
-      const look = Math.atan2(b.y - p.y, b.x - p.x);
-      if (Math.hypot(p.x - this.postSpot.x, p.y - this.postSpot.y) < 26) return { look };
-      return { goal: this.postSpot };
+    if (d > tgt.r) return { goal: { x: tgt.x, y: tgt.y }, sprint: d > 350 && !this.heard };
+    // arrived: move around inside the objective so the whole area is covered
+    this.holdT -= dt;
+    if (!this.holdPos || this.holdT <= 0 || Math.hypot(p.x - this.holdPos.x, p.y - this.holdPos.y) < 24) {
+      this.holdPos = g.nav.openSpot(tgt.x, tgt.y, 0, Math.max(60, tgt.r * 0.9));
+      this.holdT = 3 + rnd() * 6;
     }
-    if (b.state === 'dropped' && !p.hasBomb) {
-      let nearest = null, nd = Infinity;
-      for (const q of g.teamPlayers(T)) if (q.alive) { const d = Math.hypot(q.x - b.x, q.y - b.y); if (d < nd) { nd = d; nearest = q; } }
-      if (nearest === p) return { goal: { x: b.x, y: b.y } };
-    }
-    const target = this.spot || nav.siteCentre[this.site];
-    if (p.hasBomb) {
-      const onSite = g.map.siteAt(p.x, p.y) === this.site + 1;
-      const d = Math.hypot(p.x - target.x, p.y - target.y);
-      if ((d < 40 || (onSite && d < 110)) && p.speed < 60) return { use: true, look: this.watch };   // plant
-      return { goal: target };
-    }
-    if (Math.hypot(p.x - target.x, p.y - target.y) < 34) return { look: this.watch };
-    return { goal: target };
-  }
-
-  objectiveCT() {
-    const g = this.g, p = this.p, nav = g.nav, b = g.bomb, mind = g.mind;
-    const now = g.time;
-    if (b.state === 'planted') {
-      if (now >= (this.defusePick || 0)) {
-        this.defusePick = now + 1.5;
-        let best = null, bl = Infinity;
-        for (const q of g.teamPlayers(CT)) if (q.alive) { const l = Math.hypot(q.x - b.x, q.y - b.y) - (q.kit ? 120 : 0); if (l < bl) { bl = l; best = q; } }
-        mind.defuser = best ? best.id : 0;
-      }
-      if (mind.defuser === p.id || p.defusing > 0) {
-        const need = p.kit ? RULES.defuseTimeKit : RULES.defuseTime;
-        const left = p.defusing > 0 ? need - p.defusing : need + nav.pathLength(p.x, p.y, b.x, b.y) / 190;
-        if (b.timer < left + 0.3) return { goal: g.map.spawnCenter[CT] };     // too late: save the weapons
-        if (Math.hypot(p.x - b.x, p.y - b.y) < 34) return { use: !this.visible, look: this.watch };
-        return { goal: { x: b.x, y: b.y } };
-      }
-      if (!this.postSpot) this.postSpot = nav.spotWithLos(b.x, b.y, 110, 330);
-      if (Math.hypot(p.x - this.postSpot.x, p.y - this.postSpot.y) < 28) return { look: Math.atan2(b.y - p.y, b.x - p.x) };
-      return { goal: this.postSpot };
-    }
-    // rotate on intel from the rest of the team
-    const hot = mind.hotSite(CT);
-    if (hot >= 0 && hot !== this.site && (this.role === 'roam' || (this.d.aggr > 0.3 && rnd() < 0.012))) {
-      const opts = nav.holdSpots[hot].length ? nav.holdSpots[hot] : nav.siteSpots[hot];
-      if (opts && opts.length) {
-        this.site = hot; this.spot = opts[p.id % opts.length]; this.role = 'defend';
-        const enemy = g.map.spawnCenter[T];
-        this.watch = nav.watchAngle(this.spot.x, this.spot.y, enemy.x, enemy.y);
-      }
-    }
-    const spot = this.spot || nav.siteCentre[this.site];
-    if (Math.hypot(p.x - spot.x, p.y - spot.y) < 34) return { look: this.watch };
-    return { goal: spot };
+    if (Math.hypot(p.x - this.holdPos.x, p.y - this.holdPos.y) < 30) return { look: this.aim + Math.sin(g.time + p.id) * 0.02 };
+    return { goal: this.holdPos, walk: false };
   }
 
   // ---------------------------------------------------------------- navigation
   pathDir(goal, dt) {
     const p = this.p, nav = this.g.nav;
-    this.pathT -= dt;
+    this.pathT -= dt; this.pathAge += dt;
     const goalChanged = !this.goal || Math.hypot(this.goal.x - goal.x, this.goal.y - goal.y) > 30;
-    if (goalChanged || (!this.path && this.pathT <= 0)) {
+    if (goalChanged || (!this.path && this.pathT <= 0) || this.pathAge > 4) {
       this.goal = { x: goal.x, y: goal.y };
       this.path = nav.findPath(p.x, p.y, goal.x, goal.y);
       this.pathIdx = 0;
-      this.pathT = 0.4;
+      this.pathT = 0.4; this.pathAge = 0;
     }
     if (!this.path) return null;
     while (this.pathIdx < this.path.length - 1 && Math.hypot(this.path[this.pathIdx].x - p.x, this.path[this.pathIdx].y - p.y) < 18) this.pathIdx++;
@@ -512,113 +734,7 @@ export class BotBrain {
     if (d < 10 && this.pathIdx >= this.path.length - 1) return null;
     return { x: (wp.x - p.x) / d, y: (wp.y - p.y) / d };
   }
-
-  // ---------------------------------------------------------------- grenades
-  considerCombatNade(tq, dist) {
-    const p = this.p;
-    if (rnd() > this.d.nades) return;
-    if (p.grenades.he > 0 && dist > 240 && dist < 560 && rnd() < 0.5) return this.startNade('he', tq.x, tq.y);
-    if (p.grenades.flash > 0 && dist > 200 && dist < 520 && rnd() < 0.4) return this.startNade('flash', tq.x, tq.y);
-    if (p.grenades.molo > 0 && dist > 260 && dist < 560 && rnd() < 0.4) return this.startNade('molo', tq.x, tq.y);
-  }
-
-  considerObjectiveNade() {
-    const p = this.p, g = this.g, nav = g.nav, b = g.bomb;
-    if (rnd() > this.d.nades || this.nadeJob) return;
-    if (p.team === T && b.state !== 'planted' && p.grenades.smoke > 0 && !this.smokedThisRound && this.role === 'attack') {
-      const site = nav.siteCentre[this.site];
-      if (site) {
-        const d = Math.hypot(site.x - p.x, site.y - p.y);
-        if (d > 300 && d < 720) { this.smokedThisRound = true; return this.startNade('smoke', p.x + (site.x - p.x) * 0.72, p.y + (site.y - p.y) * 0.72); }
-      }
-    }
-    if (p.team === T && b.state !== 'planted' && p.grenades.flash > 0 && this.role === 'attack') {
-      const site = nav.siteCentre[this.site];
-      if (site) {
-        const d = Math.hypot(site.x - p.x, site.y - p.y);
-        if (d > 260 && d < 520 && rnd() < 0.6) return this.startNade('flash', site.x, site.y);
-      }
-    }
-    if (p.team === CT && b.state === 'planted' && p.grenades.molo > 0 && !this.floodedThisRound) {
-      const d = Math.hypot(b.x - p.x, b.y - p.y);
-      if (d > 220 && d < 600 && this.g.mind.defuser !== p.id) { this.floodedThisRound = true; return this.startNade('molo', b.x, b.y); }
-    }
-    if (p.team === CT && b.state === 'planted' && p.grenades.smoke > 0 && this.g.mind.defuser === p.id && !this.smokedThisRound) {
-      const d = Math.hypot(b.x - p.x, b.y - p.y);
-      if (d > 260 && d < 520) { this.smokedThisRound = true; return this.startNade('smoke', b.x + (p.x - b.x) * 0.2, b.y + (p.y - b.y) * 0.2); }
-    }
-  }
-
-  startNade(type, tx, ty) {
-    const p = this.p;
-    const dist = Math.hypot(tx - p.x, ty - p.y);
-    this.nadeJob = { type, tx, ty, dist, stage: 0, t: 0, fire: false, count: p.grenades[type] };
-  }
-
-  runNadeJob() {
-    const g = this.g, p = this.p, job = this.nadeJob;
-    job.t += 1 / 60;
-    if (job.t > 2.2 || p.grenades[job.type] < job.count) { this.nadeJob = null; if (p.grenades[job.type] < job.count) { selectSlot(g, p, p.primary ? 'primary' : 'secondary'); } return null; }
-    const res = { aimAt: { x: job.tx, y: job.ty }, stop: true };
-    if (p.sel !== 'grenade' || p.gsel !== job.type) {
-      if (((g.tick + p.id) & 7) === 0) selectSlot(g, p, 'grenade');
-      return res;
-    }
-    if (p.drawT > 0) return res;
-    const desired = Math.atan2(job.ty - p.y, job.tx - p.x);
-    if (Math.abs(norm(desired - this.aim)) < 0.08) { job.fire = ((g.tick & 1) === 0); }
-    return res;
-  }
-
-  // ---------------------------------------------------------------- shopping
-  doBuy() {
-    const g = this.g, p = this.p;
-    this.bought = true;
-    if (g.mode === 'dm') return this.buyDm();
-    if (!g.canBuy(p)) return;
-    const team = p.team, mind = g.mind;
-    const hasPrimary = !!p.primary;
-    const eco = mind.eco[team];
-    const buy = (id) => g.buy(p, id, true);
-    let m = p.money;
-    if (!hasPrimary) {
-      const rifle = team === T ? 'ak47' : (rnd() < 0.55 ? 'm4a4' : 'm4a1s');
-      const mid = team === T ? 'galil' : 'famas';
-      const smg = team === T ? 'mac10' : 'mp9';
-      if (!eco && m >= 5750 && !mind.awper[team] && rnd() < (this.diff === 'expert' ? 0.35 : this.diff === 'hard' ? 0.22 : 0.1)) { if (buy('awp')) mind.awper[team] = true; }
-      else if (!eco && m >= 3300) buy(rifle);
-      else if (!eco && m >= 2700 && team === T) buy('ak47');
-      else if (!eco && m >= 2900 && team === CT) buy('m4a1s');
-      else if (!eco && m >= 2500 && rnd() < 0.5) buy(mid);
-      else if (!eco && m >= 1700) buy(mid);
-      else if (m >= 1450 && rnd() < 0.7) buy(smg);
-      else if (m >= 1150 && rnd() < 0.5) buy(pick(['ump45', 'nova']));
-    }
-    m = p.money;
-    if (m >= 1000 && p.armor < 100) buy('helmet');
-    else if (m >= 650 && p.armor < 100) buy('kevlar');
-    if (!p.primary && p.money >= 700 && rnd() < 0.5) buy('deagle');
-    else if (!p.primary && p.money >= 500) buy(team === T ? 'tec9' : 'fiveseven');
-    else if (!p.primary && p.money >= 300 && p.secondary === (team === T ? 'glock' : 'usp') && rnd() < 0.5) buy('p250');
-    if (team === CT && p.money >= 400 && !p.kit && (!eco || rnd() < 0.3)) buy('kit');
-    // utility
-    const order = eco ? ['flash'] : team === T ? ['smoke', 'flash', 'he', 'molo'] : ['smoke', 'he', 'flash', 'molo'];
-    for (const u of order) if (p.money >= 300 + (u === 'flash' ? -100 : 0) + 100 && rnd() < this.d.nades + 0.15) buy(u);
-    if (p.primary) selectSlot(g, p, 'primary');
-    p.lastBuys = p.buys.slice();
-  }
-
-  buyDm() {
-    const g = this.g, p = this.p;
-    const team = p.team;
-    const rifles = team === T ? ['ak47', 'galil', 'sg553'] : ['m4a4', 'm4a1s', 'famas', 'aug'];
-    const r = rnd();
-    const primary = r < 0.6 ? pick(rifles) : r < 0.75 ? 'awp' : r < 0.9 ? pick(['mp7', 'ump45', 'p90']) : 'nova';
-    g.buy(p, primary, true); g.buy(p, 'helmet', true);
-    if (rnd() < 0.5) g.buy(p, 'he', true);
-    if (rnd() < 0.4) g.buy(p, 'flash', true);
-    selectSlot(g, p, 'primary');
-  }
 }
 
-function scopeOk(w, p) { return !!(w && w.scope && p.scoped); }
+const PLAYER_RADIUS = 11;
+export { VEHICLES, RULES, TILE, rayCircle, GADGETS };

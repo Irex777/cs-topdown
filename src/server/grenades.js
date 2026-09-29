@@ -5,6 +5,7 @@ import {
 } from '../shared/constants.js';
 import { angleDiff } from '../shared/gamemap.js';
 import { damagePlayer, selectSlot } from './combat.js';
+import { explode } from './world.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
@@ -24,10 +25,9 @@ export function throwGrenade(game, p, aimDist) {
   if (p.grenades[type] <= 0) {
     const other = GREN_ORDER.find((k) => p.grenades[k] > 0);
     if (other) p.gsel = other;
-    else selectSlot(game, p, p.lastSel !== 'grenade' && (p.lastSel !== 'primary' || p.primary) ? p.lastSel : (p.primary ? 'primary' : 'secondary'));
+    else selectSlot(game, p, p.lastSel !== 'grenade' ? p.lastSel : 'primary');
   }
   p.drawT = Math.max(p.drawT, 0.3);
-  if (game.mode === 'defuse') for (const b of game.players.values()) if (b.bot && b.alive && b.team !== p.team) b.bot.onNadeThrown(g);
 }
 
 export function updateGrenades(game, dt) {
@@ -53,14 +53,7 @@ export function updateGrenades(game, dt) {
 function detonate(game, g) {
   const owner = game.players.get(g.owner) || null;
   if (g.type === 'he') {
-    game.emit(['boom', 'he', Math.round(g.x), Math.round(g.y)], g.x, g.y, 5000);
-    for (const p of [...game.players.values()]) {
-      if (!p.alive || p.team === SPEC) continue;
-      const d = Math.hypot(p.x - g.x, p.y - g.y);
-      if (d > HE_RADIUS) continue;
-      if (d > 20 && !game.map.los(g.x, g.y, p.x, p.y)) continue;
-      damagePlayer(game, p, owner, HE_DAMAGE * (1 - d / HE_RADIUS) + 2, 0.55, 'he', {});
-    }
+    explode(game, { x: g.x, y: g.y, radius: HE_RADIUS, dmg: HE_DAMAGE, veh: 90, tile: 150, owner, wid: 'he', kind: 'he' });
   } else if (g.type === 'flash') {
     game.emit(['boom', 'flash', Math.round(g.x), Math.round(g.y)], g.x, g.y, 5000);
     for (const p of game.players.values()) {
@@ -103,13 +96,13 @@ export function updateFires(game, dt) {
     if (age > FIRE_TIME) { game.fires.splice(i, 1); continue; }
     const owner = game.players.get(f.owner) || null;
     for (const p of game.players.values()) {
-      if (!p.alive || p.team === SPEC) continue;
+      if (!p.alive || p.veh || p.team === SPEC) continue;
       const d = Math.hypot(p.x - f.x, p.y - f.y);
       if (d > f.r || (d > 24 && !game.map.clearLine(f.x, f.y, p.x, p.y))) continue;
       const acc = (f.acc.get(p.id) || 0) + FIRE_DPS * dt;
       if (acc >= FIRE_DPS * 0.25) {
         f.acc.set(p.id, 0);
-        damagePlayer(game, p, owner, acc, 1, 'molo', {});
+        damagePlayer(game, p, owner, acc, 'molo', {});
       } else f.acc.set(p.id, acc);
     }
   }

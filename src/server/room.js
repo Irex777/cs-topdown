@@ -1,30 +1,39 @@
 // A Room is a lobby + (optionally) a running Game, with its own set of players and bots.
-import { T, CT, SPEC, PHASE, SNAP_EVERY, NAME_MAX, MAX_PLAYERS_PER_ROOM } from '../shared/constants.js';
-import { WEAPONS } from '../shared/weapons.js';
+import { T, CT, SPEC, PHASE, SNAP_EVERY, NAME_MAX, MAX_PLAYERS_PER_ROOM, MODES, RULES } from '../shared/constants.js';
 import { MAP_DEFS } from '../shared/maps/index.js';
-import { Player } from './player.js';
+import { sanitizeLoadout } from '../shared/weapons.js';
+import { Player, newStats } from './player.js';
 import { Game } from './game.js';
 import { cycleSpectate } from './snapshot.js';
-import { selectSlot, startReload } from './combat.js';
+import { selectSlot, startReload, toggleAlt } from './combat.js';
+import { SQUAD_NAMES } from '../shared/constants.js';
 
 export const DEFAULT_SETTINGS = {
-  name: '', map: 'dust', mode: 'defuse', rounds: 16, teamSize: 5, bots: true, difficulty: 'normal', friendlyFire: false, public: false,
+  name: '', map: 'riverside', mode: 'conquest', teamSize: 8, bots: true, difficulty: 'normal', friendlyFire: false, public: false, vehicles: true, tickets: 250,
 };
-const ROUND_OPTIONS = [6, 10, 16, 24, 30];
 const DIFFICULTIES = ['easy', 'normal', 'hard', 'expert'];
 
 export function sanitizeSettings(input, base = DEFAULT_SETTINGS) {
   const s = { ...base };
   if (!input || typeof input !== 'object') return s;
   if (typeof input.name === 'string') s.name = input.name.replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, 24);
+  const mapChanged = MAP_DEFS.some((m) => m.id === input.map) && input.map !== s.map;
+  const modeChanged = typeof input.mode === 'string' && MODES[input.mode] && input.mode !== s.mode;
   if (MAP_DEFS.some((m) => m.id === input.map)) s.map = input.map;
-  if (input.mode === 'defuse' || input.mode === 'dm') s.mode = input.mode;
-  if (ROUND_OPTIONS.includes(input.rounds)) s.rounds = input.rounds;
-  if (Number.isInteger(input.teamSize)) s.teamSize = Math.max(1, Math.min(8, input.teamSize));
+  if (typeof input.mode === 'string' && MODES[input.mode]) s.mode = input.mode;
+  // keep map and mode compatible: whichever one changed wins
+  const def = MAP_DEFS.find((m) => m.id === s.map);
+  if (!def.modes.includes(s.mode)) {
+    if (modeChanged && !mapChanged) s.map = (MAP_DEFS.find((m) => m.modes.includes(s.mode)) || MAP_DEFS[0]).id;
+    else s.mode = def.modes[0];
+  }
+  if (Number.isInteger(input.teamSize)) s.teamSize = Math.max(1, Math.min(16, input.teamSize));
   if (typeof input.bots === 'boolean') s.bots = input.bots;
   if (DIFFICULTIES.includes(input.difficulty)) s.difficulty = input.difficulty;
   if (typeof input.friendlyFire === 'boolean') s.friendlyFire = input.friendlyFire;
   if (typeof input.public === 'boolean') s.public = input.public;
+  if (typeof input.vehicles === 'boolean') s.vehicles = input.vehicles;
+  if (RULES.ticketOptions.includes(input.tickets)) s.tickets = input.tickets;
   return s;
 }
 
@@ -118,7 +127,7 @@ export class Room {
 
   sendMatchInfo(p) {
     const g = this.game;
-    this.send(p, { t: 'match', map: this.settings.map, mode: this.settings.mode, round: g.round, phase: g.phase, score: g.score, target: g.target, settings: this.settings });
+    this.send(p, { t: 'match', map: this.settings.map, mode: this.settings.mode, phase: g.phase, tix: g.tix, settings: this.settings, tiles: [...g.map.changes.entries()] });
   }
 
   teamCounts() {
@@ -170,7 +179,7 @@ export class Room {
         if (this.game) this.game.removePlayer(b);
         this.players.delete(b.id);
       }
-      while (bots.length < want && (safe || !inMatch)) {
+      while (bots.length < want) {
         const b = this.spawnBot(team);
         bots.push(b);
       }
@@ -188,6 +197,7 @@ export class Room {
     while (used.has(name)) name = `${b.name}${n++}`;
     b.name = name;
     this.players.set(id, b);
+    if (this.game) { this.game.assignSquad(b); b.respawnAt = this.game.time + 1; }
     return b;
   }
 
@@ -200,16 +210,14 @@ export class Room {
     for (const p of this.players.values()) {
       list.push({
         id: p.id, n: p.name, tm: p.team, b: p.isBot ? 1 : 0, k: p.stats.kills, d: p.stats.deaths, a: p.stats.assists,
-        s: p.stats.score, mv: p.stats.mvps, pg: Math.round(p.ping || 0), al: p.alive ? 1 : 0, dc: p.connected ? 0 : 1, mo: p.money,
-        dm: Math.round(p.stats.damage),
+        s: p.stats.score, pg: Math.round(p.ping || 0), al: p.alive ? 1 : 0, dc: p.connected ? 0 : 1, sq: p.squad, cl: p.cls || (p.loadout && p.loadout.cls) || 'assault',
+        cp: p.stats.captures, rv: p.stats.revives, vh: p.veh ? 1 : 0,
       });
     }
     const st = { t: 'roster', host: this.hostId, players: list };
     for (const p of this.players.values()) {
       if (!p.conn) continue;
-      // money only for own team (and spectators)
-      const mine = list.map((e) => (e.tm === p.team || p.team === SPEC ? e : { ...e, mo: -1 }));
-      p.conn.send({ ...st, players: mine });
+      p.conn.send(st);
     }
   }
 
@@ -220,7 +228,7 @@ export class Room {
     if (this.state === 'playing') return;
     this.state = 'playing';
     this.game = new Game(this);
-    this.broadcast({ t: 'match', map: this.settings.map, mode: this.settings.mode, round: 0, phase: PHASE.FREEZE, score: [0, 0], target: this.game.target, settings: this.settings });
+    this.broadcast({ t: 'match', map: this.settings.map, mode: this.settings.mode, phase: PHASE.LIVE, tix: [0, 0], settings: this.settings, tiles: [] });
     // convert any lobby bots into real game bots
     for (const b of this.bots()) {
       const nb = this.game.createBot(b.id, b.team, this.settings.difficulty);
@@ -233,7 +241,7 @@ export class Room {
   endMatch() {
     this.state = 'lobby';
     this.game = null;
-    for (const p of this.players.values()) { p.resetSim(); p.stats = { kills: 0, deaths: 0, assists: 0, score: 0, mvps: 0, damage: 0 }; }
+    for (const p of this.players.values()) { p.resetSim(); p.stats = newStats(); p.squad = -1; }
     // drop disconnected humans
     for (const p of this.humans()) if (!p.connected) this.players.delete(p.id);
     for (const b of this.bots()) this.players.delete(b.id);
@@ -255,7 +263,7 @@ export class Room {
           p.qSeq = seq;
           const ang = Number(c[2]);
           if (!Number.isFinite(ang)) continue;
-          p.cmdQ.push([seq, c[1] & 255, ang, Number(c[3]) || 0, Math.max(0, Math.min(1000, Number(c[4]) || 0))]);
+          p.cmdQ.push([seq, c[1] & 1023, ang, Number(c[3]) || 0, Math.max(0, Math.min(1000, Number(c[4]) || 0))]);
         }
         if (p.cmdQ.length > 24) p.cmdQ.splice(0, p.cmdQ.length - 24);
         return;
@@ -309,14 +317,11 @@ export class Room {
   debug(p, m) {
     const g = this.game;
     if (!g) return;
-    if (m.cmd === 'kill') { p.hp = 0; g.onTeamChange && 0; import('./combat.js').then((c) => c.killPlayer(g, p, null, 'world')); }
-    else if (m.cmd === 'money') p.money = Number(m.v) || 16000;
-    else if (m.cmd === 'give') { p.giveWeapon(m.id); import('./combat.js').then((c) => c.selectSlot(g, p, WEAPONS[m.id].slot)); }
-    else if (m.cmd === 'nade') { for (const k of ['he', 'flash', 'smoke', 'molo']) p.grenades[k] = 1; }
+    if (m.cmd === 'kill') { p.hp = 0; import('./combat.js').then((c) => c.killPlayer(g, p, null, 'world')); }
     else if (m.cmd === 'tp') { p.x = Number(m.x); p.y = Number(m.y); }
-    else if (m.cmd === 'live') { g.phase = PHASE.LIVE; g.timer = 115; }
-    else if (m.cmd === 'bomb') { p.hasBomb = true; g.bomb = { state: 'carried', x: p.x, y: p.y, carrier: p.id, planted: 0, site: -1, timer: 0, defuser: 0 }; }
     else if (m.cmd === 'god') p.spawnProt = 9999;
+    else if (m.cmd === 'tix') { g.tix = [Number(m.a), Number(m.b)]; }
+    else if (m.cmd === 'flag' && g.flags[m.i | 0]) { const f = g.flags[m.i | 0]; f.owner = m.owner | 0; f.cap = f.owner === 0 ? -1 : 1; }
     else if (m.cmd === 'state') this.send(p, { t: 'toast', text: JSON.stringify({ x: p.x, y: p.y, alive: p.alive }) });
   }
 
@@ -325,19 +330,24 @@ export class Room {
     if (!g) return;
     switch (m.a) {
       case 'reload': if (p.alive) startReload(g, p); break;
-      case 'sw': if (p.alive && ['primary', 'secondary', 'knife', 'grenade', 'last'].includes(m.slot)) selectSlot(g, p, m.slot); break;
-      case 'drop': {
-        if (!p.alive || g.phase === PHASE.POST) break;
-        if (p.sel === 'primary' && p.primary) { const id = p.primary; g.dropWeapon(p, id, 30); p.primary = null; selectSlot(g, p, 'secondary'); }
-        else if (p.sel === 'secondary' && p.secondary && p.primary) { const id = p.secondary; g.dropWeapon(p, id, 30); p.secondary = null; selectSlot(g, p, 'primary'); }
-        else if (p.hasBomb && p.sel === 'knife') g.dropBomb(p);
+      case 'sw': if (p.alive && typeof m.slot === 'string') selectSlot(g, p, m.slot); break;
+      case 'alt': if (p.alive) toggleAlt(g, p); break;
+      case 'loadout': p.loadout = sanitizeLoadout(m.lo); break;
+      case 'deploy': {
+        if (p.team === SPEC || p.alive) break;
+        if (g.time < p.respawnAt) { this.send(p, { t: 'toast', text: 'Wait for the respawn timer' }); break; }
+        const ok = g.deploy(p, { k: String(m.k || ''), id: m.id, loadout: m.lo });
+        if (!ok) this.send(p, { t: 'toast', text: 'That spawn point is not available' });
         break;
       }
-      case 'buy': if (typeof m.item === 'string') { if (g.buy(p, m.item)) this.send(p, { t: 'bought', item: m.item }); } break;
-      case 'rebuy': {
-        if (!g.canBuy(p)) { this.send(p, { t: 'toast', text: 'You can only buy in your spawn during buy time' }); break; }
-        const n = g.rebuy(p);
-        this.send(p, n ? { t: 'bought', item: 'rebuy' } : { t: 'toast', text: p.lastBuys.length ? 'You already have everything from your last loadout (or can\'t afford it)' : 'Nothing to re-buy yet' });
+      case 'seat': if (p.alive) g.seatRequest(p, m.n | 0); break;
+      case 'spot': if (p.alive) { const x = Number(m.x), y = Number(m.y); if (Number.isFinite(x) && Number.isFinite(y)) g.spot(p, x, y); } break;
+      case 'squad': {
+        const want = m.n | 0;
+        if (want < 0 || want >= SQUAD_NAMES.length || p.team === SPEC) break;
+        const n = [...this.players.values()].filter((q) => q.team === p.team && q.squad === want && q !== p).length;
+        if (n >= RULES.squadSize) { this.send(p, { t: 'toast', text: 'That squad is full' }); break; }
+        p.squad = want; this.sendRoster();
         break;
       }
       case 'spec': {
@@ -392,4 +402,4 @@ function makeLobbyBot(id, team, difficulty) {
 const LOBBY_NAMES = ['Viper', 'Ghost', 'Rook', 'Nova', 'Blitz', 'Echo', 'Dagger', 'Hex', 'Raven', 'Tango', 'Sable', 'Onyx', 'Flint', 'Jinx', 'Kilo', 'Mako'];
 function pickName(id) { return LOBBY_NAMES[(id * 5 + Math.floor(Math.random() * 4)) % LOBBY_NAMES.length]; }
 
-export { NAME_MAX, MAX_PLAYERS_PER_ROOM, WEAPONS };
+export { NAME_MAX, MAX_PLAYERS_PER_ROOM };
