@@ -103,5 +103,14 @@ export class Player {
     this.giveWeapon(DEFAULT_SECONDARY[team]);
   }
 
+  /** If the selected slot is empty (weapon dropped / grenade thrown), fall back to the best remaining one. Returns true if changed. */
+  fixSelection() {
+    const bad = (this.sel === 'primary' && !this.primary) || (this.sel === 'secondary' && !this.secondary) || (this.sel === 'grenade' && this.totalGrenades() === 0);
+    if (!bad) return false;
+    this.sel = this.primary ? 'primary' : this.secondary ? 'secondary' : 'knife';
+    this.reloadT = 0; this.scoped = false; this.drawT = 0.3;
+    return true;
+  }
+
   ammoOf(w) { return w && this.ammo[w.id] ? this.ammo[w.id] : { clip: 0, reserve: 0 }; }
 }

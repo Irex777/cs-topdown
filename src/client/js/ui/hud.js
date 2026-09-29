@@ -78,6 +78,7 @@ export class HUD {
       this.el.killfeed.innerHTML = '';
       this.closeEnd();
       if (m.mode === 'defuse') this.banner(`Round ${m.round}`, 'Buy your gear — <kbd>B</kbd> opens the shop', '', 2600);
+      this.maybeShowHints();
       this.el.deathcard.classList.add('hidden');
       audio.roundStart();
     });
@@ -92,6 +93,20 @@ export class HUD {
     n.on('ping', (m) => { g.pings.push({ id: m.id, x: m.x, y: m.y, team: m.team, t: performance.now() }); if (m.id !== g.you) audio.ping(); });
     n.on('toast', (m) => this.app.toast(m.text));
     n.on('bought', () => { this.refreshBuy(); });
+  }
+
+  /** One-time controls cheat-sheet for new players. */
+  maybeShowHints() {
+    let seen = false;
+    try { seen = localStorage.getItem('cs.hints') === '1'; } catch { /* ignore */ }
+    if (seen || this.hintShown) return;
+    this.hintShown = true;
+    try { localStorage.setItem('cs.hints', '1'); } catch { /* ignore */ }
+    const div = document.createElement('div');
+    div.className = 'hintbar';
+    div.innerHTML = '<span><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move</span><span><kbd>Mouse</kbd> aim &amp; shoot</span><span><kbd>B</kbd> buy</span><span><kbd>R</kbd> reload</span><span><kbd>E</kbd> plant / defuse</span><span><kbd>4</kbd> grenades</span><span><kbd>Tab</kbd> scoreboard</span><span><kbd>Esc</kbd> menu</span>';
+    this.el.hud.appendChild(div);
+    setTimeout(() => div.remove(), 16000);
   }
 
   onKill(m) {

@@ -123,10 +123,11 @@ export class Lobby {
     const p = $('teamsPanel');
     p.innerHTML = `<h3>Teams</h3><div class="teams">${col(T, 't', 'Terrorists')}${col(CT, 'ct', 'Counter-Terrorists')}</div>
       <div class="spec-row"><button class="btn small" data-team="2">Spectate</button><div class="members">${specs.map((m) => `<span class="member" style="padding:4px 10px">${esc(m.n)}</span>`).join('') || '<span style="color:var(--dim);font-size:13px">No spectators</span>'}</div></div>
-      <div class="lobby-actions">${host ? `<button class="btn green big" id="startBtn">${playing ? 'Back to match' : '▶ Start match'}</button>` : '<span class="hint">Waiting for the host to start the match…</span>'}<span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span></div>`;
+      <div class="lobby-actions">${host ? `<button class="btn green big" id="startBtn">${playing ? 'Back to match' : '▶ Start match'}</button><button class="btn" id="shuffleBtn" title="Randomly split the players into two even teams">🔀 Shuffle teams</button>` : '<span class="hint">Waiting for the host to start the match…</span>'}<span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span></div>`;
     p.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => app.net.send({ t: 'team', team: Number(b.dataset.team) }); });
     p.querySelectorAll('[data-kick]').forEach((b) => { b.onclick = () => app.net.send({ t: 'kick', id: Number(b.dataset.kick) }); });
     const sb = $('startBtn'); if (sb) sb.onclick = () => app.net.send({ t: 'start' });
+    const sh = $('shuffleBtn'); if (sh) sh.onclick = () => app.net.send({ t: 'shuffle' });
   }
 
   setRoster(list) { this.roster = list; if (this.built) this.renderTeams(); }

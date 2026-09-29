@@ -313,3 +313,6 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 5
 #radar-wrap.radar-big { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20; padding: 6px; box-shadow: 0 20px 80px rgba(0, 0, 0, 0.7); background: rgba(8, 11, 17, 0.9); }
 button:focus { outline: none; }
 button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }
+
+.hintbar { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; padding: 10px 18px; border-radius: 12px; background: rgba(8, 11, 17, 0.82); border: 1px solid var(--line); font-size: 13px; color: #cfd6e4; max-width: 90vw; animation: kfin .3s; }
+.hintbar kbd { margin-right: 3px; }

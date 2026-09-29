@@ -69,6 +69,14 @@ try {
   check(roster.players.filter((p) => !p.b).length === 2, 'roster has both humans');
   check(roster.players.filter((p) => p.b).length >= 2, 'bots fill the empty slots');
 
+  a.send({ t: 'shuffle' });
+  await sleep(250);
+  const r2 = [...a.msgs].reverse().find((m) => m.t === 'roster');
+  const teams = r2.players.filter((p) => !p.b).map((p) => p.tm).sort();
+  check(teams.length === 2 && teams[0] === 0 && teams[1] === 1, 'host can shuffle teams (humans end up on opposite sides)');
+  b.send({ t: 'shuffle' });
+  await sleep(100);
+
   b.send({ t: 'chat', text: 'hi <script>', team: 0 });
   const chat = await a.wait((m) => m.t === 'chat' && m.from === roomB.you);
   check(chat.text === 'hi <script>', 'chat is relayed');

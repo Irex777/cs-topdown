@@ -145,6 +145,15 @@ export class Room {
     return true;
   }
 
+  /** Randomly splits the (non-spectating) humans evenly across the two teams. */
+  shuffleTeams() {
+    const list = this.humans().filter((p) => p.team !== SPEC);
+    for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+    list.forEach((p, i) => { p.team = i % 2 === 0 ? T : CT; });
+    this.rebalanceBots(true);
+    this.sendRoster();
+  }
+
   // ------------------------------------------------------------------ bots
   rebalanceBots(safe) {
     const s = this.settings;
@@ -270,6 +279,7 @@ export class Room {
       }
       case 'start': if (p.id === this.hostId && this.state === 'lobby') this.start(); return;
       case 'lobby': if (p.id === this.hostId && this.state === 'playing') this.endMatch(); return;
+      case 'shuffle': if (p.id === this.hostId && this.state === 'lobby') this.shuffleTeams(); return;
       case 'settings': {
         if (p.id !== this.hostId) return;
         const old = this.settings;

@@ -8,6 +8,7 @@ const MAX_RANGE = 2600;
 const tmp = { x: 0, y: 0, alive: false };
 
 export function tickWeaponTimers(game, p, dt) {
+  p.fixSelection();
   if (p.fireCd > 0) p.fireCd -= dt;
   if (p.drawT > 0) p.drawT -= dt;
   if (p.clickBuf > 0) p.clickBuf -= dt;
