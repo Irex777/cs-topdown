@@ -36,7 +36,7 @@ export class Sky {
     gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.18, 'rgba(255,255,255,0.75)'); gr.addColorStop(0.5, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
     x.fillStyle = gr; x.fillRect(0, 0, 128, 128);
     this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, fog: false }));
-    this.glow.scale.set(1500, 1500, 1); this.glow.renderOrder = -9;
+    this.glow.scale.set(1100, 1100, 1); this.glow.material.opacity = 0.7; this.glow.renderOrder = -9;
     scene.add(this.glow);
     this.dir = new THREE.Vector3(0, 1, 0);
   }

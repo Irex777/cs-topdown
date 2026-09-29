@@ -34,6 +34,7 @@ export class DeployScreen {
 
   show(editOnly = false) {
     this.editOnly = editOnly;
+    this.lo = this.load();          // the main menu may have changed it
     this.open = true;
     this.built = false; this.kitEditor = null;
     this.el.classList.remove('hidden');

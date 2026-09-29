@@ -8,8 +8,8 @@ The main page asks what you want to play:
 | **CS Top-Down** | `/cs/` | The original top-down tactical shooter: bomb defusal, buy menu and economy, fog of war, 25 weapons, grenades, 4 maps (code in `src/cs/`, tools in `tools/cs/`) |
 
 Each game has its own rooms, room codes, invite links and public room list; one Node process serves both
-(`src/server/index.js` routes `/bf/*`, `/cs/*` and their WebSockets `/bf/ws`, `/cs/ws`). Both home screens have a
-"Switch game" link back to the picker.
+(`src/server/index.js` routes `/bf/*`, `/cs/*` and their WebSockets `/bf/ws`, `/cs/ws`). The Voxel Frontline menu's **Exit** button and the CS home's
+"Switch game" link lead back to the picker.
 
 # Voxel Frontline
 
@@ -18,7 +18,7 @@ four classes with deep weapon attachments, gadgets, revives, squads and drivable
 Bots fill every empty slot, so a match is always possible; friends join with a 4-letter room code or an invite link.
 No accounts, no build step, all audio synthesised (nothing to download).
 
-> "Voxel Frontline" is a placeholder title — change it in `src/client/index.html` and `src/server/index.js`.
+> The look follows a golden-hour "ruined city" key art: friendly soldiers, markers and flags are always **blue**, enemies **red** — whichever team you are on.
 
 ## Features
 
@@ -38,14 +38,21 @@ No accounts, no build step, all audio synthesised (nothing to download).
   - **Team Deathmatch** — first team to the kill target.
 - **Classes**: Assault (medkits, grenade launcher), Engineer (rockets, repair tool, mines), Support (ammo, claymores, C4,
   LMGs), Recon (snipers, spawn beacon, motion sensor).
-- **23 weapons + 4 attachment slots** (optic, barrel, underbarrel, magazine) with real trade-offs; underbarrel
-  grenade launchers / masterkey shotguns as alternate fire (`F`).
+- **Nine weapons and twelve attachments**: AR-7 assault rifle, BR-12 battle rifle, VX-9 SMG, SG-4 shotgun, MG-60 LMG,
+  DMR-14 marksman rifle, SR-50 sniper, P-18 pistol and the RL-80 rocket launcher — with Red Dot, Holographic, 4X Scope,
+  Sniper Scope, Suppressor, Compensator, Vertical Foregrip, Angled Grip, Laser Module, Flashlight, Extended and Drum magazines.
+  Every weapon and attachment is drawn as a voxel model (loadout cards, kill feed, HUD panel and first-person view).
+- **Armor**: a plate bar next to your health absorbs half of every hit until it is gone; Support carries the most, Recon the
+  least, and ammo crates refill it.
 - **Vehicles**: quad, jeep, APC, tank, attack helicopter and boat. Driver + gunner seats, mounted turrets, crushing,
   ramming, damage states, repair and stealing empty enemy vehicles.
+- **Full menu + HUD**: a 3D key-art main menu (Play / Loadout / Customize / Settings), ticket bars and flag icons, compass,
+  rotating minimap, squad panel, health + armor, weapon panel with fire mode, kill feed with weapon silhouettes, and world markers
+  with distances in metres.
 - **Battlefield-style flow**: deploy screen with a spawn map (base / flag / squad-mate / beacon), squads of four,
   revive with the defibrillator, health regeneration, spotting, kill feed, score popups, scoreboard.
-- **Maps** (all 7 flags, mirrored, generated procedurally and validated): **Riverside Crossing**, **Harbor Siege**,
-  **Dune Ridge** — plus four small legacy arenas for Team Deathmatch.
+- **Maps** (all 7 flags, mirrored, generated procedurally and validated): **River Basin** (golden hour), **Harbor Siege** (dusk),
+  **Dune Sea** (noon) — plus four small legacy arenas for Team Deathmatch.
 - **Bots** (easy → expert) that follow objectives in squads, drive and gun vehicles, revive, repair, fire rockets
   and drop supplies.
 - Server-authoritative netcode at 60 Hz with **client prediction** (on foot and vehicle driver) and **lag compensation**.
@@ -57,8 +64,7 @@ npm install
 npm start
 ```
 
-The server prints the addresses it is reachable on (Local / Network). Open it, pick **Frontline** on the game picker, enter a nickname and hit
-**Quick play** for an instant Conquest match vs bots, or **Create room**, copy the invite link and send it to friends.
+The server prints the addresses it is reachable on (Local / Network). Open it, pick **Voxel Frontline** on the game picker, enter a nickname and press **Play → Quick play** for an instant Conquest match vs bots, or **Create room**, copy the invite link and send it to friends.
 The host tunes map, mode, team size (up to 16v16), bots, difficulty, tickets and vehicles, then starts the match.
 
 ### Playing over the internet
@@ -69,7 +75,7 @@ One Node process serves both the page and the WebSocket, so anything that expose
 | --- | --- |
 | Tunnel from your PC | `npx cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000` |
 | Any VPS / Raspberry Pi | `npm ci --omit=dev && PORT=3000 node src/server/index.js` (Caddy/nginx for HTTPS) |
-| Docker | `docker build -t frontline . && docker run -p 3000:3000 frontline` |
+| Docker | `docker build -t voxel-frontline . && docker run -p 3000:3000 voxel-frontline` |
 | PaaS (Fly.io, Render, Railway, Coolify…) | Deploy the Dockerfile (`render.yaml` and `fly.toml` are included); listens on `$PORT`, health check at `/healthz` |
 
 Keep it at a single instance — all rooms live in that process's memory. Env vars: `PORT` (3000), `HOST` (0.0.0.0).
@@ -86,9 +92,9 @@ Keep it at a single instance — all rooms live in that process's memory. Env va
 | `Space` | Jump — hop onto low cover; brake in wheeled vehicles |
 | `C` | Crouch (hold): smaller target, slower, steadier aim |
 | `R` | Reload |
-| `F` | Toggle alternate fire (grenade launcher / masterkey) |
+| `G` | Grenade (again to cycle types) · `X` knife |
 | `E` | Use: enter / exit vehicle, revive, arm / disarm M-COM (hold) |
-| `1`–`6` | Primary, sidearm, gadget 1, gadget 2, grenade (again to cycle), knife · mouse wheel cycles |
+| `1`–`4` | Primary, sidearm, gadget 1, gadget 2 · mouse wheel cycles · `B` last weapon |
 | Vehicle: `1`–`4` / `E` | Switch seat / exit |
 | `Q` | Spot an enemy or point (shown to the team) |
 | `V` / middle click | Ping a location |
@@ -96,7 +102,7 @@ Keep it at a single instance — all rooms live in that process's memory. Env va
 | `Tab` | Scoreboard · `M` big map |
 | `Enter` / `U` | Team chat · `Y` all chat |
 | `Esc` | Menu: team, squad, volume, sensitivity, field of view, invert Y, toggle aim |
-| Dead / spectating | Click cycles players (you see through their eyes) · `G` free camera (`WASD` fly, `Space`/`C` up/down) · `N` toggle the team-sight filter |
+| Dead / spectating | Click cycles players (you see through their eyes) · `H` free camera (`WASD` fly, `Space`/`C` up/down) · `N` toggle the team-sight filter |
 
 ## Project layout
 
@@ -116,7 +122,7 @@ src/
     snapshot.js  bot/{brain,nav}.js
   client/      plain ES modules, no build step
     js/game/     prediction, mouse-look + recoil, three.js renderer (render.js world3d.js models3d.js fx3d.js overlay.js), first-person viewmodel (viewmodel.js), minimap, input
-    js/ui/       home, lobby, deploy / loadout, HUD
+    js/ui/       main menu (home.js + menu3d.js key art), lobby, deploy, loadout editor (kit.js), HUD, settings
 tools/         validation, simulation, fuzz, integration and browser (Playwright) helpers
 ```
 

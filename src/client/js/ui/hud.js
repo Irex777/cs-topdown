@@ -6,6 +6,7 @@ import { audio } from '../audio.js';
 import { Minimap } from '../game/minimap.js';
 import { gunIcon } from '../game/viewmodel.js';
 import { DeployScreen } from './deploy.js';
+import { settingsHTML, bindSettings } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -174,6 +175,8 @@ export class HUD {
     g.phase = PHASE.OVER;
     this.endOpen = true;
     this.deploy.hide();
+    // experience for the profile card on the main menu: match score plus a bonus for the win
+    try { const rec = g.roster.get(g.you); const gain = (rec ? rec.s : 0) + (m.winner === g.myTeam() ? 150 : 40); localStorage.setItem('bf.xp', String((Number(localStorage.getItem('bf.xp')) || 0) + Math.max(0, Math.round(gain)))); } catch { /* ignore */ }
     const winName = m.winner < 0 ? 'Nobody' : TEAM_NAMES[m.winner];
     const cls = m.winner === T || m.winner === CT ? (g.pt(m.winner) === 1 ? 'ct' : 't') : '';
     const mine = g.myTeam();
@@ -266,10 +269,7 @@ export class HUD {
       <div><span class="label">Team</span><div class="seg" id="pauseTeam">
         <button data-t="0" class="${mt === T ? 'on' : ''}">${TEAM_NAMES[0]}</button><button data-t="1" class="${mt === CT ? 'on' : ''}">${TEAM_NAMES[1]}</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
       <div><span class="label">Squad</span><div class="seg" id="pauseSquad">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}">${'ABCDEFGH'[i]}</button>`).join('')}</div></div>
-      <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
-      <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="4" max="60" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
-      <div class="slider"><span>Field of view</span><input type="range" id="fovRange" min="70" max="120" value="${Math.round(g.fov)}" aria-label="Field of view"><b id="fovVal" style="min-width:34px;text-align:right">${Math.round(g.fov)}°</b></div>
-      <div class="row" style="gap:16px"><label class="chk"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}> Invert Y</label><label class="chk"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}> Toggle aim (RMB)</label></div>
+      ${settingsHTML(g)}
       <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Mouse</kbd><span>Look / aim</span><kbd>LMB</kbd><span>Fire</span><kbd>RMB</kbd><span>Aim down sights / scope</span>
       <kbd>Shift</kbd><span>Sprint (forward)</span><kbd>Space</kbd><span>Jump (hop onto low cover)</span><kbd>C</kbd><span>Crouch (hold)</span><kbd>R</kbd><span>Reload</span>
       <kbd>E</kbd><span>Enter / exit vehicle, revive, arm M-COM</span><kbd>G</kbd><span>Grenade</span><kbd>X</kbd><span>Knife</span><kbd>Wheel</kbd><span>Cycle weapons</span>
@@ -281,12 +281,7 @@ export class HUD {
     $('resumeBtn').onclick = () => this.closePause();
     $('leaveBtn').onclick = () => { this.closePause(); this.app.leaveRoom(); };
     const em = $('endMatchBtn'); if (em) em.onclick = () => { this.net.send({ t: 'lobby' }); this.closePause(); };
-    $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
-    const save = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* ignore */ } };
-    $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; save('fl.sens', g.sens); };
-    $('fovRange').oninput = (e) => { g.fov = Number(e.target.value); $('fovVal').textContent = g.fov + '°'; save('fl.fov', g.fov); };
-    $('invY').onchange = (e) => { g.invertY = e.target.checked; save('fl.inv', g.invertY ? 1 : 0); };
-    $('adsT').onchange = (e) => { g.input.adsToggle = e.target.checked; g.input.right = false; save('fl.adsT', g.input.adsToggle ? 1 : 0); };
+    bindSettings(el, g);
     $('pauseTeam').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'team', team: Number(b.dataset.t) }); this.closePause(); } };
     $('pauseSquad').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'a', a: 'squad', n: Number(b.dataset.s) }); this.closePause(); } };
     el.onclick = (e) => { if (e.target === el) this.closePause(); };

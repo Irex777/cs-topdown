@@ -35,12 +35,15 @@ function stamp(dst, src, dx, dy, dz) { for (const [k, c] of src.vox) { const [x,
 function opticModel(id) {
   const m = new VoxelModel(1);
   if (id === 'reddot') {
-    m.box(-4, -1, 0, 5, 2, 1, DARK).box(-3, -2, 1, 4, 3, 2, BLK2).box(-3, -2, 2, -2, 3, 5, BLK).box(3, -2, 2, 4, 3, 5, BLK).box(-3, -2, 5, 4, 3, 6, BLK).box(-2, 0, 2, 3, 1, 5, '#3a4552').box(0, 0, 3, 1, 1, 4, RED);
-    return { m, ads: 3.5, sightX: 0 };
+    // open frame: base, two side posts and a hood, so the sight picture shows through the window
+    m.box(-4, -1, 0, 5, 2, 1, DARK).box(-3, -3, 1, 4, 4, 2, BLK2).box(-3, -3, 2, 4, -2, 6, BLK).box(-3, 3, 2, 4, 4, 6, BLK).box(-3, -3, 6, 4, 4, 7, BLK);
+    m.box(3, 0, 3, 4, 1, 4, RED);
+    return { m, ads: 1.4, sightX: 0 };
   }
   if (id === 'holo') {
-    m.box(-5, -1, 0, 6, 2, 1, DARK).box(-4, -2, 1, 5, 3, 2, BLK2).box(-4, -2, 2, -3, 3, 6, BLK).box(4, -2, 2, 5, 3, 6, BLK).box(-4, -2, 6, 5, 3, 7, BLK).box(-3, 0, 2, 4, 1, 6, '#39566a').box(0, 0, 3, 1, 1, 4, '#ff6a3d');
-    return { m, ads: 4, sightX: 0 };
+    m.box(-5, -1, 0, 6, 2, 1, DARK).box(-4, -4, 1, 5, 5, 2, BLK2).box(-4, -4, 2, 5, -3, 6, BLK).box(-4, 4, 2, 5, 5, 6, BLK).box(-4, -4, 6, 5, 5, 7, BLK);
+    m.box(4, 0, 3, 5, 1, 4, '#ff6a3d').box(4, -1, 2, 5, 0, 3, '#39566a').box(4, 1, 4, 5, 2, 5, '#39566a');
+    return { m, ads: 1.4, sightX: 0 };
   }
   if (id === 'acog') {
     m.box(-6, -1, 0, 7, 2, 1, DARK).box(-5, -2, 1, 6, 3, 2, BLK2).box(-5, -2, 2, 6, 3, 6, '#3d434c').box(-4, -2, 6, 5, 3, 7, BLK).box(6, -3, 2, 8, 4, 7, BLK).box(-7, -3, 2, -5, 4, 7, BLK).box(7, -2, 3, 8, 3, 6, '#7ad0ff').box(-6, -1, 3, -5, 2, 6, '#182028');
@@ -318,7 +321,7 @@ export class Viewmodel {
     // ---- pose
     const hip = HIP[kind] || HIP.rifle;
     const sightH = ((this.meta ? this.meta.ads : 7.5) + 1.8) * U;
-    const adsPos = [0, -sightH, -0.21 + (this.meta ? this.meta.sightX : -6.5) * U];
+    const adsPos = [0, -sightH, -0.245 + (this.meta ? this.meta.sightX : -6.5) * U];
     let px = lerp(hip[0], adsPos[0], this.ads), py = lerp(hip[1], adsPos[1], this.ads), pz = lerp(hip[2], adsPos[2], this.ads);
     let rx = 0, ry = 0, rz = 0;                                     // rotation: pitch, yaw, roll
     // sprint: weapon lowered and turned in
