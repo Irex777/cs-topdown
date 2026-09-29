@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#0b0e14">
+<title>CS Top-Down</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b0e14' stroke='%23ff8a3d' stroke-width='4'/%3E%3Cpath d='M32 12v14M32 38v14M12 32h14M38 32h14' stroke='%23ff8a3d' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- ================= HUD ================= -->
+<div id="hud" class="hidden">
+  <div id="topbar">
+    <div class="tb-team t"><div class="tb-score" id="scoreT">0</div><div class="tb-alive" id="aliveT"></div></div>
+    <div class="tb-center"><div class="tb-time" id="roundTime">0:00</div><div class="tb-round" id="roundLabel">Round 1</div></div>
+    <div class="tb-team ct"><div class="tb-score" id="scoreCT">0</div><div class="tb-alive" id="aliveCT"></div></div>
+  </div>
+  <div id="bombStatus" class="hidden"></div>
+
+  <div id="left-col">
+    <div id="radar-wrap"><canvas id="radar"></canvas></div>
+    <div id="money-box"><span class="cash">$</span><span id="money">800</span><span id="moneyDelta"></span></div>
+    <div id="mates"></div>
+  </div>
+
+  <div id="killfeed"></div>
+  <div id="banner"></div>
+  <div id="prompt"></div>
+  <div id="progress" class="hidden"><div id="progressLabel"></div><div class="bar"><i id="progressFill"></i></div></div>
+
+  <div id="statusbox">
+    <div class="stat hp"><svg viewBox="0 0 24 24"><path d="M12 21s-7-4.6-9.3-9.2C1.3 8.6 3 5 6.4 5c2 0 3.6 1.1 4.4 2.6h2.4C14 6.1 15.600 5 17.600 5c3.400 0 5.100 3.600 3.700 6.800C19 16.400 12 21 12 21z" fill="currentColor"/></svg><span id="hpNum">100</span></div>
+    <div class="stat ar"><svg viewBox="0 0 24 24"><path d="M12 2 4 5v6c0 5 3.400 9.300 8 11 4.600-1.700 8-6 8-11V5l-8-3z" fill="currentColor"/></svg><span id="arNum">0</span><i id="helmIcon" title="Helmet">H</i></div>
+  </div>
+  <div id="weaponbox">
+    <div id="ammoRow"><span id="clip">30</span><span id="reserve">/ 90</span></div>
+    <div id="weaponName">AK-47</div>
+    <div id="slots"></div>
+  </div>
+
+  <div id="chatlog"></div>
+  <div id="chatbox" class="hidden"><span id="chatTag">TEAM</span><input id="chatInput" maxlength="160" autocomplete="off" spellcheck="false" aria-label="Chat message"></div>
+  <div id="specbar" class="hidden"></div>
+  <div id="deathcard" class="hidden"></div>
+  <div id="netstat"></div>
+</div>
+
+<!-- ================= modals ================= -->
+<div id="buy" class="modal hidden"></div>
+<div id="score" class="modal hidden"></div>
+<div id="pause" class="modal hidden"></div>
+<div id="endgame" class="modal hidden"></div>
+<div id="toasts"></div>
+
+<!-- ================= menu screens ================= -->
+<section id="home" class="screen"></section>
+<section id="lobby" class="screen hidden"></section>
+<div id="conn" class="hidden">Connecting to server…</div>
+
+<script type="module" src="/js/main.js"></script>
+</body>
+</html>
