@@ -2,6 +2,7 @@
 import { Net } from './net.js';
 import { audio } from './audio.js';
 import { ClientGame } from './game/game.js';
+import { loadAssets } from './game/assets.js';
 import { HUD } from './ui/hud.js';
 import { Home } from './ui/home.js';
 import { Lobby } from './ui/lobby.js';
@@ -10,6 +11,7 @@ const $ = (id) => document.getElementById(id);
 
 class App {
   constructor() {
+    loadAssets();          // high-fidelity models stream in while the menu is open (voxel fallbacks until then)
     this.net = new Net();
     this.room = null;
     this.maps = [];

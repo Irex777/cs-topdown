@@ -5,6 +5,7 @@ import * as THREE from '../../vendor/three/three.module.js';
 import { VoxelModel } from './voxel.js';
 import { voxelGeometry, VOXEL_MAT } from './models3d.js';
 import { TEAM_PAL } from './voxel.js';
+import { assets, buildGun, hasGun, makeEnvironment } from './assets.js';
 
 const U = 0.0115;                 // view-model units per voxel
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -240,6 +241,7 @@ export class Viewmodel {
     this.sway = { x: 0, y: 0 }; this.roll = 0; this.flashT = 0;
     this.visible = false; this.lastMag = true;
     this.prevFire = false;
+    this.glb = null; this.envReady = false; this.sleeveMats = [];
   }
 
   resize(w, h) { this.camera.aspect = w / h; this.camera.updateProjectionMatrix(); }
@@ -248,9 +250,53 @@ export class Viewmodel {
   setTeam(team) {
     const pal = TEAM_PAL[team] || TEAM_PAL[2];
     this.armMats.sleeve.color.set(pal.dark).multiplyScalar(0.9);
+    this.team = team;
+    for (const m of this.sleeveMats) m.color.set(pal.dark).multiplyScalar(0.75);
+  }
+
+  clearGlb() {
+    if (this.glb) { this.model.remove(this.glb); this.glb = null; }
+    this.sleeveMats = [];
+  }
+
+  /** the Blender model of this weapon with its attachments, life size scaled to the view, plus glove hands */
+  setGlb(gun) {
+    if (!this.envReady) { this.scene.environment = makeEnvironment(this.r.renderer); this.scene.environmentIntensity = 0.7; this.envReady = true; }
+    const s = gun.scale;
+    const grp = new THREE.Group();
+    const g = new THREE.Group(); g.scale.setScalar(s); g.add(gun.root); grp.add(g);
+    this.glb = grp; this.model.add(grp);
+    this.bodyMesh.visible = this.magMesh.visible = this.stockMesh.visible = false;
+    this.armMeshes.forEach((m) => { m.visible = false; });
+    const S = (v) => v.clone().multiplyScalar(s);
+    const rh = S(gun.gripR), lh = S(gun.gripL);
+    this.meta = { glb: true, adsV: S(gun.ads), muzzleV: S(gun.muzzle), ads: 0, sightX: 0, muzzle: 0, light: gun.light };
+    this.magHas = false;
+    if (assets.hands) {
+      const arm = (from, to, right, roll) => {
+        const dir = new THREE.Vector3().subVectors(to, from); const len = dir.length(); dir.normalize();
+        const fore = assets.hands.getObjectByName('forearm').clone(true);
+        fore.traverse((o) => { if (o.material) { o.material = o.material.clone(); if (o.material.name === 'sleeve') this.sleeveMats.push(o.material); } });
+        const q0 = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(1, 0, 0), dir);
+        fore.position.copy(from); fore.quaternion.copy(q0); fore.scale.set(Math.max(0.01, len - 0.03), s * 0.7, s * 0.7);
+        grp.add(fore);
+        const hand = assets.hands.getObjectByName(right ? 'hand_r' : 'hand_l').clone(true);
+        hand.quaternion.copy(new THREE.Quaternion().setFromAxisAngle(dir, roll).multiply(q0));
+        hand.position.copy(to); hand.scale.setScalar(s * 0.95);
+        grp.add(hand);
+      };
+      arm(new THREE.Vector3(-0.276, -0.127, 0.10), rh.clone().add(new THREE.Vector3(-0.012, -0.004, 0)), true, Math.PI / 2);
+      if (this.kind !== 'pistol') arm(new THREE.Vector3(-0.207, -0.127, -0.115), lh.clone().add(new THREE.Vector3(-0.02, -0.006, 0)), false, Math.PI);
+    }
+    if (this.team !== undefined) this.setTeam(this.team);
   }
 
   rebuild(kind, att, id, key) {
+    this.clearGlb();
+    this.kind = kind;
+    const gun = (kind !== 'knife' && kind !== 'grenade' && kind !== 'tool' && id && hasGun(id)) ? buildGun(id, att || {}) : null;
+    if (gun) { this.setGlb(gun); return; }
+    this.bodyMesh.visible = this.stockMesh.visible = true;
     const m = modelFor(key, id, kind, att);
     this.bodyMesh.geometry = m.body;
     this.magMesh.geometry = m.mag || new THREE.BufferGeometry();
@@ -286,7 +332,7 @@ export class Viewmodel {
     if (!ctx || !ctx.fps) return;
     this.t += dt;
     const { kind, weapon } = ctx;
-    const key = `${kind}|${weapon ? weapon.key || weapon.id : ''}`;
+    const key = `${kind}|${weapon ? weapon.key || weapon.id : ''}|${assets.ready ? 1 : 0}`;
     if (key !== this.key) {
       this.key = key;
       this.rebuild(kind, weapon && weapon.att ? weapon.att : null, weapon && weapon.id, key);
@@ -320,10 +366,12 @@ export class Viewmodel {
 
     // ---- pose
     const hip = HIP[kind] || HIP.rifle;
-    const sightH = ((this.meta ? this.meta.ads : 7.5) + 1.8) * U;
-    const adsPos = [0, -sightH, -0.29 + (this.meta ? this.meta.sightX : -6.5) * U];
-    let px = lerp(hip[0], adsPos[0], this.ads), py = lerp(hip[1], adsPos[1], this.ads), pz = lerp(hip[2], adsPos[2], this.ads);
-    let rx = 0, ry = 0, rz = 0;                                     // rotation: pitch, yaw, roll
+    const mt = this.meta;
+    const sightH = ((mt ? mt.ads : 7.5) + 1.8) * U;
+    const adsPos = mt && mt.glb ? [-mt.adsV.z, -mt.adsV.y, -0.29 + mt.adsV.x] : [0, -sightH, -0.29 + (mt ? mt.sightX : -6.5) * U];
+    const gl3 = mt && mt.glb;
+    let px = lerp(gl3 ? hip[0] * 0.78 : hip[0], adsPos[0], this.ads), py = lerp(gl3 ? hip[1] * 0.92 : hip[1], adsPos[1], this.ads), pz = lerp(gl3 ? hip[2] * 1.02 : hip[2], adsPos[2], this.ads);
+    let rx = 0, ry = gl3 ? 0.07 * (1 - this.ads) : 0, rz = 0;      // rotation: pitch, yaw, roll
     // sprint: weapon lowered and turned in
     px += -0.01 * this.sprint; py += -0.05 * this.sprint; pz += 0.04 * this.sprint;
     rx += -0.2 * this.sprint; ry += 0.5 * this.sprint; rz += 0.14 * this.sprint;
@@ -332,7 +380,8 @@ export class Viewmodel {
     // reload: dip, tilt, mag out
     const rl = this.reload, rs = Math.sin(Math.PI * rl);
     py += -0.17 * rs; px += -0.05 * rs; rx += -0.55 * rs; rz += 0.45 * rs; ry += 0.25 * rs;
-    this.stockMesh.visible = this.ads < 0.35;
+    if (this.meta && this.meta.glb) { if (this.glb) this.glb.traverse((o) => { if (o.name && o.name.endsWith('_stock')) o.visible = this.ads < 0.35; }); }
+    else this.stockMesh.visible = this.ads < 0.35;
     if (this.magHas) this.magMesh.visible = !(rl > 0.3 && rl < 0.6);
     // switching weapons
     const d = this.draw;
@@ -349,9 +398,9 @@ export class Viewmodel {
     this.rig.position.set(px, py, pz);
     this.rig.rotation.set(rx + this.sway.y * 0.6, ry + this.sway.x * 0.8, rz + this.roll, 'YXZ');
     // muzzle flash at the barrel tip
-    this.flash.visible = this.flashT > 0 && this.meta && this.meta.muzzle > 0;
+    this.flash.visible = this.flashT > 0 && this.meta && (this.meta.glb || this.meta.muzzle > 0);
     if (this.flash.visible) {
-      const mp = new THREE.Vector3(this.meta.muzzle * U, 2.5 * U, 0.5 * U);
+      const mp = this.meta.glb ? this.meta.muzzleV.clone() : new THREE.Vector3(this.meta.muzzle * U, 2.5 * U, 0.5 * U);
       this.model.updateMatrixWorld(true);
       this.flash.position.copy(this.model.localToWorld(mp));
       const sc = 0.09 + Math.random() * 0.05; this.flash.scale.set(sc, sc, 1);
@@ -409,9 +458,41 @@ function drawIcon(key, geos, w = 480, h = 240, tilt = { x: 0.2, y: 0.32 }) {
   return url;
 }
 
+/** render a Blender-model group to a PNG data URL (transparent background, fitted to the frame) */
+function drawObjIcon(key, obj, w = 480, h = 240, tilt = { x: 0.2, y: 0.32 }) {
+  if (iconCache.has(key)) return iconCache.get(key);
+  const gl = iconRenderer();
+  let url = '';
+  if (gl) {
+    if (!gl.env) { gl.env = makeEnvironment(gl.renderer); gl.scene.environment = gl.env; gl.scene.environmentIntensity = 0.85; }
+    const grp = new THREE.Group();
+    grp.add(obj);
+    grp.rotation.set(tilt.x, tilt.y, 0, 'YXZ');
+    gl.scene.add(grp);
+    grp.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(grp), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const pad = 1.1, aspect = w / h;
+    const halfW = Math.max(size.x * pad, size.y * pad * aspect) / 2, halfH = halfW / aspect;
+    const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.01, 40);
+    cam.position.set(c.x, c.y, c.z + 6); cam.lookAt(c);
+    gl.renderer.setSize(w, h, false);
+    gl.renderer.render(gl.scene, cam);
+    try { url = gl.canvas.toDataURL('image/png'); } catch { url = ''; }
+    gl.scene.remove(grp);
+  }
+  iconCache.set(key, url);
+  return url;
+}
+
 /** PNG data URL of a weapon with attachments (side view). Empty string when WebGL is unavailable. */
 export function gunIcon(id, kind, att, w, h) {
   const a = att || {};
+  if (kind !== 'knife' && hasGun(id)) {
+    const gk = `G${id}|${a.optic}|${a.barrel}|${a.under}|${a.mag}|${w || ''}`;
+    if (iconCache.has(gk)) return iconCache.get(gk);
+    const gun = buildGun(id, a);
+    if (gun) return drawObjIcon(gk, gun.root, w, h, { x: 0.16, y: 0.42 });
+  }
   const key = `${id}|${a.optic}|${a.barrel}|${a.under}|${a.mag}`;
   const m = modelFor(key, id, kind, a);
   return drawIcon('g' + key + (w || ''), [m.body, m.mag, m.stock], w, h);
@@ -421,6 +502,13 @@ export function gunIcon(id, kind, att, w, h) {
 export function attachIcon(slot, id, w = 300, h = 200) {
   const key = `a${slot}|${id}`;
   if (iconCache.has(key)) return iconCache.get(key);
+  if (assets.ready && assets.attachments) {
+    const names = { reddot: 'optic_reddot', holo: 'optic_holo', acog: 'optic_acog', sniper: 'optic_sniper', supp: 'muzzle_supp', comp: 'muzzle_comp', vgrip: 'under_vgrip', agrip: 'under_agrip', laser: 'under_laser', flash: 'under_flash' };
+    let node = null;
+    if (names[id]) { const n = assets.attachments.getObjectByName(names[id]); if (n) node = n.clone(true); }
+    else if (slot === 'mag' && hasGun('ar7')) { const g = buildGun('ar7', { mag: id }); if (g) { g.root.traverse((o) => { if (o.name && (o.name === 'ar7_body' || o.name.endsWith('_stock') || (o.name.startsWith('mag_') && o.name !== 'mag_' + (id === 'drum' ? 'drum' : id === 'ext' ? 'ext' : 'std')))) o.visible = false; }); node = g.root; } }
+    if (node) { node.position.set(0, 0, 0); return drawObjIcon('A' + key, node, w, h, slot === 'mag' ? { x: 0.1, y: 0.7 } : { x: 0.3, y: 0.62 }); }
+  }
   let vm;
   if (slot === 'optic') vm = opticModel(id).m;
   else if (slot === 'barrel') vm = muzzleModel(id);

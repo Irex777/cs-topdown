@@ -28,7 +28,7 @@ const MAX_CONNS = 400;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.txt': 'text/plain; charset=utf-8',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.glb': 'model/gltf-binary', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.txt': 'text/plain; charset=utf-8',
   '.woff2': 'font/woff2', '.map': 'application/json',
 };
 const gzCache = new Map();
@@ -39,7 +39,13 @@ function serveFile(req, res, file) {
     const ext = path.extname(file).toLowerCase();
     const type = MIME[ext] || 'application/octet-stream';
     const headers = { 'Content-Type': type, 'Cache-Control': 'no-cache' };
-    const compressible = ['.html', '.js', '.css', '.json', '.svg'].includes(ext);
+    // heavy binary assets: revalidate with an ETag instead of downloading them again on every visit
+    if (['.glb', '.png', '.jpg', '.webp'].includes(ext)) {
+      const etag = `"${st.size}-${Math.round(st.mtimeMs)}"`;
+      headers.ETag = etag;
+      if (req.headers['if-none-match'] === etag) { res.writeHead(304, headers); res.end(); return; }
+    }
+    const compressible = ['.html', '.js', '.css', '.json', '.svg', '.glb'].includes(ext);
     const wantsGzip = compressible && /\bgzip\b/.test(req.headers['accept-encoding'] || '');
     if (wantsGzip) {
       const c = gzCache.get(file);
