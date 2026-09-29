@@ -7,6 +7,7 @@ export class Input {
     this.down = new Set();
     this.mx = 0; this.my = 0;
     this.left = false; this.right = false;
+    this.pending = 0;            // presses shorter than one tick still get delivered
     this.enabled = false;        // false while a menu / chat box is capturing input
     this.handlers = {};          // name -> fn (edge-triggered actions)
     this.bindings = {
@@ -38,6 +39,7 @@ export class Input {
     if (down) {
       if (e.repeat) { if (this.enabled && (code in this.bindings || code.startsWith('Arrow') || code === 'Tab')) e.preventDefault(); return; }
       this.down.add(code);
+      if (code === 'KeyE') this.pending |= KEY.USE;
       const act = this.bindings[code];
       if (act === 'menu') { this.fire('menu'); e.preventDefault(); return; }
       if (act === 'score') { e.preventDefault(); this.fire('score', true); return; }
@@ -56,7 +58,7 @@ export class Input {
       if (!down) { if (e.button === 0) this.left = false; if (e.button === 2) this.right = false; }
       return;
     }
-    if (e.button === 0) { this.left = down; if (down && this.enabled) this.fire('click'); }
+    if (e.button === 0) { this.left = down; if (down && this.enabled) { this.pending |= KEY.FIRE; this.fire('click'); } }
     else if (e.button === 2) this.right = down;
     else if (e.button === 1 && down && this.enabled) { e.preventDefault(); this.fire('ping'); }
   }
@@ -74,6 +76,8 @@ export class Input {
     if (d.has('KeyE')) k |= KEY.USE;
     if (this.left) k |= KEY.FIRE;
     if (this.right) k |= KEY.SCOPE;
+    k |= this.pending;
+    this.pending = 0;
     return k;
   }
 }

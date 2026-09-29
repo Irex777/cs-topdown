@@ -36,7 +36,7 @@ export class Net {
         let m;
         try { m = JSON.parse(e.data); } catch { return; }
         if (m.t === 'pong') { this.rtt = performance.now() - m.ts; this.send({ t: 'rtt', ms: Math.round(this.rtt) }); this.emit('rtt', this.rtt); return; }
-        this.emit(m.k || m.t, m);
+        this.emit(m.t, m);
         this.emit('*', m);
       };
       ws.onclose = () => {

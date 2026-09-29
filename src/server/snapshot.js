@@ -1,10 +1,9 @@
 // Builds the per-client world snapshot: what this player is allowed to know right now.
-import { SPEC, T, CT, PHASE, VISION, GREN_ORDER, RULES } from '../shared/constants.js';
+import { SPEC, T, VISION, GREN_ORDER, RULES } from '../shared/constants.js';
 import { WEAPONS, maxSpeedFor, weaponSpread } from '../shared/weapons.js';
 import { canSee, viewParams } from '../shared/vision.js';
 
 const r1 = (v) => Math.round(v * 10) / 10;
-const BOMB_CODE = { none: 0, carried: 1, dropped: 2, planted: 3, defused: 4, exploded: 5 };
 
 function teamVisibility(game, team) {
   if (!game._vis || game._vis.tick !== game.tick) game._vis = { tick: game.tick, sets: [null, null] };
@@ -72,7 +71,7 @@ export function buildSnapshot(game, p) {
   }
 
   const snap = {
-    k: 's', tk: game.tick, ack: p.lastSeq, ph: game.phase, rt: Math.max(0, Math.round(game.timer * 10) / 10),
+    t: 's', tk: game.tick, ack: p.lastSeq, ph: game.phase, rt: Math.max(0, Math.round(game.timer * 10) / 10),
     p: players,
   };
 

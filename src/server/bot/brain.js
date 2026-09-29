@@ -1,6 +1,6 @@
 // Bot AI. Bots drive the exact same movement/combat code as humans and only know what they can see or hear.
-import { KEY, T, CT, SPEC, PHASE, RULES, TILE, GREN_ORDER } from '../../shared/constants.js';
-import { WEAPONS, maxSpeedFor } from '../../shared/weapons.js';
+import { KEY, T, CT, SPEC, PHASE, RULES } from '../../shared/constants.js';
+import { WEAPONS } from '../../shared/weapons.js';
 import { canSee, viewParams } from '../../shared/vision.js';
 import { angleDiff } from '../../shared/gamemap.js';
 import { startReload, selectSlot } from '../combat.js';
@@ -145,7 +145,7 @@ export class BotBrain {
     if (this.visible) return;
     const d = Math.hypot(x - this.p.x, y - this.p.y);
     this.heard = { x, y, t: this.g.time, kind, d };
-    this.g.mind.report(this.p.team === T ? CT : T, x, y);   // our own team now knows where the enemy is
+    this.g.mind.report(this.p.team, x, y);   // our team now knows roughly where the enemy is
   }
 
   // ---------------------------------------------------------------- main entry
@@ -315,7 +315,6 @@ export class BotBrain {
       this.target = best.id;
       this.visible = true;
       this.lastSeen = { x: best.x, y: best.y, t: g.time, vx: best.vx, vy: best.vy };
-      g.mind.report(p.team === T ? CT : T, best.x, best.y);
       g.mind.report(p.team, best.x, best.y);
       // remember that the enemy is somewhere here for the whole team's rotation logic
       this.searchUntil = g.time + 3 + rnd() * 2;
@@ -407,7 +406,7 @@ export class BotBrain {
     }
     // rotate on intel from the rest of the team
     const hot = mind.hotSite(CT);
-    if (hot >= 0 && hot !== this.site && (this.role === 'roam' || (this.d.aggr > 0.4 && rnd() < 0.015))) {
+    if (hot >= 0 && hot !== this.site && (this.role === 'roam' || (this.d.aggr > 0.3 && rnd() < 0.012))) {
       const opts = nav.siteSpots[hot];
       if (opts && opts.length) {
         this.site = hot; this.spot = opts[p.id % opts.length]; this.role = 'defend';
@@ -441,7 +440,7 @@ export class BotBrain {
 
   // ---------------------------------------------------------------- grenades
   considerCombatNade(tq, dist) {
-    const p = this.p, g = this.g;
+    const p = this.p;
     if (rnd() > this.d.nades) return;
     if (p.grenades.he > 0 && dist > 240 && dist < 560 && rnd() < 0.5) return this.startNade('he', tq.x, tq.y);
     if (p.grenades.flash > 0 && dist > 200 && dist < 520 && rnd() < 0.4) return this.startNade('flash', tq.x, tq.y);

@@ -1,16 +1,21 @@
 {
   "name": "cs-topdown",
   "version": "2.0.0",
-  "description": "Top-down Counter-Strike style multiplayer shooter — bomb defusal, bots, rooms you can share with friends",
+  "description": "Top-down Counter-Strike style multiplayer shooter: bomb defusal, fog of war, bots, share a room link and play with friends",
   "type": "commonjs",
   "main": "src/server/index.js",
   "scripts": {
     "start": "node src/server/index.js",
     "dev": "node --watch src/server/index.js",
     "test": "node tools/test-all.js",
-    "maps": "node tools/preview-maps.js"
+    "lint": "eslint src tools",
+    "maps": "node tools/preview-maps.js",
+    "sim": "node tools/sim.js",
+    "balance": "node tools/balance.js"
   },
-  "engines": { "node": ">=18" },
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "ws": "^8.18.0"
   }

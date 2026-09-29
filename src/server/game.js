@@ -4,7 +4,7 @@ import { WEAPONS, canTeamUse, maxSpeedFor } from '../shared/weapons.js';
 import { stepMovement } from '../shared/movement.js';
 import { getMap } from '../shared/maps/index.js';
 import { Player } from './player.js';
-import { tryFire, tickWeaponTimers, startReload, selectSlot, damagePlayer } from './combat.js';
+import { tryFire, tickWeaponTimers, selectSlot, damagePlayer } from './combat.js';
 import { updateGrenades, updateFires, updateSmokes } from './grenades.js';
 import { buildSnapshot } from './snapshot.js';
 import { BotBrain, BOT_NAMES, TeamMind } from './bot/brain.js';
@@ -40,14 +40,11 @@ export class Game {
     this.events = [];
     this.nextId = 1;
     this.bomb = { state: 'none', x: 0, y: 0, carrier: 0, planted: 0, site: -1, timer: 0, defuser: 0 };
-    this.roundInfo = { winner: -1, reason: '' };
     this.startCount = [0, 0];
     this.plantedThisRound = false;
     this.mvp = 0;
     this.matchWinner = -1;
     this.roundStartedAt = 0;
-    this._scratch = { x: 0, y: 0, alive: false };
-    this.over = false;
   }
 
   get players() { return this.room.players; }
@@ -71,7 +68,6 @@ export class Game {
   broadcast(msg) { this.room.broadcast(msg); }
   aliveCount(team) { let n = 0; for (const p of this.players.values()) if (p.alive && p.team === team) n++; return n; }
   teamPlayers(team) { const a = []; for (const p of this.players.values()) if (p.team === team) a.push(p); return a; }
-  activePlayers() { const a = []; for (const p of this.players.values()) if (p.team !== SPEC) a.push(p); return a; }
 
   // ------------------------------------------------------------------ match lifecycle
   startMatch() {
@@ -110,7 +106,6 @@ export class Game {
       this.timer = RULES.dmTime;
     }
     this.roundStartedAt = this.time;
-    this.roundInfo = { winner: -1, reason: '' };
     this.mvp = 0;
     for (const p of this.players.values()) { p.roundKills = 0; p.roundDamage = 0; p.buys = []; }
     this.broadcast({ t: 'round_start', round: this.round, phase: this.phase, score: this.score, target: this.target, mode: this.mode });
@@ -149,7 +144,6 @@ export class Game {
     if (this.phase !== PHASE.LIVE) return;
     this.phase = PHASE.POST;
     this.timer = RULES.postTime;
-    this.roundInfo = { winner, reason };
     if (winner === T || winner === CT) {
       this.score[winner]++;
       const loser = otherTeam(winner);
@@ -190,7 +184,6 @@ export class Game {
     if (this.matchWinner >= 0) {
       this.phase = PHASE.OVER;
       this.timer = 12;
-      this.over = true;
       this.broadcast({ t: 'match_over', winner: this.matchWinner, score: this.score });
       this.room.sendRoster();
       return;
@@ -253,7 +246,7 @@ export class Game {
     } else {
       this.timer -= dt;
       if (this.phase === PHASE.LIVE && (this.timer <= 0 || this.score[0] >= this.target || this.score[1] >= this.target)) {
-        this.phase = PHASE.OVER; this.timer = 12; this.over = true;
+        this.phase = PHASE.OVER; this.timer = 12;
         this.matchWinner = this.score[0] === this.score[1] ? -1 : this.score[0] > this.score[1] ? T : CT;
         this.broadcast({ t: 'match_over', winner: this.matchWinner, score: this.score });
         this.room.sendRoster();

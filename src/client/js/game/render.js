@@ -1,6 +1,6 @@
 // Draws the world: map, entities, fog of war, and the screen-space overlays around the crosshair.
 import {
-  TILE, PLAYER_R, PHASE, T, CT, SPEC, VISION, GREN_ORDER, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST, RULES,
+  PLAYER_R, SPEC, GREN_ORDER, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST,
 } from '../../../shared/constants.js';
 import { WEAPON_LIST, HELD_GREN_BASE } from '../../../shared/weapons.js';
 import { canSee } from '../../../shared/vision.js';

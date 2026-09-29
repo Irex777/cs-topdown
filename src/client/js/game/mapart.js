@@ -1,10 +1,6 @@
 // Pre-renders a whole map into one canvas (floor, walls, crates, site markings) at 1 px = 1 world unit.
 import { TILE } from '../../../shared/constants.js';
 
-const rgba = (hex, a) => {
-  const n = parseInt(hex.slice(1), 16);
-  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-};
 const shade = (hex, f) => {
   const n = parseInt(hex.slice(1), 16);
   const c = (v) => Math.max(0, Math.min(255, Math.round(v * f)));

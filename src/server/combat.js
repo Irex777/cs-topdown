@@ -1,5 +1,5 @@
 // Shooting, reloading, weapon switching, damage and kills.
-import { DT, PLAYER_R, SPEC, T, CT, RULES, PHASE, GREN_ORDER } from '../shared/constants.js';
+import { DT, PLAYER_R, SPEC, RULES, GREN_ORDER } from '../shared/constants.js';
 import { WEAPONS, weaponSpread, applyArmor } from '../shared/weapons.js';
 import { rayCircle, angleDiff } from '../shared/gamemap.js';
 import { throwGrenade } from './grenades.js';
@@ -115,7 +115,7 @@ function castBullet(game, shooter, ox, oy, ang, tf) {
     if (q === shooter || !q.alive || q.team === SPEC || q.spawnProt > 0) continue;
     if (q.team === shooter.team && !game.ff) continue;
     let qx = q.x, qy = q.y;
-    if (tf > 0 && !q.bot) { q.rewound(tf, tmp); if (!tmp.alive) continue; qx = tmp.x; qy = tmp.y; }
+    if (tf > 0) { q.rewound(tf, tmp); if (!tmp.alive) continue; qx = tmp.x; qy = tmp.y; }
     if (Math.abs(qx - ox) > best + PLAYER_R || Math.abs(qy - oy) > best + PLAYER_R) continue;
     const d = rayCircle(ox, oy, dx, dy, qx, qy, PLAYER_R);
     if (d >= 0 && d < best) { best = d; target = q; }

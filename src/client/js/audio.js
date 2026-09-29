@@ -42,7 +42,6 @@ class AudioEngine {
   _out(pos, vol, maxDist = 1500) {
     const c = this.ctx;
     const g = c.createGain();
-    let node = g;
     let lp = null;
     if (pos) {
       const dx = pos.x - this.lx, dy = pos.y - this.ly;
@@ -54,7 +53,6 @@ class AudioEngine {
       lp.type = 'lowpass';
       lp.frequency.value = clamp(16000 / (1 + d / 260), 700, 16000);
       g.connect(lp);
-      node = lp;
       if (c.createStereoPanner) {
         const pan = c.createStereoPanner();
         pan.pan.value = clamp(dx / 700, -0.9, 0.9);

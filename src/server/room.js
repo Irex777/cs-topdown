@@ -173,7 +173,6 @@ export class Room {
   spawnBot(team) {
     const id = this.nextPid++;
     const used = new Set([...this.players.values()].map((p) => p.name));
-    const g = this.game || { createBot: null };
     let b;
     if (this.game) b = this.game.createBot(id, team, this.settings.difficulty);
     else b = makeLobbyBot(id, team, this.settings.difficulty);
@@ -181,7 +180,6 @@ export class Room {
     while (used.has(name)) name = `${b.name}${n++}`;
     b.name = name;
     this.players.set(id, b);
-    void g;
     return b;
   }
 
@@ -292,9 +290,25 @@ export class Room {
         if (v && !v.isBot && v.id !== p.id) { this.send(v, { t: 'kicked' }); const c = v.conn; this.removeHuman(v); if (c) c.leaveRoom(); }
         return;
       }
+      case 'dbg': if (process.env.CS_DEBUG) this.debug(p, m); return;
       case 'rtt': p.ping = Math.max(0, Math.min(999, Number(m.ms) || 0)); return;
       default: return;
     }
+  }
+
+  /** Developer helpers, only reachable when the server runs with CS_DEBUG=1. */
+  debug(p, m) {
+    const g = this.game;
+    if (!g) return;
+    if (m.cmd === 'kill') { p.hp = 0; g.onTeamChange && 0; import('./combat.js').then((c) => c.killPlayer(g, p, null, 'world')); }
+    else if (m.cmd === 'money') p.money = Number(m.v) || 16000;
+    else if (m.cmd === 'give') { p.giveWeapon(m.id); import('./combat.js').then((c) => c.selectSlot(g, p, WEAPONS[m.id].slot)); }
+    else if (m.cmd === 'nade') { for (const k of ['he', 'flash', 'smoke', 'molo']) p.grenades[k] = 1; }
+    else if (m.cmd === 'tp') { p.x = Number(m.x); p.y = Number(m.y); }
+    else if (m.cmd === 'live') { g.phase = PHASE.LIVE; g.timer = 115; }
+    else if (m.cmd === 'bomb') { p.hasBomb = true; g.bomb = { state: 'carried', x: p.x, y: p.y, carrier: p.id, planted: 0, site: -1, timer: 0, defuser: 0 }; }
+    else if (m.cmd === 'god') p.spawnProt = 9999;
+    else if (m.cmd === 'state') this.send(p, { t: 'toast', text: JSON.stringify({ x: p.x, y: p.y, alive: p.alive }) });
   }
 
   handleAction(p, m) {

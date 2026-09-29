@@ -182,7 +182,7 @@ export class NavGrid {
         const total = route.length;
         const at = (f) => route[Math.max(0, Math.min(total - 1, Math.floor(total * f)))];
         this.entries[s] = at(0.78);
-        this.lanes[s] = [at(0.62), at(0.72), at(0.84)].map((p) => ({ x: p.x, y: p.y }));
+        this.lanes[s] = [at(0.86), at(0.92)].map((p) => ({ x: p.x, y: p.y }));
         this.routeToSite = this.routeToSite || [];
         this.routeToSite[s] = route;
       }

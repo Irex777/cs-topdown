@@ -1,6 +1,5 @@
 // Small Playwright helpers for smoke-testing the client. Usage: node tools/browser.mjs <scenario>
 import { chromium } from '/opt/node22/lib/node_modules/playwright/index.mjs';
-import fs from 'node:fs';
 
 export async function launch(opts = {}) {
   const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required', '--use-gl=swiftshader', '--ignore-gpu-blocklist'] });

@@ -1,7 +1,5 @@
 // Client-side game controller: snapshot buffer, interpolation, prediction, events, per-frame loop.
-import {
-  DT, PHASE, KEY, T, CT, SPEC, TILE, PLAYER_R, VISION, RULES, GREN_ORDER,
-} from '../../../shared/constants.js';
+import { DT, PHASE, KEY, SPEC } from '../../../shared/constants.js';
 import { WEAPON_LIST, HELD_GREN_BASE, maxSpeedFor } from '../../../shared/weapons.js';
 import { getMap } from '../../../shared/maps/index.js';
 import { stepMovement } from '../../../shared/movement.js';
@@ -209,8 +207,8 @@ export class ClientGame {
           const seen = own || this.visiblePoint(x, y) || this.visiblePoint(ex, ey);
           if (!own && !sub) audio.shot(w.kind, { x, y }, !!supp);
           if (!own && !sub) this.muzzle.set(pid, now + 70);
-          if (seen && (!own || true)) {
-            if (!(own && sub === 0 && false)) fx.tracer(x + Math.cos(ang) * 14, y + Math.sin(ang) * 14, ex, ey, own, w.kind === 'sniper');
+          if (seen) {
+            fx.tracer(x + Math.cos(ang) * 14, y + Math.sin(ang) * 14, ex, ey, own, w.kind === 'sniper');
             if (kind === 1) fx.sparks(ex, ey, ang, 4);
             else if (kind === 2) fx.blood(ex, ey, ang, 7);
             if (!own && !sub && w.kind !== 'shotgun' && Math.random() < 0.6) fx.casing(x, y, ang);

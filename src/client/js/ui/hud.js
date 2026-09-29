@@ -1,5 +1,5 @@
 // In-game DOM UI: score bar, health/ammo, kill feed, chat, buy menu, scoreboard, pause menu, banners.
-import { PHASE, T, CT, SPEC, RULES, GRENADE, GREN_ORDER, armorCost, TEAM_NAMES } from '../../../shared/constants.js';
+import { PHASE, T, CT, SPEC, GRENADE, GREN_ORDER, armorCost, TEAM_NAMES } from '../../../shared/constants.js';
 import { WEAPON_LIST, WEAPONS, HELD_GREN_BASE } from '../../../shared/weapons.js';
 import { audio } from '../audio.js';
 import { Minimap } from '../game/minimap.js';
