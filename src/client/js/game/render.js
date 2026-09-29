@@ -31,6 +31,7 @@ export class Renderer {
     this.map = null; this.art = null;
     this.t = 0;
     this.smoothCam = null;
+    this.seen = new Map();
     this.viewRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
     try { const z = parseFloat(localStorage.getItem('cs.zoom')); if (Number.isFinite(z)) this.userZoom = clamp(z, 0.7, 1.4); } catch { /* ignore */ }
     window.addEventListener('resize', () => this.resize());
@@ -276,6 +277,12 @@ export class Renderer {
         p.mate = sameSide;
         if (!sameSide && viewer && g.fogOn && !g.freecam) {
           if (!canSee(this.map, smokes, viewer.x, viewer.y, viewer.angle, viewer.view, p.x, p.y, 0, PLAYER_R)) continue;
+          // enemies fade in over a moment instead of popping into existence at the edge of the cone
+          let rec = this.seen.get(id);
+          const t = performance.now();
+          if (!rec || t - rec.last > 350) rec = { first: t, last: t };
+          rec.last = t; this.seen.set(id, rec);
+          p.alpha = Math.min(1, (t - rec.first) / 130 + 0.25);
         }
         list.push(p);
       }
@@ -287,7 +294,8 @@ export class Renderer {
     list.sort((a, b) => a.y - b.y);
     for (const p of list) {
       if (!this.inView(p.x, p.y, 60)) continue;
-      this.drawPlayer(ctx, p, now);
+      if (p.alpha !== undefined && p.alpha < 1) { ctx.globalAlpha = p.alpha; this.drawPlayer(ctx, p, now); ctx.globalAlpha = 1; }
+      else this.drawPlayer(ctx, p, now);
     }
   }
 
