@@ -2,8 +2,9 @@ import { GameMap } from '../gamemap.js';
 import dust from './dust.js';
 import warehouse from './warehouse.js';
 import pit from './pit.js';
+import foundry from './foundry.js';
 
-export const MAP_DEFS = [dust, warehouse, pit];
+export const MAP_DEFS = [dust, warehouse, foundry, pit];
 const cache = new Map();
 
 export function getMap(id) {

@@ -8,7 +8,7 @@ grenades that matter, and bots that fill any empty slot so a game is always poss
 - **Fog of war**: you only see what your character can see (vision cone + walls + smoke)
 - **25 weapons, 4 grenades** (HE, flash, smoke, molotov), armor, defuse kits, scoped snipers
 - **Bots** (easy → expert) that buy, execute strategies, throw grenades, plant and defuse
-- **3 maps**: Dust (large 5v5), Warehouse (symmetric, medium), Pit (small arena)
+- **4 maps**: Dust (large 5v5), Warehouse (symmetric, medium), Foundry (four lanes, medium), Pit (small arena)
 - **Rooms with a 4-letter code and invite link** — friends join in one click, no accounts
 - **Spectating**, team chat, pings, kill feed, scoreboard, radar, 100% synthesised audio (no downloads)
 - Server-authoritative netcode with **client-side prediction** and **lag compensation**

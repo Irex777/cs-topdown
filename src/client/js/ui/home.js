@@ -28,7 +28,7 @@ export class Home {
         <div class="features">
           <div>Line-of-sight fog of war</div><div>Buy menu &amp; economy</div>
           <div>25 weapons, 4 grenades</div><div>Bots when friends are missing</div>
-          <div>3 maps, halftime &amp; overtime</div><div>Play on LAN or online</div>
+          <div>4 maps, halftime &amp; overtime</div><div>Play on LAN or online</div>
         </div>
         <div class="controls-mini"><span><kbd>WASD</kbd> move <kbd>Mouse</kbd> aim</span><span><kbd>B</kbd> buy <kbd>E</kbd> plant/defuse <kbd>R</kbd> reload</span></div>
       </div>
