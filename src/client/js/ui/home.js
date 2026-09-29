@@ -40,7 +40,7 @@ export class Home {
         <div><label class="label" for="codeInput">Join with a room code</label>
           <div class="row"><input class="input code-input" id="codeInput" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false"><button class="btn" id="joinBtn">Join</button></div></div>
         <div><span class="label">Public rooms</span><div class="rooms-list" id="roomsList"><div class="empty-note">Loading…</div></div></div>
-        <div class="footer-note"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting…</span></div>
+        <div class="footer-note"><span class="status-dot" id="statusDot"></span><span id="statusText">Connecting…</span>${window.matchMedia && window.matchMedia('(pointer: coarse)').matches ? '<br><b style="color:var(--accent2)">Heads up:</b> this game needs a keyboard and mouse.' : ''}</div>
       </div>
     </div>`;
     const name = $('nameInput');

@@ -1,0 +1,7 @@
+# One-click deploy on Render (https://render.com): New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: cs-topdown
+    runtime: docker
+    plan: free
+    healthCheckPath: /healthz

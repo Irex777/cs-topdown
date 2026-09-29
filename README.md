@@ -43,7 +43,7 @@ The game is a single Node process serving both the page and the WebSocket, so an
 | Tunnel from your PC (easiest) | `npx cloudflared tunnel --url http://localhost:3000` or `ngrok http 3000`, then share the HTTPS link it prints |
 | Any VPS / Raspberry Pi | `npm ci --omit=dev && PORT=3000 node src/server/index.js` (put it behind Caddy/nginx for HTTPS if you like) |
 | Docker | `docker build -t cs-topdown . && docker run -p 3000:3000 cs-topdown` |
-| PaaS (Fly.io, Render, Railway…) | Deploy the Dockerfile; the app listens on `$PORT` and has a `/healthz` endpoint |
+| PaaS (Fly.io, Render, Railway…) | Deploy the Dockerfile (a `render.yaml` blueprint and `fly.toml` are included); the app listens on `$PORT` and has a `/healthz` endpoint |
 
 Environment variables: `PORT` (default 3000), `HOST` (default `0.0.0.0`).
 The server keeps everything in memory; rooms disappear shortly after the last player leaves.

@@ -229,6 +229,13 @@ export class Game {
     p.resetEquip = true;
     p.money = this.mode === 'dm' ? RULES.maxMoney : Math.max(p.money, this.round > 1 ? p.money : RULES.startMoney);
     if (this.mode === 'dm' && p.team !== SPEC) p.respawnAt = this.time + 0.5;
+    // joining or switching during freeze time: get in the game right away instead of waiting a whole round
+    if (this.mode === 'defuse' && this.phase === PHASE.FREEZE && p.team !== SPEC) {
+      const sp = this.map.spawns[p.team];
+      this.spawn(p, sp[Math.floor(Math.random() * sp.length)], false, 13);
+      p.resetEquip = false;
+      this.startCount[p.team]++;
+    }
   }
 
   // ------------------------------------------------------------------ main tick
@@ -503,7 +510,7 @@ export class Game {
     } else if (GRENADE[item]) {
       if (money < GRENADE[item].price || !p.canCarryGrenade(item)) return false;
       spend(GRENADE[item].price); p.grenades[item]++;
-      if (!silent) { p.sel = 'grenade'; p.gsel = item; }
+      if (p.grenades[p.gsel] <= 0) p.gsel = item;
     } else if (WEAPONS[item]) {
       const w = WEAPONS[item];
       if (w.price <= 0 || w.kind === 'knife' || !canTeamUse(w, p.team) || money < w.price) return false;

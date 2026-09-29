@@ -60,7 +60,8 @@ export class Renderer {
     const g = this.game, ctx = this.ctx;
     if (!this.map) return;
     this.t = nowMs / 1000;
-    this.scale = (this.H / 720) * this.userZoom;
+    // fixed amount of world on screen (ultra-wide monitors must not see farther than everyone else)
+    this.scale = Math.max(this.H / 720, this.W / 1750) * this.userZoom;
     const viewer = g.viewer();
 
     // ---- camera

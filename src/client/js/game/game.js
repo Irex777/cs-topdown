@@ -264,6 +264,7 @@ export class ClientGame {
   onDie(e) {
     const [, id, x, y, ang, team] = e;
     this.corpses.push({ id, x, y, a: ang, team, t: performance.now() });
+    if (this.corpses.length > 30) this.corpses.shift();   // deathmatch never clears them
     this.fx.corpseStain(x, y);
     audio.death({ x, y });
     if (id === this.you) this.ui.onDeath && this.ui.onDeath();
