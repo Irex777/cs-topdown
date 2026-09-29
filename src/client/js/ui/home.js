@@ -23,19 +23,21 @@ export class Home {
     this.el.innerHTML = `
     <div class="home-wrap">
       <div class="hero">
-        <div class="logo"><small>Tactical team shooter</small><span>CS</span><span>Top-Down</span></div>
-        <p class="tagline">Plant the bomb, hold the site, out-play your friends. Bomb defusal with fog of war, real economy, grenades and smart bots to fill the empty slots. Just share a room link.</p>
+        <div class="logo"><small>Combined arms warfare</small><span>Frontline</span><span>Voxel Warfare</span></div>
+        <div class="cubes"><i></i><i></i><i></i><i></i><i></i></div>
+        <p class="tagline">Big maps, real destruction and combined arms in a chunky 2.5D voxel world. Capture flags in Conquest, blow up M-COMs in Rush, drive tanks and fly helicopters, revive your squad and level every wall you can find.</p>
         <div class="features">
-          <div>Line-of-sight fog of war</div><div>Buy menu &amp; economy</div>
-          <div>25 weapons, 4 grenades</div><div>Bots when friends are missing</div>
-          <div>4 maps, halftime &amp; overtime</div><div>Play on LAN or online</div>
+          <div>Conquest, Rush &amp; Team Deathmatch</div><div>4 classes with gadgets</div>
+          <div>Weapon attachments &amp; optics</div><div>Fully destructible terrain</div>
+          <div>Jeeps, APCs, tanks, helis, boats</div><div>Squads, spotting, revives</div>
+          <div>Line-of-sight fog of war</div><div>Smart bots fill any empty slot</div>
         </div>
-        <div class="controls-mini"><span><kbd>WASD</kbd> move <kbd>Mouse</kbd> aim</span><span><kbd>B</kbd> buy <kbd>E</kbd> plant/defuse <kbd>R</kbd> reload</span></div>
+        <div class="controls-mini"><span><kbd>WASD</kbd> move <kbd>Shift</kbd> sprint <kbd>Mouse</kbd> aim</span><span><kbd>E</kbd> vehicles &amp; objectives <kbd>Q</kbd> spot <kbd>L</kbd> loadout</span></div>
       </div>
       <div class="card-panel play-card">
         ${invite ? `<div class="join-banner"><div style="flex:1"><span class="label" style="margin:0">You're invited to room</span><b>${esc(invite)}</b></div><button class="btn primary" id="joinInvite">Join</button></div>` : ''}
         <div><label class="label" for="nameInput">Your name</label><input class="input" id="nameInput" maxlength="16" placeholder="Enter a nickname" value="${esc(savedName)}" autocomplete="off" spellcheck="false"></div>
-        <button class="btn primary big" id="quickBtn">▶ Quick play vs bots</button>
+        <button class="btn primary big" id="quickBtn">▶ Quick play (Conquest vs bots)</button>
         <div class="row"><button class="btn big" id="createBtn" style="flex:1">Create room</button></div>
         <div><label class="label" for="codeInput">Join with a room code</label>
           <div class="row"><input class="input code-input" id="codeInput" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false"><button class="btn" id="joinBtn">Join</button></div></div>
@@ -71,7 +73,7 @@ export class Home {
     const box = $('roomsList');
     if (!box) return;
     if (!this.rooms.length) { box.innerHTML = '<div class="empty-note">No public rooms right now. Create one and tick “Public”.</div>'; return; }
-    box.innerHTML = this.rooms.map((r) => `<div class="room-item" data-code="${esc(r.code)}"><div><b>${esc(r.name)}</b><br><small>${esc(r.map)} · ${r.mode === 'dm' ? 'Deathmatch' : 'Defusal'} · ${r.humans} player${r.humans === 1 ? '' : 's'}${r.state === 'playing' ? ' · in match' : ''}</small></div><span class="code">${esc(r.code)}</span></div>`).join('');
+    box.innerHTML = this.rooms.map((r) => `<div class="room-item" data-code="${esc(r.code)}"><div><b>${esc(r.name)}</b><br><small>${esc(r.map)} · ${({ conquest: 'Conquest', rush: 'Rush', tdm: 'Deathmatch' })[r.mode] || r.mode} · ${r.humans} player${r.humans === 1 ? '' : 's'}${r.state === 'playing' ? ' · in match' : ''}</small></div><span class="code">${esc(r.code)}</span></div>`).join('');
     box.querySelectorAll('.room-item').forEach((el) => { el.onclick = () => { if (this.name) this.app.joinRoom(el.dataset.code, this.name); else { $('nameInput').focus(); this.app.toast('Pick a nickname first'); } }; });
   }
 

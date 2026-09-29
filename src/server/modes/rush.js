@@ -104,7 +104,7 @@ export const rush = {
   snapshot(g, snap) {
     snap.tix = [Math.round(g.tix[0]), g.tix[1]];
     snap.rs = [g.stage, g.stages.length];
-    snap.mc = g.mcoms.filter((m) => m.stage === g.stage || m.state === 2 && m.stage === g.stage - 1).map((m) => [m.id, m.state, Math.round(m.timer * 10) / 10, m.stage]);
+    snap.mc = g.mcoms.filter((m) => m.stage === g.stage || m.state === 2 && m.stage === g.stage - 1).map((m) => [m.id, m.state, Math.round(m.timer * 10) / 10, m.stage, Math.round(m.x), Math.round(m.y)]);
   },
 };
 export { SPEC, TILE };

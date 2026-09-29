@@ -80,12 +80,12 @@ class App {
   // ------------------------------------------------------------------ actions
   quickPlay(name) {
     audio.unlock();
-    this.net.send({ t: 'create', name, autostart: true, settings: { mode: 'defuse', map: 'dust', teamSize: 5, bots: true, difficulty: 'normal', rounds: 16, friendlyFire: false, public: false } });
+    this.net.send({ t: 'create', name, autostart: true, settings: { mode: 'conquest', map: 'riverside', teamSize: 8, bots: true, difficulty: 'normal', friendlyFire: false, public: false, vehicles: true, tickets: 250 } });
   }
 
   createRoom(name) {
     audio.unlock();
-    this.net.send({ t: 'create', name, settings: { map: 'dust', mode: 'defuse', teamSize: 5, bots: true, difficulty: 'normal', rounds: 16 } });
+    this.net.send({ t: 'create', name, settings: { map: 'riverside', mode: 'conquest', teamSize: 8, bots: true, difficulty: 'normal', vehicles: true, tickets: 250 } });
   }
 
   joinRoom(code, name) {
@@ -105,7 +105,7 @@ class App {
     this.game.you = 0;
     document.body.classList.remove('ingame', 'menu-open');
     $('hud').classList.add('hidden');
-    this.hud.closePause(); this.hud.closeBuy(); this.hud.closeEnd(); this.hud.showScore(false);
+    this.hud.closePause(); this.hud.deploy.hide(); this.hud.closeEnd(); this.hud.showScore(false);
     this.lobby.hide();
     this.inviteCode = '';
     history.replaceState(null, '', location.pathname);
@@ -134,12 +134,13 @@ class App {
     document.body.classList.add('ingame');
     $('hud').classList.remove('hidden');
     this.game.startMatch(m);
-    this.hud.minimap.setMap(this.game.map, this.game.art);
+    this.hud.minimap.setMap(this.game.map, this.game.terrain);
     this.hud.cache = {};
+    this.hud.deploy.lastSpawns = '';
+    this.hud.deathAt = 0;
     this.hud.closeEnd(); this.hud.closePause();
     this.hud.el.killfeed.innerHTML = ''; this.hud.el.chatlog.innerHTML = '';
-    if (m.round === 0) this.toast('Match starting — good luck!');
-    else this.toast('Joined a match in progress. Press Esc to pick a team.');
+    if (m.mode) this.toast('Match starting — pick a class and a spawn point!');
   }
 
   onLobby() {
@@ -149,7 +150,7 @@ class App {
     this.playing = false;
     document.body.classList.remove('ingame', 'menu-open');
     $('hud').classList.add('hidden');
-    this.hud.closePause(); this.hud.closeBuy(); this.hud.closeEnd(); this.hud.showScore(false);
+    this.hud.closePause(); this.hud.deploy.hide(); this.hud.closeEnd(); this.hud.showScore(false);
     this.lobby.built = false;
     this.lobby.show();
   }

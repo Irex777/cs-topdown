@@ -8,6 +8,7 @@ const norm = (a) => { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += T
 const cornerBuf = [];
 let angBuf = new Float64Array(2048);
 let out = new Float32Array(4096);
+let hitFlags = new Uint8Array(2048);
 
 /**
  * Returns {pts: Float32Array [x0,y0,x1,y1...], n} of the visible region around (ox,oy).
@@ -30,7 +31,7 @@ export function computeVision(map, smokes, ox, oy, facing, view) {
   }
   // extra rays around smokes so their silhouette is sharp
   let inSmoke = false;
-  for (const s of smokes) {
+  for (const s of view.air ? [] : smokes) {
     const d = Math.hypot(s.x - ox, s.y - oy);
     if (d < s.r * 0.92) { inSmoke = true; continue; }
     if (d > range + s.r) continue;
@@ -38,7 +39,7 @@ export function computeVision(map, smokes, ox, oy, facing, view) {
     for (let i = -6; i <= 6; i++) push(base + (i / 6) * spread * 1.02);
   }
   const arr = angBuf.subarray(0, n).sort();
-  if (out.length < n * 2 + 4) out = new Float32Array(n * 2 + 64);
+  if (out.length < n * 2 + 4) { out = new Float32Array(n * 2 + 64); hitFlags = new Uint8Array(n + 32); }
   let m = 0;
   let last = -99;
   for (let i = 0; i < n; i++) {
@@ -48,17 +49,19 @@ export function computeVision(map, smokes, ox, oy, facing, view) {
     const a = facing + rel;
     const dx = Math.cos(a), dy = Math.sin(a);
     let lim = Math.abs(rel) <= half ? range : near;
-    if (inSmoke) lim = Math.min(lim, 44);
-    let d = map.castDist(ox, oy, dx, dy, lim);
-    if (d > 0) {
+    if (inSmoke && !view.air) lim = Math.min(lim, 44);
+    let d = view.air ? lim : map.castDist(ox, oy, dx, dy, lim);
+    const wall = d < lim - 0.5;
+    if (d > 0 && !view.air) {
       for (const s of smokes) {
         if (Math.hypot(s.x - ox, s.y - oy) < s.r * 0.92) continue;
         const t = rayCircle(ox, oy, dx, dy, s.x, s.y, s.r * 0.92);
         if (t >= 0 && t < d) d = t;
       }
     }
+    hitFlags[m >> 1] = wall ? 1 : 0;
     out[m++] = ox + dx * d;
     out[m++] = oy + dy * d;
   }
-  return { pts: out, n: m / 2 };
+  return { pts: out, n: m / 2, hit: hitFlags };
 }

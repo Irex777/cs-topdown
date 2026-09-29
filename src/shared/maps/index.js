@@ -1,5 +1,7 @@
 import { GameMap } from '../gamemap.js';
 import riverside from './riverside.js';
+import harbor from './harbor.js';
+import dunes from './dunes.js';
 import dust from './dust.js';
 import warehouse from './warehouse.js';
 import pit from './pit.js';
@@ -26,7 +28,7 @@ function adaptLegacy(def) {
   };
 }
 
-export const MAP_DEFS = [riverside, adaptLegacy(dust), adaptLegacy(warehouse), adaptLegacy(foundry), adaptLegacy(pit)];
+export const MAP_DEFS = [riverside, harbor, dunes, adaptLegacy(dust), adaptLegacy(warehouse), adaptLegacy(foundry), adaptLegacy(pit)];
 const cache = new Map();
 
 const defOf = (id) => MAP_DEFS.find((m) => m.id === id) || MAP_DEFS[0];

@@ -3,6 +3,7 @@
 // The world is a grid of 32 px tiles. Logic is 2D; the client extrudes solid tiles into voxel blocks (2.5D).
 // Solid tiles have hit points and can be destroyed by explosives, turning into walkable rubble.
 import { TILE } from './constants.js';
+import { VEHICLES } from './vehicles.js';
 
 /**
  * Tile legend
@@ -141,10 +142,18 @@ export class GameMap {
     const o = this.def.objects || {};
     const px = (v) => (v + 0.5) * TILE;
     this.flags = (o.flags || []).map((f, i) => ({ id: i, name: f.name || String.fromCharCode(65 + i), x: px(f.x), y: px(f.y), r: f.r || 118, owner: f.owner === undefined ? -1 : f.owner }));
-    this.vehSpawns = (o.vehicles || []).map((v, i) => ({
-      id: i, type: v.type, x: px(v.x), y: px(v.y), a: (v.a || 0) * Math.PI / 180, team: v.team === undefined ? -1 : v.team, flag: v.flag === undefined ? -1 : v.flag,
-      respawn: v.respawn || 0,
-    }));
+    // vehicles are nudged to the nearest spot with enough free ground around it
+    this.vehSpawns = (o.vehicles || []).map((v, i) => {
+      const def = VEHICLES[v.type];
+      let x = px(v.x), y = px(v.y);
+      if (def && def.kind !== 'air') {
+        const mask = def.kind === 'boat' ? this.blockBoat : this.blockInf;
+        const clear = def.kind === 'tracked' ? 2 : def.kind === 'boat' ? 1 : 1;
+        const s = this.nearestClear(x, y, mask, clear);
+        x = s.x; y = s.y;
+      }
+      return { id: i, type: v.type, x, y, a: (v.a || 0) * Math.PI / 180, team: v.team === undefined ? -1 : v.team, flag: v.flag === undefined ? -1 : v.flag, respawn: v.respawn || 0 };
+    });
     this.mcoms = (o.mcoms || []).map((m, i) => ({ id: i, stage: m.stage, x: px(m.x), y: px(m.y) }));
     this.rush = o.rush ? o.rush.map((s) => ({ attack: s.attack.map((q) => ({ x: px(q[0]), y: px(q[1]) })), defend: s.defend.map((q) => ({ x: px(q[0]), y: px(q[1]) })) })) : null;
     this.modes = this.def.modes || ['tdm'];
@@ -178,6 +187,26 @@ export class GameMap {
       for (const c of cand) { cx += c.x; cy += c.y; }
       this.spawnCenter[team] = { x: cx / cand.length, y: cy / cand.length };
     }
+  }
+
+  /** nearest tile centre whose surrounding (2*clear+1)^2 tiles are all free in `mask` */
+  nearestClear(x, y, mask, clear, maxR = 12) {
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    const free = (a, b) => {
+      for (let dy = -clear; dy <= clear; dy++) for (let dx = -clear; dx <= clear; dx++) {
+        const px = a + dx, py = b + dy;
+        if (px < 0 || py < 0 || px >= this.w || py >= this.h || mask[py * this.w + px]) return false;
+      }
+      return true;
+    };
+    if (free(tx, ty)) return { x: (tx + 0.5) * TILE, y: (ty + 0.5) * TILE };
+    for (let r = 1; r <= maxR; r++) {
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        if (free(tx + dx, ty + dy)) return { x: (tx + dx + 0.5) * TILE, y: (ty + dy + 0.5) * TILE };
+      }
+    }
+    return { x, y };
   }
 
   /** A random walkable spot between rmin and rmax px from (x,y), preferring open ground (used for flag / squad spawns). */

@@ -267,6 +267,74 @@ class AudioEngine {
   ping() { if (!this.ready()) return; const out = this._out(null, 0.5); const t = this.ctx.currentTime; this._tone(out, t, 0.12, { from: 1500, to: 1000, gain: 0.35 }); this._tone(out, t + 0.1, 0.12, { from: 1500, to: 1000, gain: 0.25 }); }
   chat() { if (!this.ready() || this._throttle('chat', 200)) return; const out = this._out(null, 0.3); this._tone(out, this.ctx.currentTime, 0.06, { type: 'triangle', from: 900, to: 1200, gain: 0.3 }); }
 
+  // ---- vehicles, launchers and battlefield feedback ---------------------------------------
+  vshot(kind, pos) {
+    if (!this.ready()) return;
+    const c = this.ctx, t = c.currentTime;
+    if (kind === 'cannon') {
+      const out = this._out(pos, 1.4, 5000); if (!out) return;
+      this._noise(out, t, 0.5, { type: 'lowpass', freq: 2600, sweepTo: 120, gain: 1 });
+      this._tone(out, t, 0.6, { from: 90, to: 26, gain: 1.2 });
+      this._noise(out, t + 0.02, 1.2, { type: 'lowpass', freq: 420, gain: 0.4 });
+    } else if (kind === 'rocket') {
+      const out = this._out(pos, 0.9, 3200); if (!out) return;
+      this._noise(out, t, 0.7, { freq: 900, q: 0.6, gain: 0.7, sweepTo: 2600 });
+      this._tone(out, t, 0.25, { from: 200, to: 60, gain: 0.6 });
+    } else if (kind === 'cannon2') {
+      if (this._throttle('c2' + Math.round(pos.x / 100), 60)) return;
+      const out = this._out(pos, 0.9, 3400); if (!out) return;
+      this._noise(out, t, 0.12, { type: 'lowpass', freq: 3600, gain: 0.9 });
+      this._tone(out, t, 0.1, { from: 130, to: 45, gain: 0.8 });
+    } else {
+      if (this._throttle('mg' + Math.round(pos.x / 120) + Math.round(pos.y / 120), 45)) return;
+      const out = this._out(pos, 0.95, 3000); if (!out) return;
+      this._noise(out, t, 0.1, { type: 'lowpass', freq: 3800, gain: 0.85 });
+      this._tone(out, t, 0.09, { from: 140, to: 50, gain: 0.7 });
+    }
+  }
+
+  launch(idx, pos) {
+    if (!this.ready()) return;
+    const out = this._out(pos, 1.0, 3400); if (!out) return;
+    const t = this.ctx.currentTime;
+    this._noise(out, t, 0.55, { freq: 700, q: 0.5, gain: 0.85, sweepTo: 2200 });
+    this._tone(out, t, 0.3, { type: 'sawtooth', from: 180, to: 60, gain: 0.5 });
+  }
+
+  defib(pos) {
+    if (!this.ready() || this._throttle('defib', 400)) return;
+    const out = this._out(pos, 0.7, 900); if (!out) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 3; i++) this._tone(out, t + i * 0.25, 0.2, { type: 'sawtooth', from: 400 + i * 260, to: 900 + i * 260, gain: 0.2 });
+  }
+
+  revive(pos) {
+    if (!this.ready()) return;
+    const out = this._out(pos, 0.8, 1600); if (!out) return;
+    const t = this.ctx.currentTime;
+    this._noise(out, t, 0.1, { freq: 4000, gain: 0.6 });
+    [523, 784, 1047].forEach((f, i) => this._tone(out, t + 0.05 + i * 0.07, 0.16, { type: 'triangle', from: f, gain: 0.3 }));
+  }
+
+  deploy(pos) { if (!this.ready() || this._throttle('dep', 120)) return; const out = this._out(pos, 0.6, 900); if (!out) return; const t = this.ctx.currentTime; this._noise(out, t, 0.06, { freq: 1500, gain: 0.7 }); this._tone(out, t, 0.08, { type: 'square', from: 300, to: 200, gain: 0.12 }); }
+  doorOpen() { if (!this.ready() || this._throttle('door', 150)) return; const out = this._out(null, 0.45); const t = this.ctx.currentTime; this._noise(out, t, 0.08, { type: 'lowpass', freq: 900, gain: 0.7 }); this._tone(out, t + 0.06, 0.08, { type: 'square', from: 240, to: 180, gain: 0.12 }); }
+  crash() { if (!this.ready() || this._throttle('crash', 250)) return; const out = this._out(null, 0.7); const t = this.ctx.currentTime; this._noise(out, t, 0.25, { type: 'lowpass', freq: 800, gain: 0.9 }); this._tone(out, t, 0.2, { from: 120, to: 40, gain: 0.7 }); }
+  repair(pos) { if (!this.ready() || this._throttle('rep', 200)) return; const out = this._out(pos, 0.5, 900); if (!out) return; this._noise(out, this.ctx.currentTime, 0.07, { freq: 3800, q: 1.4, gain: 0.5 }); }
+  score() { if (!this.ready() || this._throttle('score', 120)) return; const out = this._out(null, 0.3); const t = this.ctx.currentTime; this._tone(out, t, 0.06, { type: 'triangle', from: 1400, gain: 0.25 }); this._tone(out, t + 0.05, 0.08, { type: 'triangle', from: 1900, gain: 0.25 }); }
+  flagCap(good) {
+    if (!this.ready()) return;
+    const out = this._out(null, 0.6); const t = this.ctx.currentTime;
+    (good ? [523, 659, 784] : [392, 330, 262]).forEach((f, i) => this._tone(out, t + i * 0.11, 0.2, { type: 'triangle', from: f, gain: 0.3 }));
+  }
+  engine(kind, speed, pos) {
+    if (!this.ready()) return;
+    if (this._throttle('eng' + kind + Math.round(pos ? pos.x / 200 : 0), 110)) return;
+    const out = this._out(pos, kind === 'heli' ? 0.5 : 0.28, 1500); if (!out) return;
+    const t = this.ctx.currentTime;
+    if (kind === 'heli') { for (let i = 0; i < 3; i++) this._noise(out, t + i * 0.035, 0.03, { type: 'lowpass', freq: 380, gain: 0.7 }); }
+    else this._tone(out, t, 0.12, { type: 'sawtooth', from: 55 + speed * 0.22, gain: 0.16 });
+  }
+
   roundStart() {
     if (!this.ready()) return;
     const out = this._out(null, 0.5); const t = this.ctx.currentTime;

@@ -315,7 +315,7 @@ export class BotBrain {
     if (!this.path || this.pathT <= 0 || this.pathAge > 5 || !this.goal || Math.hypot(this.goal.x - tgt.x, this.goal.y - tgt.y) > 120) {
       this.goal = { x: tgt.x, y: tgt.y };
       this.path = g.nav.findPath(v.x, v.y, tgt.x, tgt.y, true, 1);
-      this.pathIdx = 0; this.pathT = 1.5; this.pathAge = 0;
+      this.pathIdx = 0; this.pathT = this.path ? 1.5 : 3 + rnd() * 2; this.pathAge = 0;
     }
     let wx = tgt.x, wy = tgt.y;
     if (this.path) {
@@ -725,7 +725,7 @@ export class BotBrain {
       this.goal = { x: goal.x, y: goal.y };
       this.path = nav.findPath(p.x, p.y, goal.x, goal.y);
       this.pathIdx = 0;
-      this.pathT = 0.4; this.pathAge = 0;
+      this.pathT = this.path ? 0.4 : 1.5 + rnd(); this.pathAge = 0;
     }
     if (!this.path) return null;
     while (this.pathIdx < this.path.length - 1 && Math.hypot(this.path[this.pathIdx].x - p.x, this.path[this.pathIdx].y - p.y) < 18) this.pathIdx++;

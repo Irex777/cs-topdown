@@ -21,7 +21,7 @@ export const tdm = {
     return [{ k: 'base', id: 0, name: 'Main Base', x: c.x, y: c.y, ok: true, why: '' }];
   },
 
-  onKill(g, victim, killer) { g.tix[killer.team]++; },
+  onKill(g, victim, killer) { if (killer.team === T || killer.team === CT) g.tix[killer.team]++; },
 
   snapshot(g, snap) { snap.tix = [g.tix[0], g.tix[1]]; snap.tg = g.target; },
 };

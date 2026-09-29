@@ -72,7 +72,7 @@ export const conquest = {
     return opts;
   },
 
-  onDeath(g, v) { g.tix[v.team] = Math.max(0, g.tix[v.team] - 1); },
+  onDeath(g, v) { if (v.team === T || v.team === CT) g.tix[v.team] = Math.max(0, g.tix[v.team] - 1); },
 
   snapshot(g, snap) {
     snap.tix = [Math.round(g.tix[0] * 10) / 10, Math.round(g.tix[1] * 10) / 10];

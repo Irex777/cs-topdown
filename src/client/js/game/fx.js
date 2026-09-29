@@ -1,6 +1,15 @@
-// Particles, tracers, decals and screen shake.
+// Particles, tracers, decals and screen shake. Everything is made of little cubes to match the voxel look;
+// particles carry a height z so they rise, fall and cast a ground shadow in the 2.5D view.
+import { TILE } from '../../../shared/constants.js';
+
 const rnd = Math.random;
 const TAU = Math.PI * 2;
+const CH = 256;
+
+const DEBRIS = {
+  '#': ['#7c7a78', '#5e5c5b'], B: ['#b5674a', '#8c4a35', '#c9a58f'], X: ['#b58a4a', '#8a6631'], o: ['#d45c30', '#8a3a1c'], '=': ['#9aa4b0', '#6a727c'],
+  L: ['#c4b280', '#a89660'], G: ['#a8dcf0', '#e6f6ff'], T: ['#3f7f3a', '#60422a', '#4f9a48'], M: ['#5a7ea6', '#3a566f'], default: ['#8a8580', '#6a6560'],
+};
 
 export class FX {
   constructor() {
@@ -8,118 +17,176 @@ export class FX {
     this.tracers = [];
     this.rings = [];
     this.floaters = [];
-    this.decal = null;
-    this.dctx = null;
+    this.decals = new Map();
     this.shake = 0;
     this.shakeX = 0; this.shakeY = 0;
+    this.map = null;
+    this.smokeGate = new Map();
+  }
+
+  /** rate limit for damage smoke of one vehicle */
+  shouldSmoke(id, now) {
+    const last = this.smokeGate.get(id) || 0;
+    if (now - last < 90) return false;
+    this.smokeGate.set(id, now);
+    return true;
   }
 
   initMap(map) {
-    this.decal = document.createElement('canvas');
-    this.decal.width = map.width; this.decal.height = map.height;
-    this.dctx = this.decal.getContext('2d');
+    this.map = map;
+    this.decals.clear();
     this.parts.length = 0; this.tracers.length = 0; this.rings.length = 0; this.floaters.length = 0;
   }
 
-  clearRound() {
-    if (this.dctx) this.dctx.clearRect(0, 0, this.decal.width, this.decal.height);
-    this.parts.length = 0; this.tracers.length = 0; this.rings.length = 0; this.floaters.length = 0;
+  clearAll() { this.decals.clear(); this.parts.length = 0; this.tracers.length = 0; this.rings.length = 0; this.floaters.length = 0; }
+
+  addShake(a) { this.shake = Math.min(16, this.shake + a); }
+
+  // ------------------------------------------------------------------ decals (per 256 px chunk, created on demand)
+  decalCtx(cx, cy) {
+    const key = cy * 4096 + cx;
+    let d = this.decals.get(key);
+    if (!d) { const c = document.createElement('canvas'); c.width = CH; c.height = CH; d = { c, g: c.getContext('2d') }; this.decals.set(key, d); }
+    return d;
   }
 
-  addShake(a) { this.shake = Math.min(14, this.shake + a); }
+  /** run fn(ctx) with the context translated into every decal chunk that the box touches */
+  paintDecal(x, y, r, fn) {
+    if (!this.map) return;
+    const cx0 = Math.max(0, Math.floor((x - r) / CH)), cx1 = Math.floor((x + r) / CH);
+    const cy0 = Math.max(0, Math.floor((y - r) / CH)), cy1 = Math.floor((y + r) / CH);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const d = this.decalCtx(cx, cy);
+      d.g.save(); d.g.translate(-cx * CH, -cy * CH); fn(d.g); d.g.restore();
+    }
+  }
+
+  drawDecals(ctx, x0, y0, x1, y1) {
+    const cx0 = Math.max(0, Math.floor(x0 / CH)), cx1 = Math.floor(x1 / CH), cy0 = Math.max(0, Math.floor(y0 / CH)), cy1 = Math.floor(y1 / CH);
+    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
+      const d = this.decals.get(cy * 4096 + cx);
+      if (d) ctx.drawImage(d.c, cx * CH, cy * CH);
+    }
+  }
 
   // ------------------------------------------------------------------ spawners
-  tracer(x0, y0, x1, y1, own, big) {
-    this.tracers.push({ x0, y0, x1, y1, t: 0, life: big ? 0.16 : 0.09, own, big });
-    if (this.tracers.length > 120) this.tracers.shift();
+  tracer(x0, y0, x1, y1, own, big, z = 10) {
+    this.tracers.push({ x0, y0: y0 - z, x1, y1: y1 - z * 0.6, t: 0, life: big ? 0.16 : 0.09, own, big });
+    if (this.tracers.length > 160) this.tracers.shift();
   }
+
+  cube(o) { this.parts.push(Object.assign({ z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: 0.5, r: 3, k: 'cube', g: 0, col: '#fff', drag: 0 }, o)); }
 
   blood(x, y, dir, n = 8) {
     for (let i = 0; i < n; i++) {
       const a = dir + (rnd() - 0.5) * 1.1, sp = 60 + rnd() * 200;
-      this.parts.push({ k: 'blood', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.25 + rnd() * 0.35, t: 0, r: 1 + rnd() * 2.2 });
+      this.cube({ x, y, z: 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 40 + rnd() * 90, g: 700, life: 0.3 + rnd() * 0.3, r: 1.5 + rnd() * 1.8, col: rnd() < 0.5 ? '#a3121a' : '#7a0d12', drag: 3 });
     }
-    this.splat(x, y, dir, 3 + Math.floor(rnd() * 3), 1);
+    this.splat(x, y, dir, 3 + Math.floor(rnd() * 3));
   }
 
-  splat(x, y, dir, n, spread) {
-    const c = this.dctx; if (!c) return;
-    for (let i = 0; i < n; i++) {
-      const d = 4 + rnd() * 16 * spread;
-      const a = dir + (rnd() - 0.5) * 1.6;
-      c.fillStyle = `rgba(${120 + (rnd() * 30) | 0},8,10,${0.28 + rnd() * 0.3})`;
-      c.beginPath(); c.ellipse(x + Math.cos(a) * d, y + Math.sin(a) * d, 1.5 + rnd() * 3.5, 1 + rnd() * 2.5, a, 0, TAU); c.fill();
-    }
+  splat(x, y, dir, n) {
+    this.paintDecal(x, y, 24, (c) => {
+      for (let i = 0; i < n; i++) {
+        const d = 3 + rnd() * 14, a = dir + (rnd() - 0.5) * 1.6;
+        c.fillStyle = `rgba(${120 + (rnd() * 30) | 0},8,10,${0.3 + rnd() * 0.3})`;
+        const s = 2 + Math.floor(rnd() * 3) * 2;
+        c.fillRect(Math.round(x + Math.cos(a) * d), Math.round(y + Math.sin(a) * d), s, s);
+      }
+    });
   }
 
   corpseStain(x, y) {
-    const c = this.dctx; if (!c) return;
-    for (let i = 0; i < 9; i++) {
-      c.fillStyle = `rgba(${110 + (rnd() * 30) | 0},6,8,${0.25 + rnd() * 0.25})`;
-      c.beginPath(); c.ellipse(x + (rnd() - 0.5) * 22, y + (rnd() - 0.5) * 22, 3 + rnd() * 8, 2 + rnd() * 6, rnd() * 3, 0, TAU); c.fill();
-    }
+    this.paintDecal(x, y, 22, (c) => {
+      for (let i = 0; i < 9; i++) { c.fillStyle = `rgba(${110 + (rnd() * 30) | 0},6,8,${0.25 + rnd() * 0.25})`; const s = 4 + Math.floor(rnd() * 4) * 2; c.fillRect(Math.round(x + (rnd() - 0.5) * 24), Math.round(y + (rnd() - 0.5) * 24), s, s); }
+    });
   }
 
   scorch(x, y, r) {
-    const c = this.dctx; if (!c) return;
-    const g = c.createRadialGradient(x, y, 2, x, y, r);
-    g.addColorStop(0, 'rgba(0,0,0,0.55)'); g.addColorStop(0.6, 'rgba(20,14,8,0.3)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-    c.fillStyle = g; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    this.paintDecal(x, y, r + 4, (c) => {
+      // a ragged blocky crater: squares of soot, darker toward the middle
+      const n = Math.ceil(r / 6);
+      for (let j = -n; j <= n; j++) for (let i = -n; i <= n; i++) {
+        const d = Math.hypot(i, j) / n;
+        if (d > 1 || rnd() < d * 0.6) continue;
+        c.fillStyle = `rgba(${10 + (rnd() * 14) | 0},${8 + (rnd() * 8) | 0},6,${(1 - d) * 0.55})`;
+        c.fillRect(Math.round(x + i * 6 - 3), Math.round(y + j * 6 - 3), 6, 6);
+      }
+    });
   }
 
-  sparks(x, y, dir, n = 5) {
+  sparks(x, y, dir, n = 5, z = 8) {
     for (let i = 0; i < n; i++) {
       const a = dir + Math.PI + (rnd() - 0.5) * 1.6, sp = 80 + rnd() * 220;
-      this.parts.push({ k: 'spark', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.1 + rnd() * 0.15, t: 0, r: 1 });
+      this.cube({ x, y, z, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 30 + rnd() * 100, g: 600, life: 0.12 + rnd() * 0.15, r: 1.3, col: '#ffd98a', drag: 4 });
     }
-    this.parts.push({ k: 'puff', x, y, vx: 0, vy: 0, life: 0.35, t: 0, r: 4, grow: 14, col: '190,190,190', a0: 0.25 });
+    this.cube({ x, y, z, life: 0.35, r: 3, k: 'puff', col: '#bdb6a8', a0: 0.3, grow: 10, vz: 20 });
   }
 
   casing(x, y, ang) {
     const a = ang + Math.PI / 2 + (rnd() - 0.5) * 0.6, sp = 90 + rnd() * 70;
-    this.parts.push({ k: 'casing', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.5, t: 0, r: 1.6, rot: rnd() * 6, vr: (rnd() - 0.5) * 30 });
+    this.cube({ x, y, z: 12, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 90, g: 600, life: 0.5, r: 1.3, col: '#d7b14a', drag: 3 });
   }
 
-  muzzleSmoke(x, y, ang) {
-    this.parts.push({ k: 'puff', x: x + Math.cos(ang) * 4, y: y + Math.sin(ang) * 4, vx: Math.cos(ang) * 20, vy: Math.sin(ang) * 20, life: 0.5, t: 0, r: 3, grow: 12, col: '200,200,200', a0: 0.18 });
+  muzzle(x, y, ang, z = 11) {
+    const fx = x + Math.cos(ang) * 16, fy = y + Math.sin(ang) * 16;
+    this.cube({ x: fx, y: fy, z, life: 0.06, r: 5, k: 'flash' });
   }
 
   ring(x, y, r0, r1, life, color, width = 3) { this.rings.push({ x, y, r0, r1, life, t: 0, color, width }); }
 
-  explosion(x, y, big) {
-    const n = big ? 60 : 26;
+  explosion(x, y, size) {
+    const s = Math.max(0.5, size / 120);
+    const n = Math.round(22 * s + 8);
     for (let i = 0; i < n; i++) {
-      const a = rnd() * TAU, sp = (big ? 90 : 60) + rnd() * (big ? 420 : 260);
-      this.parts.push({ k: 'fire', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.35 + rnd() * 0.5, t: 0, r: 4 + rnd() * (big ? 14 : 9) });
+      const a = rnd() * TAU, sp = (60 + rnd() * 240) * Math.sqrt(s);
+      this.cube({ x, y, z: 6 + rnd() * 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 60 + rnd() * 220 * s, g: -60, life: 0.35 + rnd() * 0.5, r: (3 + rnd() * 6) * Math.sqrt(s), k: 'fire', drag: 2 });
     }
-    for (let i = 0; i < (big ? 26 : 12); i++) {
-      const a = rnd() * TAU, sp = 20 + rnd() * 120;
-      this.parts.push({ k: 'puff', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 1 + rnd() * 1.2, t: 0, r: 10 + rnd() * 10, grow: 26, col: '70,64,60', a0: 0.5 });
+    for (let i = 0; i < Math.round(10 * s + 4); i++) {
+      const a = rnd() * TAU, sp = 15 + rnd() * 90 * Math.sqrt(s);
+      this.cube({ x, y, z: 8, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 30 + rnd() * 60, g: -20, life: 1 + rnd() * 1.4, r: (7 + rnd() * 9) * Math.sqrt(s), k: 'puff', col: '#4a4644', a0: 0.5, grow: 24 * s, drag: 1.5 });
     }
-    this.ring(x, y, 10, big ? 460 : 250, big ? 0.7 : 0.4, 'rgba(255,200,120,0.9)', big ? 8 : 5);
-    this.parts.push({ k: 'flare', x, y, vx: 0, vy: 0, life: 0.22, t: 0, r: big ? 260 : 150 });
-    this.scorch(x, y, big ? 130 : 60);
+    this.ring(x, y, 8, 40 + size * 1.3, 0.5, 'rgba(255,214,140,0.9)', 4 + s * 3);
+    this.cube({ x, y, z: 10, life: 0.2, r: size * 0.9, k: 'glow' });
+    this.scorch(x, y, Math.min(70, size * 0.5));
   }
 
   flashBurst(x, y) {
-    this.parts.push({ k: 'flare', x, y, vx: 0, vy: 0, life: 0.35, t: 0, r: 220 });
+    this.cube({ x, y, z: 12, life: 0.35, r: 160, k: 'glow', col: '#ffffff' });
     this.ring(x, y, 10, 200, 0.3, 'rgba(255,255,255,0.9)', 4);
   }
 
   molotovSplash(x, y) {
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 24; i++) {
       const a = rnd() * TAU, sp = 40 + rnd() * 200;
-      this.parts.push({ k: 'fire', x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0.3 + rnd() * 0.4, t: 0, r: 3 + rnd() * 6 });
+      this.cube({ x, y, z: 4, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 40 + rnd() * 80, g: 300, life: 0.3 + rnd() * 0.4, r: 3 + rnd() * 4, k: 'fire', drag: 2 });
     }
-    this.scorch(x, y, 50);
+    this.scorch(x, y, 40);
   }
 
   flames(x, y, r) {
-    // called each frame for active fires
     for (let i = 0; i < 2; i++) {
       const a = rnd() * TAU, d = Math.sqrt(rnd()) * r;
-      this.parts.push({ k: 'fire', x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, vx: (rnd() - 0.5) * 16, vy: -10 - rnd() * 24, life: 0.3 + rnd() * 0.35, t: 0, r: 4 + rnd() * 6 });
+      this.cube({ x: x + Math.cos(a) * d, y: y + Math.sin(a) * d, z: 0, vx: (rnd() - 0.5) * 16, vy: 0, vz: 30 + rnd() * 50, life: 0.3 + rnd() * 0.35, r: 3 + rnd() * 4, k: 'fire' });
     }
+  }
+
+  /** a wall block falls apart into cubes of its own colour */
+  tileBreak(tx, ty, ch) {
+    const cols = DEBRIS[ch] || DEBRIS.default;
+    const cx = (tx + 0.5) * TILE, cy = (ty + 0.5) * TILE;
+    const n = ch === '=' ? 6 : ch === 'B' || ch === '#' ? 16 : 11;
+    for (let i = 0; i < n; i++) {
+      const a = rnd() * TAU, sp = 40 + rnd() * 190;
+      this.cube({ x: cx + (rnd() - 0.5) * 22, y: cy + (rnd() - 0.5) * 22, z: 6 + rnd() * 24, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 90 + rnd() * 260, g: 900, life: 0.9 + rnd() * 0.5, r: 2 + rnd() * 3.5, col: cols[i % cols.length], k: 'debris', bounce: 0.35 });
+    }
+    for (let i = 0; i < 3; i++) this.cube({ x: cx + (rnd() - 0.5) * 18, y: cy + (rnd() - 0.5) * 18, z: 10, vx: (rnd() - 0.5) * 40, vy: (rnd() - 0.5) * 40, vz: 40 + rnd() * 50, life: 0.9 + rnd() * 0.6, r: 8 + rnd() * 6, k: 'puff', col: '#8d867d', a0: 0.42, grow: 16, drag: 1.5 });
+  }
+
+  smokeTrail(x, y, z = 10) { this.cube({ x, y, z, vz: 12, life: 0.7, r: 3, k: 'puff', col: '#c8c2b8', a0: 0.35, grow: 8 }); }
+  damageSmoke(x, y, heavy) {
+    this.cube({ x: x + (rnd() - 0.5) * 12, y: y + (rnd() - 0.5) * 12, z: 14, vz: 26 + rnd() * 20, life: 0.9 + rnd() * 0.5, r: 4, k: 'puff', col: heavy ? '#26221f' : '#6d6862', a0: 0.55, grow: 14 });
+    if (heavy && rnd() < 0.5) this.cube({ x: x + (rnd() - 0.5) * 10, y: y + (rnd() - 0.5) * 10, z: 10, vz: 40 + rnd() * 30, life: 0.35, r: 3 + rnd() * 2, k: 'fire' });
   }
 
   floater(x, y, text, color) { this.floaters.push({ x, y, text, color, t: 0, life: 1.4 }); }
@@ -130,79 +197,93 @@ export class FX {
       const p = this.parts[i];
       p.t += dt;
       if (p.t >= p.life) { this.parts[i] = this.parts[this.parts.length - 1]; this.parts.pop(); continue; }
-      p.x += p.vx * dt; p.y += p.vy * dt;
-      if (p.k === 'blood' || p.k === 'spark' || p.k === 'casing') { const f = Math.exp(-4 * dt); p.vx *= f; p.vy *= f; }
-      else if (p.k === 'puff') { const f = Math.exp(-2 * dt); p.vx *= f; p.vy *= f; }
-      if (p.rot !== undefined) p.rot += p.vr * dt;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      p.vz -= p.g * dt;
+      if (p.drag) { const f = Math.exp(-p.drag * dt); p.vx *= f; p.vy *= f; }
+      if (p.z < 0 && p.g > 0) { p.z = 0; if (p.bounce && Math.abs(p.vz) > 30) p.vz = -p.vz * p.bounce; else { p.vz = 0; p.vx *= 0.6; p.vy *= 0.6; } }
     }
     for (let i = this.tracers.length - 1; i >= 0; i--) { this.tracers[i].t += dt; if (this.tracers[i].t > this.tracers[i].life) this.tracers.splice(i, 1); }
     for (let i = this.rings.length - 1; i >= 0; i--) { this.rings[i].t += dt; if (this.rings[i].t > this.rings[i].life) this.rings.splice(i, 1); }
     for (let i = this.floaters.length - 1; i >= 0; i--) { this.floaters[i].t += dt; if (this.floaters[i].t > this.floaters[i].life) this.floaters.splice(i, 1); }
-    if (this.parts.length > 900) this.parts.splice(0, this.parts.length - 900);
+    if (this.parts.length > 1400) this.parts.splice(0, this.parts.length - 1400);
     this.shake *= Math.exp(-7 * dt);
     if (this.shake < 0.05) this.shake = 0;
     this.shakeX = (rnd() - 0.5) * 2 * this.shake;
     this.shakeY = (rnd() - 0.5) * 2 * this.shake;
   }
 
-  drawGround(ctx) {
-    if (this.decal) ctx.drawImage(this.decal, 0, 0);
-  }
-
-  /** particles that sit under players */
+  /** things that lie on the ground: shadows of airborne cubes */
   drawLow(ctx) {
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
     for (const p of this.parts) {
-      if (p.k === 'casing') {
-        ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
-        ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = '#d7b14a'; ctx.fillRect(-2, -1, 4, 2); ctx.restore();
-      } else if (p.k === 'blood') {
-        ctx.globalAlpha = 1 - p.t / p.life; ctx.fillStyle = '#8f0d12'; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
-      }
+      if (p.k === 'debris' || (p.k === 'cube' && p.z > 3 && p.g > 0)) { const s = p.r; ctx.fillRect(Math.round(p.x - s / 2 + 2), Math.round(p.y - s / 2 + 3), s, s); }
     }
-    ctx.globalAlpha = 1;
   }
 
   drawHigh(ctx) {
     for (const p of this.parts) {
       const k = p.t / p.life;
-      if (p.k === 'spark') {
-        ctx.globalAlpha = 1 - k; ctx.fillStyle = '#ffd98a'; ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
-      } else if (p.k === 'puff') {
-        ctx.globalAlpha = (p.a0 || 0.3) * (1 - k); ctx.fillStyle = `rgb(${p.col})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r + p.grow * k, 0, TAU); ctx.fill();
-      } else if (p.k === 'fire') {
-        ctx.globalAlpha = (1 - k) * 0.9;
-        ctx.fillStyle = k < 0.35 ? '#ffe28a' : k < 0.7 ? '#ff8a2a' : '#c23a12';
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1 - k * 0.6), 0, TAU); ctx.fill();
-      } else if (p.k === 'flare') {
-        const a = (1 - k);
-        const g = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
-        g.addColorStop(0, `rgba(255,240,200,${0.85 * a})`); g.addColorStop(1, 'rgba(255,200,120,0)');
-        ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, TAU); ctx.fill();
+      const px = Math.round(p.x), py = Math.round(p.y - p.z);
+      switch (p.k) {
+        case 'puff': {
+          ctx.globalAlpha = (p.a0 || 0.3) * (1 - k);
+          ctx.fillStyle = p.col;
+          const s = Math.round(p.r + (p.grow || 0) * k);
+          ctx.fillRect(px - s / 2, py - s / 2, s, s);
+          break;
+        }
+        case 'fire': {
+          ctx.globalAlpha = Math.min(1, (1 - k) * 1.3);
+          ctx.fillStyle = k < 0.3 ? '#fff0a0' : k < 0.6 ? '#ff9a2a' : '#c23a12';
+          const s = Math.max(2, Math.round(p.r * (1 - k * 0.6)));
+          ctx.fillRect(px - s / 2, py - s / 2, s, s);
+          break;
+        }
+        case 'glow': {
+          const a = (1 - k);
+          const g = ctx.createRadialGradient(px, py, 0, px, py, p.r);
+          g.addColorStop(0, p.col === '#ffffff' ? `rgba(255,255,255,${0.9 * a})` : `rgba(255,240,200,${0.85 * a})`); g.addColorStop(1, 'rgba(255,200,120,0)');
+          ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(px - p.r, py - p.r, p.r * 2, p.r * 2);
+          break;
+        }
+        case 'flash': {
+          ctx.globalAlpha = 1 - k; ctx.fillStyle = '#fff6c0'; const s = p.r; ctx.fillRect(px - s / 2, py - s / 2, s, s);
+          ctx.fillStyle = '#ffb030'; ctx.fillRect(px - s / 4, py - s / 4, s / 2, s / 2);
+          break;
+        }
+        default: {
+          ctx.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
+          ctx.fillStyle = p.col;
+          const s = Math.max(1, Math.round(p.r));
+          ctx.fillRect(px - s / 2, py - s / 2, s, s);
+          if (p.k === 'debris') { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px - s / 2, py + s / 2 - 1, s, 1); }
+        }
       }
     }
     for (const r of this.rings) {
       const k = r.t / r.life;
-      ctx.globalAlpha = (1 - k) * 0.9; ctx.strokeStyle = r.color; ctx.lineWidth = r.width * (1 - k * 0.5);
-      ctx.beginPath(); ctx.arc(r.x, r.y, r.r0 + (r.r1 - r.r0) * (1 - Math.pow(1 - k, 2)), 0, TAU); ctx.stroke();
+      ctx.globalAlpha = (1 - k) * 0.85; ctx.strokeStyle = r.color; ctx.lineWidth = r.width * (1 - k * 0.5);
+      const rr = r.r0 + (r.r1 - r.r0) * (1 - Math.pow(1 - k, 2));
+      ctx.save(); ctx.translate(r.x, r.y); ctx.scale(1, 0.8);
+      ctx.strokeRect(-rr, -rr, rr * 2, rr * 2); ctx.restore();
     }
     for (const t of this.tracers) {
       const k = t.t / t.life;
       ctx.globalAlpha = (1 - k) * (t.own ? 0.9 : 0.75);
       const g = ctx.createLinearGradient(t.x0, t.y0, t.x1, t.y1);
       g.addColorStop(0, 'rgba(255,230,150,0)'); g.addColorStop(0.15, 'rgba(255,240,190,0.9)'); g.addColorStop(1, 'rgba(255,200,90,0.5)');
-      ctx.strokeStyle = g; ctx.lineWidth = t.big ? 2.4 : 1.4;
+      ctx.strokeStyle = g; ctx.lineWidth = t.big ? 2.6 : 1.5; ctx.lineCap = 'square';
       ctx.beginPath(); ctx.moveTo(t.x0, t.y0); ctx.lineTo(t.x1, t.y1); ctx.stroke();
     }
     ctx.globalAlpha = 1;
   }
 
   drawFloaters(ctx) {
-    ctx.textAlign = 'center'; ctx.font = '700 15px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
     for (const f of this.floaters) {
       const k = f.t / f.life;
       ctx.globalAlpha = 1 - k * k;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(f.text, f.x + 1, f.y - k * 34 + 1);
+      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(f.text, f.x + 1, f.y - k * 34 + 1);
       ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - k * 34);
     }
     ctx.globalAlpha = 1;

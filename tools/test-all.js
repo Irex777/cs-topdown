@@ -1,4 +1,4 @@
-// Runs every automated check: map validation, headless simulation, fuzzing and the WebSocket integration test.
+// Runs every automated check: map validation, mechanics, headless simulations, fuzzing, lag compensation and the WebSocket integration test.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,10 @@ import { fileURLToPath } from 'node:url';
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const steps = [
   ['map validation', ['tools/preview-maps.js']],
-  ['bot simulation (dust, 5v5)', ['tools/sim.js', 'dust', '300', '5']],
+  ['game mechanics', ['tools/mechanics.js']],
+  ['bot simulation (riverside conquest, 8v8)', ['tools/sim.js', 'riverside', '300', '8']],
+  ['bot simulation (harbor rush, 6v6)', ['tools/sim.js', 'harbor', '300', '6', 'normal', 'rush']],
+  ['bot simulation (pit deathmatch, 3v3)', ['tools/sim.js', 'pit', '120', '3', 'normal', 'tdm']],
   ['fuzz / invariants', ['tools/fuzz.js']],
   ['lag compensation', ['tools/lagcomp.js']],
   ['integration (real server)', ['tools/integration.js']],

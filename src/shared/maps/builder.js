@@ -208,6 +208,22 @@ export class MapBuilder {
   }
   flag(name, x, y, owner = -1, r = 118) { this.objects.flags.push({ name, x, y, owner, r }); return this; }
   vehicle(type, x, y, a = 0, o = {}) { this.objects.vehicles.push({ type, x, y, a, ...o }); return this; }
+  /** turns every walkable pocket that cannot be reached from (sx, sy) into rock, so no map has sealed-off floor */
+  seal(sx, sy) {
+    const solid = '#BMXo=LGT~';
+    const seen = Array.from({ length: this.h }, () => new Uint8Array(this.w));
+    const q = [[sx, sy]]; seen[sy][sx] = 1;
+    while (q.length) {
+      const [x, y] = q.pop();
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= this.w || ny >= this.h || seen[ny][nx] || solid.includes(this.g[ny][nx])) continue;
+        seen[ny][nx] = 1; q.push([nx, ny]);
+      }
+    }
+    for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) if (!seen[y][x] && !solid.includes(this.g[y][x])) this.g[y][x] = '#';
+    return this;
+  }
   finish() { return { rows: this.rows(), objects: this.objects }; }
 }
 

@@ -27,7 +27,7 @@ function outpost(m, cx, cy) {
   for (const [dx, dy] of [[-4, -8], [2, -8], [-4, 8], [2, 8]]) m.wallLine(cx + dx, cy + dy, 3, false, 'L');
   m.rect(cx - 2, cy - 2, 2, 1, 'M').rect(cx + 1, cy + 2, 2, 1, 'M');
   m.set(cx + 3, cy - 3, 'X').set(cx - 3, cy + 3, 'X').set(cx + 4, cy - 3, 'o').set(cx - 4, cy + 3, 'o');
-  m.house(cx - 15, cy - 14, 8, 6, { door: 'S' });
+  m.house(cx - 9, cy - 16, 8, 6, { door: 'S' });
   m.house(cx + 8, cy + 9, 8, 6, { door: 'N' });
 }
 
@@ -124,10 +124,10 @@ function build() {
   }
 
   // ---- objects
-  m.flag('Outpost', 34, 56, 0, 130).flag('Farm', 44, 20, -1, 124).flag('Mill', 44, 92, -1, 124);
-  m.objects.flags[0].mirror = 'Outpost2';
-  m.objects.flags[1].mirror = 'Farm2';
-  m.objects.flags[2].mirror = 'Mill2';
+  m.flag('West Outpost', 34, 56, 0, 130).flag('Farmstead', 44, 20, -1, 124).flag('Old Mill', 44, 92, -1, 124);
+  m.objects.flags[0].mirror = 'East Outpost';
+  m.objects.flags[1].mirror = 'Orchard';
+  m.objects.flags[2].mirror = 'Quarry';
   m.objects.flags.push({ name: 'Bridge', x: CX, y: 56, owner: -1, r: 136, mid: true });
   // red base vehicles
   m.vehicle('tank', 20, 49, 0, { team: 0 }).vehicle('tank', 20, 63, 0, { team: 0 });
@@ -138,6 +138,7 @@ function build() {
   m.vehicle('jeep', 38, 50, 0, { team: -1 }).vehicle('quad', 40, 22, 0, { team: -1 }).vehicle('jeep', 40, 90, 0, { team: -1 });
   m.vehicle('boat', 84, 41, 90, { team: -1, mid: true }).vehicle('boat', 84, 72, 90, { team: -1, mid: true });
   m.vehicle('apc', 72, 60, 0, { team: -1, respawn: 90 });
+  m.seal(10, 56);
   const fin = m.finish();
   fin.objects = mirrorObjects(m.objects, W);
   return fin;

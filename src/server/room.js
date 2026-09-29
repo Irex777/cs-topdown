@@ -322,6 +322,12 @@ export class Room {
     else if (m.cmd === 'god') p.spawnProt = 9999;
     else if (m.cmd === 'tix') { g.tix = [Number(m.a), Number(m.b)]; }
     else if (m.cmd === 'flag' && g.flags[m.i | 0]) { const f = g.flags[m.i | 0]; f.owner = m.owner | 0; f.cap = f.owner === 0 ? -1 : 1; }
+    else if (m.cmd === 'enter') {
+      const v = g.vehicles.find((q) => q.type === m.type && !q.dead && !q.occupants().length);
+      if (v && p.alive) { p.x = v.x; p.y = v.y; import('./vehicles.js').then((vm) => vm.enterVehicle(g, p, v, m.seat | 0)); }
+    }
+    else if (m.cmd === 'boom') { import('./world.js').then((w) => w.explode(g, { x: Number(m.x), y: Number(m.y), radius: Number(m.r) || 160, dmg: 100, veh: 400, tile: Number(m.tile) || 700, owner: p, wid: 'c4', kind: m.kind || 'c4' })); }
+    else if (m.cmd === 'give') { p.loadout = { ...p.loadout, cls: m.cls || p.loadout.cls }; }
     else if (m.cmd === 'state') this.send(p, { t: 'toast', text: JSON.stringify({ x: p.x, y: p.y, alive: p.alive }) });
   }
 

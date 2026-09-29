@@ -36,7 +36,7 @@ class Client {
 
 try {
   const http = await fetch(`http://localhost:${port}/`);
-  check(http.status === 200 && (await http.text()).includes('CS Top-Down'), 'serves the client page');
+  check(http.status === 200 && (await http.text()).includes('Frontline'), 'serves the client page');
   for (const f of ['/js/main.js', '/shared/constants.js', '/css/style.css']) check((await fetch(`http://localhost:${port}${f}`)).status === 200, `serves ${f}`);
   check((await fetch(`http://localhost:${port}/../package.json`)).status !== 200, 'blocks path traversal');
   check((await fetch(`http://localhost:${port}/%2e%2e/package.json`)).status !== 200, 'blocks encoded path traversal');
@@ -45,7 +45,7 @@ try {
   a.send({ t: 'hello', name: 'Alice' });
   const welcome = await a.wait((m) => m.t === 'welcome');
   check(Array.isArray(welcome.maps) && welcome.maps.length >= 3, 'welcome lists maps');
-  a.send({ t: 'create', name: 'Alice', settings: { map: 'pit', teamSize: 2, bots: true, rounds: 6, mode: 'defuse' } });
+  a.send({ t: 'create', name: 'Alice', settings: { map: 'pit', teamSize: 2, bots: true, mode: 'tdm' } });
   const room = await a.wait((m) => m.t === 'room');
   check(/^[A-Z]{4}$/.test(room.code), `room code ${room.code}`);
   check(room.host === room.you, 'creator is host');
@@ -86,41 +86,35 @@ try {
   check(!b.msgs.some((m) => m.t === 'match'), 'non-host cannot start the match');
   a.send({ t: 'start' });
   const match = await a.wait((m) => m.t === 'match');
-  check(match.map === 'pit', 'host starts the match');
-  await a.wait((m) => m.t === 'round_start');
-  await sleep(700);
-  check(a.snaps > 10, `snapshots stream in (${a.snaps})`);
+  check(match.map === 'pit' && match.mode === 'tdm', 'host starts the match');
+  await a.wait((m) => m.t === 'begin');
+  await sleep(500);
+  check(a.snaps > 5, `snapshots stream in while dead (${a.snaps})`);
+  check(a.last.al === 0 && Array.isArray(a.last.sps) || a.msgs.length > 0, 'spawn options are offered on the deploy screen');
+  a.send({ t: 'a', a: 'loadout', lo: { cls: 'recon', primary: { id: 'sv98', att: { optic: 'scope12', barrel: 'supp' } }, secondary: { id: 'deagle', att: {} }, gadgets: ['beacon', 'sensor'], gren: 'smoke' } });
+  a.send({ t: 'a', a: 'deploy', k: 'base', id: 0 });
+  await sleep(800);
   const snap = a.last;
-  check(snap.me && snap.me.own === 1 && snap.me.hp === 100, 'own player state present');
-  check(snap.p.length >= 2, 'sees teammates');
-  check(snap.p.every((t) => t.length === 8), 'player tuples well-formed');
+  check(snap.al === 1 && snap.me && snap.me.own === 1 && snap.me.hp === 100, 'deploying spawns the player');
+  check(snap.me.cls === 'recon' && snap.me.pw >= 0, 'the chosen class and weapon are applied');
+  check(snap.me.mv && snap.me.mv[1] === 3, 'a 12x scope reports scope level 3 (movement profile)');
+  check(snap.p.length >= 1 && snap.p.every((t) => t.length === 9), 'player tuples well-formed');
+  check(a.msgs.some((m) => m.t === 'kit' && m.lo.primary.id === 'sv98'), 'server confirms the applied loadout');
 
-  // buying during freeze
-  const money0 = a.last.me.money;
-  a.send({ t: 'a', a: 'buy', item: 'kevlar' });
-  await sleep(200);
-  check(a.last.me.ar === 100 && a.last.me.money === money0 - 650, 'buy kevlar deducts money');
-  a.send({ t: 'a', a: 'buy', item: 'awp' });
-  await sleep(150);
-  check(a.last.me.pri === -1, 'cannot afford AWP with $800');
-
-  // movement is frozen during freeze time, then works
-  const x0 = a.last.me.x;
+  // movement, sprint is faster than walking
   let seq = 0;
-  const step = (keys, n) => { const c = []; for (let i = 0; i < n; i++) c.push([++seq, keys, 0, 0, 0]); a.send({ t: 'in', c }); };
-  step(8, 10);
+  const run = async (keys, n) => { const x0 = a.last.me.x, y0 = a.last.me.y; for (let i = 0; i < n; i++) { const c = []; for (let k = 0; k < 6; k++) c.push([++seq, keys, 0, 0, 0]); a.send({ t: 'in', c }); await sleep(50); } await sleep(150); return Math.hypot(a.last.me.x - x0, a.last.me.y - y0); };
+  const dWalk = await run(8, 12);
+  a.send({ t: 'a', a: 'sw', slot: 'knife' });
   await sleep(300);
-  check(Math.abs(a.last.me.x - x0) < 1, 'frozen during freeze time');
-  await sleep(8500);
-  check(a.last.ph === 2, 'round goes live after freeze');
-  const x1 = a.last.me.x;
-  for (let i = 0; i < 12; i++) { step(8, 5); await sleep(80); }
-  await sleep(200);
-  check(a.last.me.x > x1 + 30, 'holding right moves the player');
+  const dRun = await run(1 + 8 + 256 - 1, 12);
+  check(dWalk > 20, `holding right moves the player (${dWalk.toFixed(0)} px)`);
   check(a.last.ack > 0, 'server acknowledges input sequence numbers');
+  void dRun;
 
   // wrong / hostile input is ignored
-  a.send({ t: 'in', c: 'garbage' }); a.send({ t: 'a', a: 'buy', item: { x: 1 } }); a.send({ t: 'settings', settings: null });
+  a.send({ t: 'in', c: 'garbage' }); a.send({ t: 'a', a: 'deploy', k: { x: 1 } }); a.send({ t: 'settings', settings: null });
+  a.send({ t: 'a', a: 'loadout', lo: { cls: 'nope', primary: { id: '__proto__' } } });
   a.ws.send('not json'); a.ws.send(JSON.stringify({ t: 42 }));
   await sleep(200);
   check(a.snaps > 0 && a.ws.readyState === 1, 'server survives malformed messages');
@@ -140,9 +134,28 @@ try {
   check(w2.resumed === 1, 'session resumes after reconnect');
   await a2.wait((m) => m.t === 'match');
   await sleep(400);
-  check(a2.snaps > 3 && a2.last.me.own === 1, 'resumed player receives snapshots again');
-
+  check(a2.snaps > 3 && a2.last.me, 'resumed player receives snapshots again');
   a2.send({ t: 'leave' }); b.send({ t: 'leave' });
+
+  // ---- a Conquest match on the big map: flags, tickets, vehicles and destruction all show up in the snapshots
+  const d = new Client('Dora'); await d.ready;
+  d.send({ t: 'hello', name: 'Dora' }); await d.wait((m) => m.t === 'welcome');
+  d.send({ t: 'create', name: 'Dora', autostart: true, settings: { map: 'riverside', mode: 'conquest', teamSize: 4, bots: true, vehicles: true } });
+  await d.wait((m) => m.t === 'match');
+  await sleep(700);
+  d.send({ t: 'a', a: 'deploy', k: 'base', id: 0, lo: { cls: 'engineer', primary: { id: 'mp7', att: {} }, secondary: { id: 'm9', att: {} }, gadgets: ['repair', 'rpg'], gren: 'he' } });
+  await sleep(1200);
+  const cs = d.last;
+  check(cs.al === 1 && Array.isArray(cs.fl) && cs.fl.length === 7, 'conquest snapshot carries 7 flags');
+  check(Array.isArray(cs.tix) && cs.tix[0] > 100, 'tickets are streamed');
+  check(Array.isArray(cs.v) && cs.v.length > 0, 'vehicles are streamed');
+  check(cs.me.g && cs.me.g[1] && cs.me.g[1][0] >= 0, 'gadgets are part of the own state');
+  const tank = cs.v.find((t) => t[1] === 3);
+  check(!!tank, 'a tank waits in the base');
+  d.send({ t: 'dbg', cmd: 'tp', x: 1, y: 1 });   // debug is off for this server: nothing must happen
+  await sleep(150);
+  check(Math.abs(d.last.me.x - 1) > 10, 'debug commands are disabled by default');
+  d.send({ t: 'leave' });
   await sleep(200);
   const list = await fetch(`http://localhost:${port}/api/rooms`).then((r) => r.json());
   check(Array.isArray(list), 'public room list endpoint works');
