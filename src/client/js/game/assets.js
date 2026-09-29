@@ -7,9 +7,31 @@ import { GLTFLoader } from '../../vendor/three/GLTFLoader.js';
 const BASE = new URL('../../assets/', import.meta.url).href;
 const loader = new GLTFLoader();
 
-export const assets = { weapons: {}, attachments: null, hands: null, soldier: null, vehicles: {}, ready: false, failed: 0, listeners: [] };
+export const assets = { weapons: {}, attachments: null, hands: null, soldier: null, vehicles: {}, props: null, tex: {}, ready: false, failed: 0, listeners: [] };
 const WEAPON_FILES = ['ar7', 'br12', 'vx9', 'sg4', 'mg60', 'dmr14', 'sr50', 'p18', 'rpg'];
 const VEHICLE_FILES = ['tank', 'jeep', 'apc', 'quad', 'heli', 'boat'];
+// baked PBR sets (tools/blender/build_textures.py): c = albedo, n = tangent normal, r = roughness
+const TEX_FILES = ['brick_c', 'brick_n', 'brick_r', 'concrete_c', 'concrete_n', 'concrete_r', 'rock_c', 'rock_n', 'rock_r', 'metal_c', 'metal_n', 'metal_r', 'wood_c', 'wood_n', 'wood_r', 'sandbag_c', 'sandbag_n', 'sandbag_r', 'ground_n', 'ground_r'];
+const texLoader = new THREE.TextureLoader();
+const loadTex = (name) => new Promise((resolve) => {
+  texLoader.load(`${BASE}tex/${name}.jpg`, (t) => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.colorSpace = name.endsWith('_c') ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+    t.anisotropy = 8;
+    resolve(t);
+  }, undefined, () => { assets.failed++; resolve(null); });
+});
+
+/** a texture of the baked set with its own repeat (shares the decoded image) */
+export function worldTex(name, kind, rx = 1, ry = 1) {
+  const b = assets.tex[`${name}_${kind}`];
+  if (!b) return null;
+  const t = b.clone();
+  t.needsUpdate = true;
+  t.repeat.set(rx, ry);
+  return t;
+}
+export const hasWorld = () => !!(assets.props && assets.tex.brick_c && assets.tex.ground_n);
 
 const load = (file) => new Promise((resolve) => {
   loader.load(BASE + file, (g) => resolve(g.scene), undefined, () => { assets.failed++; resolve(null); });
@@ -20,8 +42,10 @@ let started = null;
 export function loadAssets() {
   if (started) return started;
   started = (async () => {
-    const [att, hands, soldier, ...rest] = await Promise.all([load('attachments.glb'), load('hands.glb'), load('soldier.glb'), ...WEAPON_FILES.map((n) => load(`weapons/${n}.glb`)), ...VEHICLE_FILES.map((n) => load(`vehicles/${n}.glb`))]);
-    assets.attachments = att; assets.hands = hands; assets.soldier = soldier;
+    const [att, hands, soldier, props, ...rest] = await Promise.all([load('attachments.glb'), load('hands.glb'), load('soldier.glb'), load('props.glb'), ...WEAPON_FILES.map((n) => load(`weapons/${n}.glb`)), ...VEHICLE_FILES.map((n) => load(`vehicles/${n}.glb`)), ...TEX_FILES.map(loadTex)]);
+    assets.attachments = att; assets.hands = hands; assets.soldier = soldier; assets.props = props;
+    const base = WEAPON_FILES.length + VEHICLE_FILES.length;
+    TEX_FILES.forEach((n, i) => { if (rest[base + i]) assets.tex[n] = rest[base + i]; });
     WEAPON_FILES.forEach((n, i) => { if (rest[i]) assets.weapons[n] = rest[i]; });
     VEHICLE_FILES.forEach((n, i) => { if (rest[WEAPON_FILES.length + i]) assets.vehicles[n] = rest[WEAPON_FILES.length + i]; });
     assets.ready = !!att;

@@ -195,7 +195,7 @@ class Builder:
         self.empties.append((name, Vector(loc), size))
 
     # ---- output -----------------------------------------------------------------------------------
-    def finish(self, collection=None, smooth_angle=38):
+    def finish(self, collection=None, smooth_angle=38, uv_size=0.25):
         mesh = bpy.data.meshes.new(self.name)
         merged = bmesh.new()
         slot_of = {}
@@ -228,7 +228,7 @@ class Builder:
         try:
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.select_all(action='SELECT')
-            bpy.ops.uv.cube_project(cube_size=0.25)
+            bpy.ops.uv.cube_project(cube_size=uv_size)
             bpy.ops.object.mode_set(mode='OBJECT')
         except Exception:
             pass

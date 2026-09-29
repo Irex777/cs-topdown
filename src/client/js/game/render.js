@@ -11,7 +11,7 @@ import { FX3D } from './fx3d.js';
 import { Overlay } from './overlay.js';
 import { Viewmodel } from './viewmodel.js';
 import { Sky, moodFor } from './sky.js';
-import { assets, makeSoldier, soldierGun, makeVehicle } from './assets.js';
+import { assets, makeSoldier, soldierGun, makeVehicle, makeEnvironment, onAssets, hasWorld } from './assets.js';
 
 export { TEAM_COL } from './overlay.js';
 
@@ -179,14 +179,33 @@ export class Renderer {
     if (this.blocks) { this.scene.remove(this.blocks.group); }
     for (const p of Object.values(this.pools)) p.clear();
     this.ground = new Ground(this.scene, terrain, this.game.fx);
-    this.blocks = new BlockField(this.scene, map, terrain);
+    this.buildBlocks();
     map.onChange((tx, ty, old, ch) => this.blocks.tileChanged(tx, ty, old, ch));
+    onAssets(() => this.upgradeWorld());
     if (!this.fx3d) this.fx3d = new FX3D(this.scene, this.game.fx);
     // sky and haze follow the map's mood
     const th = terrain.th.c;
     this.void.material.color.setRGB(th.rock[0] / 700, th.rock[1] / 700, th.rock[2] / 700, THREE.SRGBColorSpace);
     this.camT = 1;
     this.applyMood(moodFor(map.id));
+  }
+
+  /** the block field in the quality the settings ask for (physically based Blender materials and props unless Low) */
+  buildBlocks() {
+    if (this.blocks) { this.scene.remove(this.blocks.group); for (const t of this.blocks.types.values()) for (const m of t.meshes) m.dispose(); }
+    const pbr = this.quality > 0;
+    this.blocks = new BlockField(this.scene, this.map, this.terrain, { pbr });
+    if (this.ground) this.ground.setPbr(pbr);
+    if (this.blocks.pbr && !this.env) this.env = makeEnvironment(this.renderer);
+    this.scene.environment = this.blocks.pbr ? this.env : null;
+    this.scene.environmentIntensity = 0.35;
+  }
+
+  /** the models and textures arrived after the map was built (or the quality changed): rebuild the world with them */
+  upgradeWorld() {
+    if (!this.map || !this.terrain) return;
+    if (this.blocks && this.blocks.pbr === (this.quality > 0 && hasWorld())) return;
+    this.buildBlocks();
   }
 
   /** sky, haze and sun colour for the map's time of day */
@@ -209,6 +228,7 @@ export class Renderer {
     const sz = q >= 2 ? 2048 : 1024;
     if (this.sun.shadow.mapSize.x !== sz) { this.sun.shadow.mapSize.set(sz, sz); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
     this.scene.traverse((o) => { if (o.material) { for (const m of [].concat(o.material)) m.needsUpdate = true; } });
+    this.upgradeWorld();
     this.resize();
   }
 

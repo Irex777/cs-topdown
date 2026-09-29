@@ -123,7 +123,9 @@ src/
   client/      plain ES modules, no build step
     js/game/     prediction, mouse-look + recoil, three.js renderer (render.js world3d.js models3d.js fx3d.js overlay.js), first-person viewmodel (viewmodel.js), minimap, input
     js/ui/       main menu (home.js + menu3d.js key art), lobby, deploy, loadout editor (kit.js), HUD, settings
+  client/assets/ glTF models + PBR textures made in Blender (weapons/ vehicles/ soldier hands attachments props tex/)
 tools/         validation, simulation, fuzz, integration and browser (Playwright) helpers
+  blender/     the asset pipeline (headless Blender via `pip install bpy`), see below
 ```
 
 ## Development
@@ -139,6 +141,24 @@ node tools/botstats.js harbor 300 16      # bot behaviour + tick cost + bandwidt
 CS_DEBUG=1 npm start                      # enables developer commands (teleport, give, enter vehicle, …)
 npx eslint src tools                      # lint
 ```
+
+### Blender asset pipeline
+
+Every model in the first-person view, on soldiers, on vehicles and in the world is authored in code with Blender's Python API
+(`pip install bpy`, no GUI needed) and exported to glTF; the game loads them at runtime (`src/client/js/game/assets.js`) and keeps the
+procedural voxel models as fallbacks until the files arrive or if Graphics is set to Low.
+
+```bash
+python3 tools/blender/build_weapons.py       # 9 guns  -> assets/weapons/*.glb   (named empties: muzzle, ads, mount_optic, grip_r …)
+python3 tools/blender/build_attachments.py   # 12 attachments + hands.glb
+python3 tools/blender/build_characters.py    # soldier.glb (legs swing, weapon mount; uniform/helmet/vest/accent get re-tinted per team)
+python3 tools/blender/build_vehicles.py      # tank jeep apc quad heli boat
+python3 tools/blender/build_props.py         # crate, barrels, sandbags, tree -> props.glb
+python3 tools/blender/build_textures.py      # seamless PBR sets (albedo/normal/roughness) baked with Cycles -> assets/tex/
+python3 tools/blender/montage.py out.png brick:c brick:n --tile   # contact sheet to eyeball tiling
+```
+
+Add `--preview` to a build script to render pictures into `/tmp/bl_preview/`. Units are metres (the game uses 16 px per metre).
 
 Adding a map: create `src/shared/maps/yourmap.js` (procedural with `MapBuilder` in `maps/builder.js`, or plain ASCII rows),
 register it in `maps/index.js` and run `npm run maps`. Maps declare their `modes`, 7 flags (or `rush` M-COM stages) and

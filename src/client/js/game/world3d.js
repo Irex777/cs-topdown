@@ -6,6 +6,7 @@ import { TILES } from '../../shared/gamemap.js';
 import { hash2 } from './terrain.js';
 import { VoxelModel, mixc } from './voxel.js';
 import { voxelGeometry, linear } from './models3d.js';
+import { assets, worldTex, hasWorld } from './assets.js';
 
 /** how tall a solid tile stands (px above the ground) — the same value the simulation uses for cover and bullets */
 export const tileHeight = (ch) => (TILES[ch] && TILES[ch].solid ? TILES[ch].h3 : 0);
@@ -114,6 +115,45 @@ function makeTextures(k, H) {
 }
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
+const PX_PER_M = 16;
+
+/** multiplier that moves a baked texture's average colour toward the map theme's colour */
+function themeTint(theme, ref, amt = 0.75) {
+  const c = new THREE.Color();
+  const f = (i) => 1 + (Math.max(0.35, Math.min(1.7, theme[i] / ref[i])) - 1) * amt;
+  return c.setRGB(f(0), f(1), f(2), THREE.LinearSRGBColorSpace);
+}
+
+/** a physically based material from the baked texture set (albedo + normal + roughness), repeated over the face */
+function pbrMat(name, rx, ry, o = {}) {
+  return new THREE.MeshStandardMaterial({
+    map: worldTex(name, 'c', rx, ry), normalMap: worldTex(name, 'n', rx, ry), normalScale: new THREE.Vector2(o.ns || 1, o.ns || 1),
+    roughnessMap: worldTex(name, 'r', rx, ry), roughness: 1, metalness: o.metal || 0, color: o.color || new THREE.Color(1, 1, 1),
+  });
+}
+
+/** the parts of a Blender prop: geometry with its node transform baked in, feet on y=0, centred on the tile, scaled to game pixels */
+function propParts(name) {
+  const node = assets.props && assets.props.getObjectByName(name);
+  if (!node) return null;
+  node.updateMatrixWorld(true);
+  const wp = node.getWorldPosition(new THREE.Vector3());
+  const parts = [];
+  node.traverse((o) => {
+    if (!o.isMesh) return;
+    const geo = o.geometry.clone();
+    geo.applyMatrix4(o.matrixWorld);
+    geo.translate(-wp.x, 0, -wp.z);
+    geo.scale(PX_PER_M, PX_PER_M, PX_PER_M);
+    const m = o.material.clone();
+    const nm = o.material.name;
+    if (nm === 'wood' || nm === 'wood_dark') { m.map = worldTex('wood', 'c'); m.normalMap = worldTex('wood', 'n'); m.roughnessMap = worldTex('wood', 'r'); m.roughness = 1; m.metalness = 0; }
+    else if (nm === 'sandbag') { m.map = worldTex('sandbag', 'c'); m.normalMap = worldTex('sandbag', 'n'); m.roughnessMap = worldTex('sandbag', 'r'); m.roughness = 1; m.normalScale = new THREE.Vector2(1.2, 1.2); }
+    m.needsUpdate = true;
+    parts.push({ geo, mat: m });
+  });
+  return parts.length ? parts : null;
+}
 const DUMMY = new THREE.Object3D();
 const COLOR = new THREE.Color();
 
@@ -128,27 +168,29 @@ function treeGeometry() {
 }
 
 export class BlockField {
-  constructor(scene, map, terrain) {
+  constructor(scene, map, terrain, opts = {}) {
     this.scene = scene; this.map = map;
     this.k = terrain.th.c;
     this.types = new Map();
     this.slot = new Map();
     this.group = new THREE.Group();
     scene.add(this.group);
+    this.pbr = !!opts.pbr && hasWorld();
     const H = {};
     for (const ch of Object.keys(TILES)) if (TILES[ch].solid) H[ch] = Math.round(tileHeight(ch));
     const tex = makeTextures(this.k, H);
     this.tex = tex;
     const lam = (map, extra = {}) => new THREE.MeshLambertMaterial({ map, ...extra });
     this.specs = {};
+    const box = (ch, side, top, shrink) => { this.specs[ch] = { parts: [{ geo: BOX, mat: [side, side, top, side, side, side] }], shrink }; };
     for (const ch of ['#', 'B', 'G', 'M', 'X', 'L', 'o']) {
       const t = tex[ch];
-      const s = lam(t.side), tp = lam(t.top);
-      this.specs[ch] = { geo: BOX, mat: [s, s, tp, s, s, s], shrink: ch === 'o' ? 0.72 : ch === 'X' ? 0.9 : 1 };
+      box(ch, lam(t.side), lam(t.top), ch === 'o' ? 0.72 : ch === 'X' ? 0.9 : 1);
     }
     const fence = lam(tex['='].side, { transparent: false, alphaTest: 0.35, side: THREE.DoubleSide });
-    this.specs['='] = { geo: BOX, mat: fence, fence: true };
-    this.specs.T = { geo: treeGeometry(), mat: new THREE.MeshLambertMaterial({ vertexColors: true }), tree: true };
+    this.specs['='] = { parts: [{ geo: BOX, mat: fence }], fence: true };
+    this.specs.T = { parts: [{ geo: treeGeometry(), mat: new THREE.MeshLambertMaterial({ vertexColors: true }) }], tree: true };
+    if (this.pbr) this.upgradeSpecs(H);
     // count per type
     const counts = {};
     for (let i = 0; i < map.chars.length; i++) { const ch = map.chars[i]; if (this.specs[ch]) counts[ch] = (counts[ch] || 0) + 1; }
@@ -157,27 +199,51 @@ export class BlockField {
     for (const t of this.types.values()) this.commit(t);
   }
 
+  /** swap the flat canvas materials for the Blender-baked PBR set, and the boxy props for the modelled ones */
+  upgradeSpecs(H) {
+    const k = this.k;
+    const side = (name, ch, tintc, o) => pbrMat(name, 1, Math.max(1, H[ch] / 32), { color: tintc, ...o });
+    const wallTop = pbrMat('concrete', 1, 1, { color: themeTint(mixc(k.brick, k.concrete, 0.5), [150, 150, 144]) });
+    const rockTint = themeTint(mixc(k.rock, [40, 40, 45], 0.2), [104, 98, 88]);
+    const rs = side('rock', '#', rockTint);
+    this.specs['#'].parts[0].mat = [rs, rs, pbrMat('rock', 1, 1, { color: themeTint(k.rock, [104, 98, 88], 0.5) }), rs, rs, rs];
+    const bs = side('brick', 'B', themeTint(k.brick, [165, 92, 74]));
+    this.specs.B.parts[0].mat = [bs, bs, wallTop, bs, bs, bs];
+    const ms = side('metal', 'M', new THREE.Color(1, 1, 1), { metal: 0.45 });
+    this.specs.M.parts[0].mat = [ms, ms, pbrMat('metal', 1, 1, { metal: 0.45 }), ms, ms, ms];
+    const crate = propParts('crate'), barrels = propParts('barrels'), bags = propParts('sandbags'), tree = propParts('tree');
+    if (crate) this.specs.X = { parts: crate, prop: 'crate' };
+    if (barrels) this.specs.o = { parts: barrels, prop: 'barrels' };
+    if (bags) this.specs.L = { parts: bags, prop: 'bags' };
+    if (tree) this.specs.T = { parts: tree, tree: true, prop: 'tree' };
+  }
+
   makeType(ch, cap) {
     const spec = this.specs[ch];
-    const mesh = new THREE.InstancedMesh(spec.geo, spec.mat, cap);
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.castShadow = !spec.fence; mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
-    mesh.count = 0;
-    COLOR.setRGB(1, 1, 1);
-    mesh.setColorAt(0, COLOR);           // allocate instanceColor
-    this.group.add(mesh);
+    const meshes = spec.parts.map((p) => {
+      const mesh = new THREE.InstancedMesh(p.geo, p.mat, cap);
+      mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+      mesh.castShadow = !spec.fence; mesh.receiveShadow = true;
+      mesh.frustumCulled = false;
+      mesh.count = 0;
+      COLOR.setRGB(1, 1, 1);
+      mesh.setColorAt(0, COLOR);           // allocate instanceColor
+      this.group.add(mesh);
+      return mesh;
+    });
     const old = this.types.get(ch);
-    const t = { ch, mesh, cap, n: 0, tiles: new Int32Array(cap) };
+    const t = { ch, meshes, cap, n: 0, tiles: new Int32Array(cap) };
     this.types.set(ch, t);
-    if (old) { this.group.remove(old.mesh); old.mesh.dispose(); }
+    if (old) for (const m of old.meshes) { this.group.remove(m); m.dispose(); }
     return t;
   }
 
   commit(t) {
-    t.mesh.count = t.n;
-    t.mesh.instanceMatrix.needsUpdate = true;
-    if (t.mesh.instanceColor) t.mesh.instanceColor.needsUpdate = true;
+    for (const mesh of t.meshes) {
+      mesh.count = t.n;
+      mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   /** write instance n of type t for tile index i */
@@ -187,9 +253,17 @@ export class BlockField {
     const cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE;
     const v = hash2(tx, ty, 5);
     if (spec.tree) {
-      DUMMY.position.set(cx, 0, cz); DUMMY.rotation.set(0, v * 6.28, 0); DUMMY.scale.set(1, 0.9 + hash2(tx, ty, 9) * 0.3, 1);
+      const sc = 0.9 + hash2(tx, ty, 9) * 0.3;
+      DUMMY.position.set(cx, 0, cz); DUMMY.rotation.set(0, v * 6.28, 0); DUMMY.scale.set(spec.prop ? sc : 1, spec.prop ? sc * (0.95 + hash2(tx, ty, 4) * 0.2) : sc, spec.prop ? sc : 1);
       const g = 0.85 + hash2(tx, ty, 2) * 0.3;
       COLOR.setRGB(g, g, g);
+    } else if (spec.prop) {
+      let ry = v * 6.283;
+      if (spec.prop === 'crate') ry = Math.floor(v * 4) * Math.PI / 2 + (hash2(tx, ty, 6) - 0.5) * 0.14;
+      else if (spec.prop === 'bags') { const c = map.chars; ry = (c[i - 1] === 'L' || c[i + 1] === 'L') ? 0 : (c[i - map.w] === 'L' || c[i + map.w] === 'L') ? Math.PI / 2 : Math.floor(v * 2) * Math.PI / 2; }
+      DUMMY.position.set(cx, 0, cz); DUMMY.rotation.set(0, ry, 0); DUMMY.scale.set(1, 1, 1);
+      const g = 0.9 + hash2(tx, ty, 2) * 0.2;
+      COLOR.setRGB(g, g, g, THREE.LinearSRGBColorSpace);
     } else if (spec.fence) {
       const horiz = map.chars[i - 1] === '=' || map.chars[i + 1] === '=';
       DUMMY.position.set(cx, h / 2, cz); DUMMY.rotation.set(0, horiz ? 0 : Math.PI / 2, 0); DUMMY.scale.set(TILE, h, 2);
@@ -201,8 +275,10 @@ export class BlockField {
       else { const g = 0.92 + v * 0.14; COLOR.setRGB(g, g, g, THREE.LinearSRGBColorSpace); }
     }
     DUMMY.updateMatrix();
-    t.mesh.setMatrixAt(n, DUMMY.matrix);
-    t.mesh.setColorAt(n, COLOR);
+    for (const mesh of t.meshes) {
+      mesh.setMatrixAt(n, DUMMY.matrix);
+      mesh.setColorAt(n, COLOR);
+    }
   }
 
   place(i) {
@@ -268,6 +344,16 @@ export class Ground {
     this.chunks = new Map();
     this.mat = { ground: null };
     this.frame = 0;
+    this.pbr = false;
+  }
+
+  /** fine-grain normal + roughness over the painted ground (from the Blender texture set); rebuilds the chunk materials */
+  setPbr(on) {
+    on = !!on && hasWorld();
+    if (on === this.pbr) return;
+    this.pbr = on;
+    for (const [k, e] of [...this.chunks]) this.drop(k, e);
+    if (on && !this.detail) this.detail = { n: worldTex('ground', 'n', 12, 12), r: worldTex('ground', 'r', 12, 12) };
   }
 
   update(px, pz, radius) {
@@ -285,7 +371,10 @@ export class Ground {
       let e = this.chunks.get(key);
       if (!e) {
         const tex = texFor(c.canvas);
-        const mesh = new THREE.Mesh(PLANE, new THREE.MeshLambertMaterial({ map: tex }));
+        const mat = this.pbr
+          ? new THREE.MeshStandardMaterial({ map: tex, normalMap: this.detail.n, normalScale: new THREE.Vector2(0.9, 0.9), roughnessMap: this.detail.r, roughness: 1, metalness: 0 })
+          : new THREE.MeshLambertMaterial({ map: tex });
+        const mesh = new THREE.Mesh(PLANE, mat);
         mesh.position.set(cx * CPX + CPX / 2, 0, cy * CPX + CPX / 2);
         mesh.receiveShadow = true;
         this.group.add(mesh);
