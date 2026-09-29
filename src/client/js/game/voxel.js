@@ -1,9 +1,7 @@
-// Stacked-voxel sprites. A model is a set of coloured voxel boxes; it is baked into one small image per height layer, and
-// composites (all layers stacked with a vertical offset and rotated to a heading) are cached per angle. This gives soldiers,
-// vehicles and props a chunky 2.5D voxel look while the game logic stays flat.
+// Voxel model data: a model is a set of coloured unit voxels (x = forward, y = to the right, z = up, `u` world px per voxel).
+// models3d.js turns them into meshes. Soldier and vehicle definitions live here.
 
 const TAU = Math.PI * 2;
-const BUCKETS = 72;
 
 const parse = (hex) => { const n = parseInt(hex.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 const tint = (c, k) => [Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)];
@@ -13,73 +11,15 @@ export class VoxelModel {
   constructor(u = 2) {
     this.u = u;
     this.vox = new Map();
-    this.done = false;
-    this.cache = new Map();
   }
 
   /** box from (x0,y0,z0) up to but not including (x1,y1,z1); color is [r,g,b] or '#rrggbb' */
   box(x0, y0, z0, x1, y1, z1, color) {
     const c = typeof color === 'string' ? parse(color) : color;
     for (let z = z0; z < z1; z++) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) this.vox.set(`${x},${y},${z}`, c);
-    this.done = false;
     return this;
   }
 
-  finish() {
-    if (this.done) return;
-    let minx = 1e9, maxx = -1e9, miny = 1e9, maxy = -1e9, zmax = 0;
-    for (const key of this.vox.keys()) {
-      const [x, y, z] = key.split(',').map(Number);
-      if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; if (z > zmax) zmax = z;
-    }
-    if (minx > maxx) { minx = miny = 0; maxx = maxy = 0; }
-    this.minx = minx; this.miny = miny; this.w = maxx - minx + 1; this.h = maxy - miny + 1; this.zn = zmax + 1;
-    this.layers = [];
-    for (let z = 0; z < this.zn; z++) {
-      const c = document.createElement('canvas');
-      c.width = this.w; c.height = this.h;
-      const g = c.getContext('2d');
-      const shade = 0.68 + 0.32 * (z / Math.max(1, this.zn - 1));
-      for (let y = 0; y < this.h; y++) for (let x = 0; x < this.w; x++) {
-        const col = this.vox.get(`${x + minx},${y + miny},${z}`);
-        if (!col) continue;
-        // voxels that nothing sits on top of catch more light
-        const topExposed = !this.vox.has(`${x + minx},${y + miny},${z + 1}`);
-        const k = shade * (topExposed ? 1.12 : 0.92);
-        g.fillStyle = `rgb(${Math.min(255, Math.round(col[0] * k))},${Math.min(255, Math.round(col[1] * k))},${Math.min(255, Math.round(col[2] * k))})`;
-        g.fillRect(x, y, 1, 1);
-      }
-      this.layers.push(c);
-    }
-    this.radius = Math.ceil(Math.hypot(Math.max(Math.abs(minx), Math.abs(maxx + 1)), Math.max(Math.abs(miny), Math.abs(maxy + 1))) * this.u) + 2;
-    this.done = true;
-  }
-
-  /** composite at heading `ang` (radians, 0 = facing +x): {canvas, ax, ay} with the anchor at the model origin on the ground */
-  sprite(ang) {
-    this.finish();
-    const b = Math.round(((ang % TAU) + TAU) % TAU / TAU * BUCKETS) % BUCKETS;
-    let s = this.cache.get(b);
-    if (s) return s;
-    const u = this.u, R = this.radius, zh = this.zn * u;
-    const canvas = document.createElement('canvas');
-    canvas.width = R * 2; canvas.height = R * 2 + zh;
-    const g = canvas.getContext('2d');
-    g.imageSmoothingEnabled = false;
-    const a = b / BUCKETS * TAU;
-    for (let z = 0; z < this.zn; z++) {
-      g.save();
-      g.translate(R, R + zh - z * u);
-      g.rotate(a);
-      g.drawImage(this.layers[z], this.minx * u, this.miny * u, this.w * u, this.h * u);
-      // each layer slightly overlaps the one above so no gaps show between the vertical steps
-      g.drawImage(this.layers[z], this.minx * u, this.miny * u - u * 0.5, this.w * u, this.h * u);
-      g.restore();
-    }
-    s = { canvas, ax: R, ay: R + zh };
-    this.cache.set(b, s);
-    return s;
-  }
 }
 
 // ------------------------------------------------------------------------------------------------ palettes
@@ -236,15 +176,4 @@ export function vehicleModel(type, team, part) {
   return m;
 }
 
-/** small helper: draw a stacked sprite at a world position */
-export function drawSprite(ctx, spr, x, y) { ctx.drawImage(spr.canvas, Math.round(x - spr.ax), Math.round(y - spr.ay)); }
-
-/** 2.5D axis-aligned box: footprint w x d centred on (cx,cy), height h. top/front are CSS colours. */
-export function box25(ctx, cx, cy, w, d, h, top, front, z0 = 0) {
-  const x = cx - w / 2, y = cy - d / 2 - z0;
-  ctx.fillStyle = front; ctx.fillRect(x, y + d - h, w, h);
-  ctx.fillStyle = top; ctx.fillRect(x, y - h, w, d);
-  ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(x, y + d - 2, w, 2);
-  ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fillRect(x, y - h, w, 1);
-}
 export { TAU, tint, mixc, parse };

@@ -21,7 +21,7 @@ function trial(useVt, lagSec) {
   let seq = 1, hit = false;
   const hp0 = b.hp;
   for (let i = 0; i < 90; i++) {
-    room.handle(b, { t: 'in', c: [[seq++, KEY.DOWN, 0, 0, 0]] });
+    room.handle(b, { t: 'in', c: [[seq++, KEY.UP, Math.PI / 2, 0, 0]] });   // walking "forward" while looking down (+y): keys are view-relative
     let cmd;
     if (i === 60) {
       const vt = g.time - lagSec;                     // what the shooter's screen showed

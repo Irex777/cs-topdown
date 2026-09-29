@@ -3,7 +3,7 @@ import { DT, PHASE, KEY, SPEC, TILE, T, CT } from '../../shared/constants.js';
 import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, maxSpeedFor, resolveWeapon } from '../../shared/weapons.js';
 import { VEHICLES, VEHICLE_LIST, stepVehicle } from '../../shared/vehicles.js';
 import { createMap } from '../../shared/maps/index.js';
-import { stepMovement } from '../../shared/movement.js';
+import { stepMovement, relativeDir } from '../../shared/movement.js';
 import { canSee, viewParams } from '../../shared/vision.js';
 import { audio } from '../audio.js';
 import { FX } from './fx.js';
@@ -31,6 +31,8 @@ export class ClientGame {
     this.snaps = [];
     this.offset = 0;                 // serverTime - localTime
     this.haveOffset = false;
+    this.sens = 0.0024;
+    try { const s = parseFloat(localStorage.getItem('fl.sens')); if (Number.isFinite(s)) this.sens = clamp(s, 0.0006, 0.008); } catch { /* ignore */ }
     this.reset();
     this._bindInput();
     this._last = 0;
@@ -57,6 +59,10 @@ export class ClientGame {
     this.rc = -1;
     this.angle = 0;
     this.aimDist = 300;
+    this.yaw = 0;                     // where the camera (and aim) points, radians, 0 = +x
+    this.elev = 0.34;                 // camera elevation above the horizon (mouse up/down)
+    this.followYaw = 0; this.lookOff = 0; this.lookIdle = 0; this.lookKey = '';
+    this.camH = 240;
     this.ents = { g: [], sm: [], fi: [], pj: [], gd: [], cp: [], sp: [], v: [] };
     this.flagState = new Map();
     this.flagsCache = [];
@@ -91,7 +97,7 @@ export class ClientGame {
     this.mode = info.mode;
     this.map = createMap(info.map);
     if (info.tiles && info.tiles.length) this.map.applyChanges(info.tiles);
-    this.terrain = new Terrain(this.map);
+    this.terrain = new Terrain(this.map, { shadows: false });
     this.fx.initMap(this.map);
     this.renderer.setMap(this.map, this.terrain);
     this.terrain.buildThumb(4);
@@ -214,7 +220,8 @@ export class ClientGame {
       const scoped = !!(keys & KEY.SCOPE) && prof.can;
       const walk = !!(keys & KEY.WALK);
       const sprint = !!(keys & KEY.SPRINT) && !scoped && !walk && !(keys & KEY.FIRE);
-      stepMovement(this.map, st, keys, maxSpeedFor(prof, walk, scoped, sprint), false);
+      const [ax, ay] = relativeDir(keys, c[2]);
+      stepMovement(this.map, st, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
     }
     const ex = this.pred.x - st.x, ey = this.pred.y - st.y;
     if (Math.hypot(ex, ey) > 70) { this.errX = this.errY = 0; }
@@ -223,6 +230,8 @@ export class ClientGame {
   }
 
   onRespawn() {
+    if (this.me && Number.isFinite(this.me.a)) this.yaw = this.me.a;
+    this.lookKey = '';
     this.ui.onRespawn && this.ui.onRespawn();
   }
 
@@ -528,9 +537,12 @@ export class ClientGame {
     inp.on('reload', () => send('reload'));
     inp.on('alt', () => { if (this.inVehicle()) return; send('alt'); audio.click(); });
     inp.on('last', () => send('sw', { slot: 'last' }));
+    inp.wantLock = () => this.playing();
+    // leaving pointer lock with Esc opens the menu (some browsers also deliver the Esc key press: ignore that duplicate)
+    inp.on('unlock', () => { this._unlockAt = performance.now(); if (this.active && this.playing() && this.ui.toggleMenu) this.ui.toggleMenu(); });
     inp.on('spot', () => {
       const v = this.viewer(); if (!v || !this.alive) return;
-      const w = this.screenToWorld(inp.mx, inp.my);
+      const w = this.crosshairWorld();
       send('spot', { x: Math.round(w.x), y: Math.round(w.y) });
     });
     for (let i = 1; i <= 6; i++) {
@@ -548,8 +560,8 @@ export class ClientGame {
     inp.on('ping', () => {
       const v = this.viewer();
       if (!v) return;
-      const w = this.screenToWorld(inp.mx, inp.my);
-      send('ping', { x: Math.round(w.x), y: Math.round(w.y) });
+      const w = this.crosshairWorld();
+      send('ping',{ x: Math.round(w.x), y: Math.round(w.y) });
     });
     inp.on('next', () => { if (!this.alive && this.me) send('spec', { dir: 1 }); });
     inp.on('click', () => { if (!this.alive && this.me && !(this.ui.deployOpen && this.ui.deployOpen())) send('spec', { dir: 1 }); });
@@ -558,12 +570,67 @@ export class ClientGame {
     inp.on('bigmap', () => { this.bigmap = !this.bigmap; });
     inp.on('deploy', () => this.ui.toggleDeploy && this.ui.toggleDeploy());
     inp.on('score', (d) => this.ui.showScore && this.ui.showScore(d));
-    inp.on('menu', () => this.ui.toggleMenu && this.ui.toggleMenu());
+    inp.on('menu', () => { if (performance.now() - (this._unlockAt || 0) < 100) return; this.ui.toggleMenu && this.ui.toggleMenu(); });
     inp.on('chatAll', () => this.ui.openChat && this.ui.openChat(false));
     inp.on('chatTeam', () => this.ui.openChat && this.ui.openChat(true));
   }
 
   screenToWorld(sx, sy) { return this.renderer.screenToWorld(sx, sy); }
+
+  /** the ground point the crosshair (screen centre) is on; the mouse cursor while a menu or the spectator view is up */
+  crosshairWorld() {
+    if (this.playing() && this.renderer.aimGround) return this.renderer.aimGround;
+    return this.screenToWorld(this.input.mx, this.input.my);
+  }
+
+  /** alive, in the field and no menu in the way: the mouse steers the camera */
+  playing() { return !!(this.active && this.alive && this.me && this.me.own && !(this.ui.isOverlayOpen && this.ui.isOverlayOpen()) && !this.freecam); }
+
+  /** mouse-look. On foot and in weapon seats the mouse sets the aim direction (yaw); drivers without a weapon steer with the
+   *  keys and only glance around (the view swings back behind the vehicle). Spectators follow the watched player. */
+  updateLook(dt) {
+    const inp = this.input;
+    const typing = this.ui.chatOpen || this.ui.pauseOpen;
+    inp.lookEnabled = !!this.active && !typing && !(this.ui.isOverlayOpen && this.ui.isOverlayOpen());
+    if (inp.locked && !inp.lookEnabled) inp.releaseLock();
+    const look = inp.takeLook();
+    if (!inp.lookEnabled) return;
+    const own = this.alive && this.me && this.me.own;
+    let sens = this.sens;
+    const v = this._lastViewer;
+    if (v && v.scoped) sens *= [0.85, 0.55, 0.35, 0.22][clamp(v.scopeLvl || 0, 0, 3)];
+    const dx = look.dx * sens, dy = look.dy * sens;
+    if (own && this.me.veh) {
+      const def = this.vehDef(), sd = def.seats[this.me.veh.seat];
+      const key = `${this.me.veh.id}:${this.me.veh.seat}`;
+      const heading = this.inDriverSeat() ? this.predVeh.a : ((this.interpolatedVeh(this.me.veh.id) || {}).a || 0);
+      const follow = !sd.weapon;
+      if (this.lookKey !== key) {
+        this.lookKey = key;
+        this.lookOff = 0; this.lookIdle = 0;
+        this.followYaw = heading;
+        this.yaw = follow ? heading : (sd.aim === 'turret' ? this.me.veh.ta : heading);
+      }
+      if (follow) {
+        this.lookOff = clamp(this.lookOff + dx, -2.4, 2.4);
+        if (dx) this.lookIdle = 0; else this.lookIdle += dt;
+        if (this.lookIdle > 1.2) this.lookOff *= Math.exp(-2.5 * dt);
+        this.followYaw = lerpAngle(this.followYaw, heading, 1 - Math.exp(-5 * dt));
+        this.yaw = this.followYaw + this.lookOff;
+      } else this.yaw += dx;
+    } else if (own || (!this.spec && !this.freecam) || this.freecam) {
+      this.lookKey = '';
+      this.yaw += dx;
+    } else {
+      // spectating someone: swing behind them, with a little mouse glance
+      this.lookKey = '';
+      const vw = this.viewer();
+      if (vw) this.yaw = lerpAngle(this.yaw, vw.angle, 1 - Math.exp(-8 * dt));
+    }
+    while (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
+    while (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
+    this.elev = clamp(this.elev + dy * 0.8, 0.06, 1.25);
+  }
 
   // ------------------------------------------------------------------ frame loop
   frame(nowMs) {
@@ -576,6 +643,7 @@ export class ClientGame {
     if (this.stats.t >= 1) { this.stats.fps = Math.round(this.stats.frames / this.stats.t); this.stats.frames = 0; this.stats.t = 0; }
     this.playerCache = null; this.vehCache = null; this.projCache = null;
 
+    this.updateLook(dt);
     this.fixedUpdate(dt);
     this.fx.update(dt);
     this.engineSounds(dt);
@@ -606,10 +674,9 @@ export class ClientGame {
     // aim angle from the mouse, relative to where the player currently is on screen
     const v = this.viewer();
     if (v && this.alive && this.me && this.me.own) {
-      const ps = this.renderer.worldToScreen(v.x, v.y);
-      this.angle = Math.atan2(this.input.my - ps.y, this.input.mx - ps.x);
-      const wm = this.screenToWorld(this.input.mx, this.input.my);
-      this.aimDist = Math.hypot(wm.x - v.x, wm.y - v.y);
+      this.angle = this.yaw;
+      const a = this.renderer.aimGround;
+      if (a) this.aimDist = clamp(Math.hypot(a.x - v.x, a.y - v.y), 30, 2000);
     }
     audio.setListener(v ? v.x : 0, v ? v.y : 0);
     // local turret slew (cosmetic; the server's value is the truth)
@@ -637,7 +704,8 @@ export class ClientGame {
         const scoped = !!(keys & KEY.SCOPE) && prof.can;
         const walk = !!(keys & KEY.WALK);
         const sprint = !!(keys & KEY.SPRINT) && !scoped && !walk && !(keys & KEY.FIRE);
-        stepMovement(this.map, this.pred, keys, maxSpeedFor(prof, walk, scoped, sprint), false);
+        const [ax, ay] = relativeDir(keys, this.angle);
+        stepMovement(this.map, this.pred, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
         this.predictFire(keys, seq);
       }
       this.pending.push(cmd);

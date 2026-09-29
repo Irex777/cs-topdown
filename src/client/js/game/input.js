@@ -8,6 +8,12 @@ export class Input {
     this.mx = 0; this.my = 0;
     this.left = false; this.right = false;
     this.pending = 0;            // presses shorter than one tick still get delivered
+    this.look = { dx: 0, dy: 0 };   // mouse movement since the game last consumed it (mouse-look)
+    this.lookEnabled = false;       // set by the game: only look around while actually playing
+    this.locked = false;            // pointer lock held
+    this.lockDenied = false;        // the browser refused pointer lock: fall back to plain mouse movement
+    this.releasing = false;         // we let go on purpose (menu opened): don't treat it as Esc
+    this.wantLock = () => false;    // game callback: should a click capture the mouse right now?
     this.enabled = false;        // false while a menu / chat box is capturing input
     this.handlers = {};          // name -> fn (edge-triggered actions)
     this.bindings = {
@@ -18,7 +24,16 @@ export class Input {
     };
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));
-    window.addEventListener('mousemove', (e) => { this.mx = e.clientX; this.my = e.clientY; });
+    window.addEventListener('mousemove', (e) => {
+      this.mx = e.clientX; this.my = e.clientY;
+      if (this.lookEnabled) { this.look.dx += e.movementX || 0; this.look.dy += e.movementY || 0; }
+    });
+    document.addEventListener('pointerlockchange', () => {
+      const was = this.locked;
+      this.locked = document.pointerLockElement === this.canvas;
+      if (was && !this.locked) { if (this.releasing) this.releasing = false; else this.fire('unlock'); }
+    });
+    document.addEventListener('pointerlockerror', () => { this.lockDenied = true; });
     window.addEventListener('mousedown', (e) => this.onMouse(e, true));
     window.addEventListener('mouseup', (e) => this.onMouse(e, false));
     window.addEventListener('contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
@@ -27,6 +42,19 @@ export class Input {
   }
 
   on(name, fn) { this.handlers[name] = fn; }
+
+  takeLook() { const l = { dx: this.look.dx, dy: this.look.dy }; this.look.dx = 0; this.look.dy = 0; return l; }
+
+  requestLock() {
+    if (this.locked || this.lockDenied || !this.canvas.requestPointerLock) return;
+    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { this.lockDenied = true; }); } catch { this.lockDenied = true; }
+  }
+
+  releaseLock() {
+    if (!this.locked) return;
+    this.releasing = true;
+    try { document.exitPointerLock(); } catch { this.releasing = false; }
+  }
   fire(name, arg) { const h = this.handlers[name]; if (h) h(arg); }
 
   isTyping() {
@@ -59,6 +87,8 @@ export class Input {
       if (!down) { if (e.button === 0) this.left = false; if (e.button === 2) this.right = false; }
       return;
     }
+    // the click that captures the mouse is not a shot
+    if (down && this.enabled && !this.locked && !this.lockDenied && this.wantLock()) { this.requestLock(); return; }
     if (e.button === 0) { this.left = down; if (down && this.enabled) { this.pending |= KEY.FIRE; this.fire('click'); } }
     else if (e.button === 2) { this.right = down; if (down && this.enabled) this.pending |= KEY.SCOPE; }
     else if (e.button === 1 && down && this.enabled) { e.preventDefault(); this.fire('ping'); }

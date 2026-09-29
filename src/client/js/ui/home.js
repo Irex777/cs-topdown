@@ -26,7 +26,7 @@ export class Home {
       <div class="hero">
         <div class="logo"><small>Combined arms warfare</small><span>Frontline</span><span>Voxel Warfare</span></div>
         <div class="cubes"><i></i><i></i><i></i><i></i><i></i></div>
-        <p class="tagline">Big maps, real destruction and combined arms in a chunky 2.5D voxel world. Capture flags in Conquest, blow up M-COMs in Rush, drive tanks and fly helicopters, revive your squad and level every wall you can find.</p>
+        <p class="tagline">Big maps, real destruction and combined arms in a chunky 3D voxel world, seen over your shoulder. Capture flags in Conquest, blow up M-COMs in Rush, drive tanks and fly helicopters, revive your squad and level every wall you can find.</p>
         <div class="features">
           <div>Conquest, Rush &amp; Team Deathmatch</div><div>4 classes with gadgets</div>
           <div>Weapon attachments &amp; optics</div><div>Fully destructible terrain</div>

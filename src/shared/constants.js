@@ -36,11 +36,11 @@ export const WALK_MUL = 0.5;
 
 // Vision. scope levels: 0 iron sights, 1 = 4x, 2 = 8x, 3 = 12x
 export const VISION = {
-  near: 96,          // radius of 360° awareness around a player
+  near: 190,         // radius of 360° awareness around a player
   range: 1000,       // cone range
-  fov: 112 * Math.PI / 180,
+  fov: 150 * Math.PI / 180,
   aimRange: 1160,    // aiming down any sights: narrower but longer sight
-  aimFov: 86 * Math.PI / 180,
+  aimFov: 110 * Math.PI / 180,
   scopes: [null, { range: 1300, fov: 74 * Math.PI / 180 }, { range: 1700, fov: 56 * Math.PI / 180 }, { range: 2100, fov: 42 * Math.PI / 180 }],
   serverFovPad: 24 * Math.PI / 180,   // server sends slightly more than the client will draw
 };

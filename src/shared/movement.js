@@ -2,6 +2,18 @@
 import { DT, ACCEL, FRICTION, PLAYER_R, KEY } from './constants.js';
 
 /**
+ * Movement keys are relative to where the player is looking (third-person controls): W walks toward the aim direction,
+ * A/D strafe. Returns the analogue direction (ax, ay) in world space for stepMovement.
+ */
+export function relativeDir(keys, angle) {
+  const f = ((keys & KEY.UP) ? 1 : 0) - ((keys & KEY.DOWN) ? 1 : 0);
+  const r = ((keys & KEY.RIGHT) ? 1 : 0) - ((keys & KEY.LEFT) ? 1 : 0);
+  if (!f && !r) return [0, 0];
+  const c = Math.cos(angle), s = Math.sin(angle);
+  return [f * c - r * s, f * s + r * c];
+}
+
+/**
  * Advances s = {x,y,vx,vy} by one tick for the given key mask. maxSpeed already includes walk/scope modifiers.
  * Bots may pass an analogue direction (ax, ay in -1..1) instead of using the key bits.
  */

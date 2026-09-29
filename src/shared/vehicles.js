@@ -17,24 +17,24 @@ export const VWEAPONS = {
 export const VEHICLES = {
   quad: {
     name: 'Quad Bike', kind: 'wheeled', r: 12, hp: 130, maxSpeed: 430, revSpeed: 130, accel: 560, drag: 1.5, grip: 7, turn: 3.4,
-    resist: { bullet: 1.0, expl: 1.3 }, view: { range: 1000, fov: 130 * Math.PI / 180 },
+    resist: { bullet: 1.0, expl: 1.3 }, view: { range: 1000, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver' }, { name: 'Passenger' }], open: true, respawn: 40, size: [24, 14, 12], pts: 60,
   },
   jeep: {
     name: 'Recon Jeep', kind: 'wheeled', r: 16, hp: 320, maxSpeed: 370, revSpeed: 120, accel: 440, drag: 1.2, grip: 5.2, turn: 2.6,
-    resist: { bullet: 0.55, expl: 1.0 }, view: { range: 1080, fov: 120 * Math.PI / 180 },
+    resist: { bullet: 0.55, expl: 1.0 }, view: { range: 1080, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver' }, { name: 'Gunner', weapon: 'mg50', aim: 'free', turn: 7 }, { name: 'Passenger' }, { name: 'Passenger' }],
     respawn: 50, size: [40, 24, 16], pts: 100,
   },
   apc: {
     name: 'APC', kind: 'tracked', r: 21, hp: 700, maxSpeed: 250, revSpeed: 110, accel: 240, drag: 2.2, grip: 12, turn: 1.9, turretTurn: 3.2,
-    resist: { bullet: 0.12, expl: 0.8 }, view: { range: 1100, fov: 130 * Math.PI / 180 },
+    resist: { bullet: 0.12, expl: 0.8 }, view: { range: 1100, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'autocannon', aim: 'turret', turn: 3.2 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 6 }, { name: 'Passenger' }, { name: 'Passenger' }],
     respawn: 75, size: [50, 28, 20], pts: 180,
   },
   tank: {
     name: 'Main Battle Tank', kind: 'tracked', r: 24, hp: 1000, maxSpeed: 200, revSpeed: 90, accel: 190, drag: 2.4, grip: 14, turn: 1.6, turretTurn: 1.7,
-    resist: { bullet: 0.035, expl: 0.65 }, view: { range: 1200, fov: 120 * Math.PI / 180 },
+    resist: { bullet: 0.035, expl: 0.65 }, view: { range: 1200, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'cannon', aim: 'turret', turn: 1.7 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 5 }],
     respawn: 100, size: [56, 32, 22], pts: 260, crush: true,
   },
@@ -46,7 +46,7 @@ export const VEHICLES = {
   },
   boat: {
     name: 'Patrol Boat', kind: 'boat', r: 19, hp: 420, maxSpeed: 340, revSpeed: 100, accel: 300, drag: 0.9, grip: 2.2, turn: 2.0,
-    resist: { bullet: 0.5, expl: 1.0 }, view: { range: 1100, fov: 130 * Math.PI / 180 },
+    resist: { bullet: 0.5, expl: 1.0 }, view: { range: 1100, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver' }, { name: 'Gunner', weapon: 'mg50', aim: 'free', turn: 7 }, { name: 'Passenger' }, { name: 'Passenger' }],
     respawn: 60, size: [52, 24, 14], pts: 120,
   },
@@ -75,7 +75,9 @@ export function stepVehicle(map, s, def, keys, aim, dt = DT) {
   const brake = (keys & 512) !== 0;
   let before = 0;
   if (def.kind === 'air') {
-    let ix = right - left, iy = down - up;
+    // third-person controls: W flies toward where the pilot looks (aim), A/D strafe
+    const fw = up - down, sd = right - left, ca = Math.cos(aim), sa = Math.sin(aim);
+    let ix = fw * ca - sd * sa, iy = fw * sa + sd * ca;
     const len = Math.hypot(ix, iy);
     if (len > 1) { ix /= len; iy /= len; }
     const k = 1 - Math.exp(-(len > 0 ? def.accel : def.accel * 0.6) * dt);

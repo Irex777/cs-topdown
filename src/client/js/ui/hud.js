@@ -255,8 +255,8 @@ export class HUD {
         <button data-t="0" class="${mt === T ? 'on' : ''}">Crimson</button><button data-t="1" class="${mt === CT ? 'on' : ''}">Azure</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
       <div><span class="label">Squad</span><div class="seg" id="pauseSquad">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}">${'ABCDEFGH'[i]}</button>`).join('')}</div></div>
       <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
-      <div class="slider"><span>View size</span><input type="range" id="zoomRange" min="70" max="140" value="${Math.round(g.renderer.userZoom * 100)}" aria-label="View size"></div>
-      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move / drive</span><kbd>Shift</kbd><span>Sprint</span><kbd>C</kbd><span>Walk (silent)</span><kbd>LMB</kbd><span>Fire / use gadget</span>
+      <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="6" max="80" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
+      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move (relative to the view) / drive</span><kbd>Mouse</kbd><span>Look and aim</span><kbd>Shift</kbd><span>Sprint</span><kbd>C</kbd><span>Walk (silent)</span><kbd>LMB</kbd><span>Fire / use gadget</span>
       <kbd>RMB</kbd><span>Aim / scope / detonate C4</span><kbd>R</kbd><span>Reload</span><kbd>E</kbd><span>Enter / exit vehicle, arm M-COM</span><kbd>F</kbd><span>Alt fire (underbarrel)</span>
       <kbd>1-6</kbd><span>Weapons, gadgets, grenade</span><kbd>Q</kbd><span>Spot enemy</span><kbd>L</kbd><span>Loadout</span><kbd>M</kbd><span>Big map</span>
       <kbd>Space</kbd><span>Handbrake</span><kbd>1-4</kbd><span>Switch seat (in vehicle)</span><kbd>V</kbd><span>Ping</span><kbd>Tab</kbd><span>Scoreboard</span>
@@ -268,7 +268,7 @@ export class HUD {
     $('leaveBtn').onclick = () => { this.closePause(); this.app.leaveRoom(); };
     const em = $('endMatchBtn'); if (em) em.onclick = () => { this.net.send({ t: 'lobby' }); this.closePause(); };
     $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
-    $('zoomRange').oninput = (e) => g.renderer.setZoom(e.target.value / 100);
+    $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; try { localStorage.setItem('fl.sens', String(g.sens)); } catch { /* ignore */ } };
     $('pauseTeam').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'team', team: Number(b.dataset.t) }); this.closePause(); } };
     $('pauseSquad').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'a', a: 'squad', n: Number(b.dataset.s) }); this.closePause(); } };
     el.onclick = (e) => { if (e.target === el) this.closePause(); };

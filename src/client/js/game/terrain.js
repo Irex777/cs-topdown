@@ -1,5 +1,5 @@
-// Voxel terrain. The ground is baked into 256 px chunks (re-baked when something is destroyed); solid tiles are drawn every
-// frame as extruded blocks, y-sorted together with the units so walls hide whatever stands behind them (2.5D).
+// Voxel terrain ground. The floor is baked into 256 px canvas chunks (re-baked when something is destroyed); world3d.js puts them
+// on the ground as textures. Also the source of the minimap thumbnail.
 import { TILE } from '../../shared/constants.js';
 import { TILES } from '../../shared/gamemap.js';
 
@@ -41,8 +41,8 @@ export class Terrain {
     this.chunks = new Map();
     this.frame = 0;
     this.bakes = 0;
-    this.sprites = new Map();
     this.dirtyCount = 0;
+    this.shadows = opts.shadows !== false;    // baked fake shadows; the 3D renderer uses real ones
     this.thumb = null;
     if (opts.listen !== false) map.onChange((tx, ty, old, ch) => this.tileChanged(tx, ty, ch));
   }
@@ -75,19 +75,6 @@ export class Terrain {
     let worst = null;
     for (const c of this.chunks.values()) if (!worst || c.used < worst.used) worst = c;
     if (worst) this.chunks.delete(worst.cy * this.cw + worst.cx);
-  }
-
-  /** draws every chunk touching the world rectangle */
-  drawGround(ctx, x0, y0, x1, y1) {
-    this.frame++; this.bakes = 0;
-    const cx0 = Math.max(0, Math.floor(x0 / CPX)), cy0 = Math.max(0, Math.floor(y0 / CPX));
-    const cx1 = Math.min(this.cw - 1, Math.floor(x1 / CPX)), cy1 = Math.min(this.chh - 1, Math.floor(y1 / CPX));
-    ctx.imageSmoothingEnabled = false;
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const c = this.chunkCanvas(cx, cy);
-      if (c.fresh === undefined) c.fresh = true;
-      ctx.drawImage(c.canvas, cx * CPX, cy * CPX);
-    }
   }
 
   floorOf(ch, tx, ty) {
@@ -190,7 +177,7 @@ export class Terrain {
     }
     // cast shadows of solid blocks (light from the upper left)
     ctx.fillStyle = 'rgba(8,10,20,0.26)';
-    for (let ty = ty0 - 2; ty < Math.min(map.h, ty0 + CHUNK); ty++) for (let tx = tx0 - 2; tx < Math.min(map.w, tx0 + CHUNK); tx++) {
+    if (this.shadows) for (let ty = ty0 - 2; ty < Math.min(map.h, ty0 + CHUNK); ty++) for (let tx = tx0 - 2; tx < Math.min(map.w, tx0 + CHUNK); tx++) {
       if (!map.inBounds(tx, ty)) continue;
       const ch = map.chars[ty * map.w + tx];
       const t = TILES[ch];
@@ -203,181 +190,7 @@ export class Terrain {
       ctx.lineTo(px, py + TILE); ctx.lineTo(px + sx * 0.4, py + TILE + sy); ctx.lineTo(px + TILE + sx, py + TILE + sy); ctx.lineTo(px + TILE, py + TILE);
       ctx.closePath(); ctx.fill();
     }
-  }
-
-  // ------------------------------------------------------------------ block sprites
-  /** {c: canvas, ox, oy}: draw at (tileX*TILE - ox, tileY*TILE - oy) */
-  blockSprite(ch, front, orient, variant) {
-    const key = `${ch}${front ? 1 : 0}${orient}${variant}`;
-    let s = this.sprites.get(key);
-    if (!s) { s = this.makeSprite(ch, front, orient, variant); this.sprites.set(key, s); }
-    return s;
-  }
-
-  makeSprite(ch, front, orient, variant) {
-    const th = this.th, k = th.c;
-    const H = TILES[ch].h;
-    const canvas = document.createElement('canvas');
-    let W = TILE, ox = 0, ex = 0;
-    if (ch === 'T') { W = 64; ox = 16; ex = 30; }
-    canvas.width = W; canvas.height = TILE + H + ex;
-    const g = canvas.getContext('2d');
-    const top = ex;                     // y of the top face's upper edge
-    const rnd = (i) => hash2(variant, i, 3);
-    const cells = (x, y, w, h, base, jit, sx = CELL, sy = CELL, seed = 0) => {
-      for (let j = 0; j < Math.ceil(h / sy); j++) for (let i = 0; i < Math.ceil(w / sx); i++) {
-        g.fillStyle = rgb(base, 1 + (rnd(i * 7 + j * 13 + seed) - 0.5) * 2 * jit);
-        g.fillRect(x + i * sx, y + j * sy, Math.min(sx, w - i * sx), Math.min(sy, h - j * sy));
-      }
-    };
-    const outline = (x, y, w, h, a = 0.35) => { g.strokeStyle = `rgba(0,0,0,${a})`; g.lineWidth = 1; g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1); };
-    const frontFace = (base, jit, colsPx = CELL, rowsPx = CELL) => {
-      if (!front) return;
-      const fy = top + TILE;
-      cells(0, fy, TILE, H, base, jit, colsPx, rowsPx, 50);
-      // top-down light gradient + dark foot
-      const grad = g.createLinearGradient(0, fy, 0, fy + H);
-      grad.addColorStop(0, 'rgba(255,255,255,0.10)'); grad.addColorStop(1, 'rgba(0,0,0,0.30)');
-      g.fillStyle = grad; g.fillRect(0, fy, TILE, H);
-      g.fillStyle = 'rgba(0,0,0,0.35)'; g.fillRect(0, fy + H - 2, TILE, 2);
-    };
-    const topFace = (base, jit) => {
-      cells(0, top, TILE, TILE, base, jit, CELL, CELL, 0);
-      g.fillStyle = 'rgba(255,255,255,0.22)'; g.fillRect(0, top, TILE, 2); g.fillRect(0, top, 2, TILE);
-      g.fillStyle = 'rgba(0,0,0,0.20)'; g.fillRect(TILE - 2, top, 2, TILE); g.fillRect(0, top + TILE - 2, TILE, 2);
-    };
-
-    switch (ch) {
-      case '#': {
-        const base = k.rock;
-        frontFace(mix(base, [40, 40, 45], 0.25), 0.10, 8, 8);
-        topFace(mix(base, [255, 255, 255], 0.12), 0.10);
-        break;
-      }
-      case 'B': case 'G': {
-        const wall = mix(k.brick, k.concrete, 0.35);
-        if (ch === 'G' && front) {
-          const fy = top + TILE;
-          cells(0, fy, TILE, H, mix(wall, [0, 0, 0], 0.15), 0.05);
-          g.fillStyle = 'rgba(150,215,240,0.85)'; g.fillRect(3, fy + 4, TILE - 6, H - 10);
-          g.fillStyle = 'rgba(255,255,255,0.45)'; g.fillRect(6, fy + 6, 6, H - 14); g.fillRect(16, fy + 6, 3, H - 14);
-          g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(TILE / 2 - 1, fy + 4, 2, H - 10);
-          g.fillRect(0, fy + H - 2, TILE, 2);
-        } else {
-          frontFace(k.brick, 0.07, 16, 8);
-          if (front) {
-            g.fillStyle = 'rgba(0,0,0,0.20)';
-            for (let r = 0; r < Math.ceil(H / 8); r++) {
-              g.fillRect(0, top + TILE + r * 8 + 7, TILE, 1);
-              const off = (r & 1) ? 8 : 0;
-              g.fillRect(off + 7, top + TILE + r * 8, 1, 7); g.fillRect(off + 23 > 31 ? 7 : off + 23, top + TILE + r * 8, 1, 7);
-            }
-          }
-        }
-        topFace(mix(wall, [255, 255, 255], 0.15), 0.05);
-        break;
-      }
-      case 'M': {
-        const cols = [k.metal, [181, 71, 58], [58, 138, 90], [217, 165, 58]];
-        const base = cols[variant % 4];
-        frontFace(mix(base, [0, 0, 0], 0.1), 0.05, 4, 32);
-        if (front) { g.fillStyle = 'rgba(0,0,0,0.25)'; for (let i = 3; i < TILE; i += 4) g.fillRect(i, top + TILE + 2, 1, H - 4); }
-        topFace(mix(base, [255, 255, 255], 0.12), 0.04);
-        g.fillStyle = 'rgba(0,0,0,0.25)'; for (let i = 3; i < TILE; i += 6) g.fillRect(i, top + 2, 1, TILE - 4);
-        break;
-      }
-      case 'X': {
-        frontFace(k.crate, 0.08, 16, 8);
-        if (front) { g.strokeStyle = rgb(k.crate, 0.62); g.lineWidth = 2; g.beginPath(); const fy = top + TILE; g.moveTo(3, fy + 3); g.lineTo(TILE - 3, fy + H - 3); g.moveTo(TILE - 3, fy + 3); g.lineTo(3, fy + H - 3); g.stroke(); outline(1, fy, TILE - 2, H, 0.4); }
-        topFace(mix(k.crate, [255, 240, 200], 0.18), 0.07);
-        g.strokeStyle = rgb(k.crate, 0.6); g.lineWidth = 2; g.strokeRect(4, top + 4, TILE - 8, TILE - 8);
-        break;
-      }
-      case 'L': {
-        const bag = [196, 178, 128];
-        if (front) {
-          const fy = top + TILE;
-          for (let r = 0; r < 2; r++) for (let i = 0; i < 2; i++) {
-            const off = r ? 8 : 0;
-            g.fillStyle = rgb(bag, 0.78 + rnd(r * 5 + i) * 0.16); g.fillRect(off + i * 16 - (off ? 0 : 0), fy + r * 6, 15, 6);
-            g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(off + i * 16, fy + r * 6 + 5, 15, 1);
-          }
-        }
-        cells(0, top, TILE, TILE, bag, 0.09, 16, 8);
-        g.fillStyle = 'rgba(0,0,0,0.22)'; g.fillRect(0, top + 8, TILE, 1); g.fillRect(0, top + 16, TILE, 1); g.fillRect(0, top + 24, TILE, 1);
-        g.fillStyle = 'rgba(255,255,255,0.2)'; g.fillRect(0, top, TILE, 1);
-        break;
-      }
-      case 'o': {
-        const cx = TILE / 2, r = 10;
-        const col = [212, 92, 48];
-        if (front) { g.fillStyle = rgb(col, 0.72); g.fillRect(cx - r, top + TILE / 2 + 4, r * 2, H + TILE / 2 - 6); g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(cx - r, top + TILE + 4, r * 2, 2); g.fillRect(cx - r, top + TILE + H - 6, r * 2, 2); g.fillStyle = 'rgba(255,255,255,0.18)'; g.fillRect(cx - r + 2, top + TILE / 2 + 4, 3, H + TILE / 2 - 8); }
-        g.fillStyle = rgb(col, 1.05);
-        g.fillRect(cx - r + 3, top + TILE / 2 - r, r * 2 - 6, r * 2); g.fillRect(cx - r, top + TILE / 2 - r + 3, r * 2, r * 2 - 6);
-        g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(cx - 6, top + TILE / 2 - 6, 12, 12);
-        g.fillStyle = 'rgba(255,220,120,0.9)'; g.fillRect(cx - 3, top + TILE / 2 - 3, 6, 6);
-        break;
-      }
-      case '=': {
-        // chain-link fence: thin posts and a see-through mesh
-        const horiz = orient === 'h';
-        g.fillStyle = 'rgba(0,0,0,0.5)';
-        if (horiz) {
-          const fy = top + TILE / 2;
-          g.fillStyle = 'rgba(190,205,220,0.28)'; g.fillRect(0, fy + 2, TILE, H);
-          g.fillStyle = 'rgba(190,205,220,0.65)'; for (let i = 0; i < TILE; i += 4) { g.fillRect(i, fy + 2, 1, H); }
-          g.fillStyle = 'rgb(90,98,110)'; g.fillRect(0, fy, TILE, 3);
-          g.fillRect(2, fy, 3, H + 3); g.fillRect(TILE - 5, fy, 3, H + 3);
-        } else {
-          g.fillStyle = 'rgb(90,98,110)'; g.fillRect(TILE / 2 - 2, top, 4, TILE);
-          g.fillStyle = 'rgb(130,140,155)'; g.fillRect(TILE / 2 - 3, top + 1, 6, 4); g.fillRect(TILE / 2 - 3, top + TILE - 5, 6, 4);
-          if (front) { g.fillStyle = 'rgba(190,205,220,0.5)'; g.fillRect(TILE / 2 - 3, top + TILE, 6, H); }
-        }
-        break;
-      }
-      case 'T': {
-        const cx = 32;
-        // trunk
-        g.fillStyle = 'rgb(96,66,40)'; g.fillRect(cx - 5, top + 24, 10, H - 6);
-        g.fillStyle = 'rgba(0,0,0,0.3)'; g.fillRect(cx + 1, top + 24, 4, H - 6);
-        // canopy: three stacked voxel tiers
-        const tiers = [[42, 0.78, 22], [34, 0.94, 12], [24, 1.1, 2]];
-        for (const [sz, br, up] of tiers) {
-          const x = cx - sz / 2, y = top + 10 - up + 8;
-          const nc = Math.ceil(sz / 6);
-          for (let j = 0; j < nc; j++) for (let i = 0; i < nc; i++) {
-            const inCorner = (i === 0 || i === nc - 1) && (j === 0 || j === nc - 1);
-            if (inCorner) continue;
-            g.fillStyle = rgb(k.tree, br * (0.9 + rnd(i * 11 + j * 3 + up) * 0.2));
-            g.fillRect(x + i * 6, y + j * 6, 6, 6);
-          }
-        }
-        g.fillStyle = 'rgba(255,255,255,0.12)'; g.fillRect(cx - 12, top + 10, 10, 4);
-        break;
-      }
-      default: {
-        topFace(k.concrete, 0.05);
-      }
-    }
-    return { c: canvas, ox, oy: top === 0 ? H : H + ex, w: W, h: canvas.height, ex };
-  }
-
-  /** what to draw for the solid tile at (tx,ty): sprite plus screen offset */
-  spriteAt(tx, ty) {
-    const map = this.map;
-    const i = ty * map.w + tx;
-    const ch = map.chars[i];
-    const t = TILES[ch];
-    const H = t.h;
-    let front = true;
-    if (ty + 1 < map.h) {
-      const s = TILES[map.chars[i + map.w]];
-      if (s.solid && s.h >= H - 2) front = false;
-    }
-    let orient = '';
-    if (ch === '=') orient = (map.chars[i - 1] === '=' || map.chars[i + 1] === '=') ? 'h' : 'v';
-    const variant = ch === 'M' ? (tx * 7 + ty * 3) & 3 : Math.floor(hash2(tx, ty, 5) * 4);
-    return { ch, spr: this.blockSprite(ch, front, orient, variant), H };
+    c.ver = (c.ver || 0) + 1;
   }
 
   // ------------------------------------------------------------------ minimap thumbnail (1 tile = S px)

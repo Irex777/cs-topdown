@@ -1,8 +1,8 @@
 // Soak test: drives the real browser client with a simple autopilot for N seconds and reports errors/stats.
-// Usage: CS_URL=http://localhost:3100 node tools/autopilot.mjs [seconds] [map] [mode]
+// Usage: CS_URL=http://localhost:3100/bf/ node tools/autopilot.mjs [seconds] [map] [mode]
 import { launch } from './browser.mjs';
 
-const url = process.env.CS_URL || 'http://localhost:3100';
+const url = process.env.CS_URL || 'http://localhost:3100/bf/';
 const seconds = Number(process.argv[2]) || 120;
 const map = process.argv[3] || 'riverside';
 const mode = process.argv[4] || 'conquest';
@@ -17,9 +17,11 @@ await page.evaluate(() => {
   const g = window.app.game, inp = g.input;
   window.__stats = { frames: 0, kills: 0, deaths: 0, deploys: 0, shots: 0, maxErr: 0, seat: 0 };
   let wp = null, wpT = 0, lastAlive = false, deployT = 0;
-  const keysFor = (dx, dy) => {
+  // third-person controls: the view yaw is the aim, W walks toward it, A/D strafe
+  const keysFor = (forward, strafe) => {
     inp.down.clear();
-    if (dy < -8) inp.down.add('KeyW'); if (dy > 8) inp.down.add('KeyS'); if (dx < -8) inp.down.add('KeyA'); if (dx > 8) inp.down.add('KeyD');
+    if (forward) inp.down.add('KeyW');
+    if (strafe) inp.down.add(strafe > 0 ? 'KeyD' : 'KeyA');
   };
   window.app.net.on('kill', (m) => { if (m.k === g.you) window.__stats.kills++; if (m.v === g.you) window.__stats.deaths++; });
   const loop = () => {
@@ -42,15 +44,15 @@ await page.evaluate(() => {
       if (d < bd && d < 700 && g.visiblePoint(p.x, p.y)) { bd = d; best = p; }
     }
     if (best) {
-      const sp = g.renderer.worldToScreen(best.x, best.y);
-      inp.mx = sp.x; inp.my = sp.y; inp.left = true; s.shots++;
-      keysFor(Math.sin(performance.now() / 400) * 20, 0);
+      g.yaw = Math.atan2(best.y - v.y, best.x - v.x);
+      inp.left = true; s.shots++;
+      keysFor(false, Math.sin(performance.now() / 400));
     } else {
       inp.left = false;
       wpT -= 1 / 60;
       if (!wp || wpT < 0 || Math.hypot(wp.x - v.x, wp.y - v.y) < 40) { wp = { x: v.x + (Math.random() - 0.5) * 900, y: v.y + (Math.random() - 0.5) * 900 }; wpT = 3; }
-      keysFor(wp.x - v.x, wp.y - v.y);
-      const sp = g.renderer.worldToScreen(wp.x, wp.y); inp.mx = sp.x; inp.my = sp.y;
+      g.yaw = Math.atan2(wp.y - v.y, wp.x - v.x);
+      keysFor(true, 0);
     }
     if (Math.random() < 0.002) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyE' }));
     if (Math.random() < 0.004) window.app.net.send({ t: 'a', a: 'reload' });
@@ -67,6 +69,7 @@ while ((Date.now() - t0) / 1000 < seconds) {
   last = line;
 }
 await page.screenshot({ path: process.env.CS_SHOT || '/tmp/autopilot.png' });
-console.log('page errors:', errors.length ? '\n' + errors.join('\n') : 'none');
+const real = errors.filter((e) => !/GL Driver|swiftshader/i.test(e));   // software-GL notices are not bugs
+console.log('page errors:', real.length ? '\n' + real.join('\n') : 'none');
 await browser.close();
-process.exit(errors.length ? 1 : 0);
+process.exit(real.length ? 1 : 0);

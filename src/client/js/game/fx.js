@@ -1,5 +1,5 @@
-// Particles, tracers, decals and screen shake. Everything is made of little cubes to match the voxel look;
-// particles carry a height z so they rise, fall and cast a ground shadow in the 2.5D view.
+// Particle / tracer / decal simulation and screen shake. Everything is made of little cubes to match the voxel look;
+// particles carry a height z. The 3D renderer (fx3d.js) draws what is simulated here.
 import { TILE } from '../../shared/constants.js';
 
 const rnd = Math.random;
@@ -46,7 +46,7 @@ export class FX {
   decalCtx(cx, cy) {
     const key = cy * 4096 + cx;
     let d = this.decals.get(key);
-    if (!d) { const c = document.createElement('canvas'); c.width = CH; c.height = CH; d = { c, g: c.getContext('2d') }; this.decals.set(key, d); }
+    if (!d) { const c = document.createElement('canvas'); c.width = CH; c.height = CH; d = { c, g: c.getContext('2d'), ver: 0 }; this.decals.set(key, d); }
     return d;
   }
 
@@ -58,20 +58,13 @@ export class FX {
     for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
       const d = this.decalCtx(cx, cy);
       d.g.save(); d.g.translate(-cx * CH, -cy * CH); fn(d.g); d.g.restore();
-    }
-  }
-
-  drawDecals(ctx, x0, y0, x1, y1) {
-    const cx0 = Math.max(0, Math.floor(x0 / CH)), cx1 = Math.floor(x1 / CH), cy0 = Math.max(0, Math.floor(y0 / CH)), cy1 = Math.floor(y1 / CH);
-    for (let cy = cy0; cy <= cy1; cy++) for (let cx = cx0; cx <= cx1; cx++) {
-      const d = this.decals.get(cy * 4096 + cx);
-      if (d) ctx.drawImage(d.c, cx * CH, cy * CH);
+      d.ver++;
     }
   }
 
   // ------------------------------------------------------------------ spawners
-  tracer(x0, y0, x1, y1, own, big, z = 10) {
-    this.tracers.push({ x0, y0: y0 - z, x1, y1: y1 - z * 0.6, t: 0, life: big ? 0.16 : 0.09, own, big });
+  tracer(x0, y0, x1, y1, own, big, z = 14) {
+    this.tracers.push({ x0, y0, z0: z, x1, y1, z1: z * 0.7, t: 0, life: big ? 0.16 : 0.09, own, big });
     if (this.tracers.length > 160) this.tracers.shift();
   }
 
@@ -184,9 +177,9 @@ export class FX {
   }
 
   smokeTrail(x, y, z = 10) { this.cube({ x, y, z, vz: 12, life: 0.7, r: 3, k: 'puff', col: '#c8c2b8', a0: 0.35, grow: 8 }); }
-  damageSmoke(x, y, heavy) {
-    this.cube({ x: x + (rnd() - 0.5) * 12, y: y + (rnd() - 0.5) * 12, z: 14, vz: 26 + rnd() * 20, life: 0.9 + rnd() * 0.5, r: 4, k: 'puff', col: heavy ? '#26221f' : '#6d6862', a0: 0.55, grow: 14 });
-    if (heavy && rnd() < 0.5) this.cube({ x: x + (rnd() - 0.5) * 10, y: y + (rnd() - 0.5) * 10, z: 10, vz: 40 + rnd() * 30, life: 0.35, r: 3 + rnd() * 2, k: 'fire' });
+  damageSmoke(x, y, heavy, z = 14) {
+    this.cube({ x: x + (rnd() - 0.5) * 12, y: y + (rnd() - 0.5) * 12, z, vz: 26 + rnd() * 20, life: 0.9 + rnd() * 0.5, r: 4, k: 'puff', col: heavy ? '#26221f' : '#6d6862', a0: 0.55, grow: 14 });
+    if (heavy && rnd() < 0.5) this.cube({ x: x + (rnd() - 0.5) * 10, y: y + (rnd() - 0.5) * 10, z: z - 4, vz: 40 + rnd() * 30, life: 0.35, r: 3 + rnd() * 2, k: 'fire' });
   }
 
   floater(x, y, text, color) { this.floaters.push({ x, y, text, color, t: 0, life: 1.4 }); }
@@ -210,82 +203,5 @@ export class FX {
     if (this.shake < 0.05) this.shake = 0;
     this.shakeX = (rnd() - 0.5) * 2 * this.shake;
     this.shakeY = (rnd() - 0.5) * 2 * this.shake;
-  }
-
-  /** things that lie on the ground: shadows of airborne cubes */
-  drawLow(ctx) {
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    for (const p of this.parts) {
-      if (p.k === 'debris' || (p.k === 'cube' && p.z > 3 && p.g > 0)) { const s = p.r; ctx.fillRect(Math.round(p.x - s / 2 + 2), Math.round(p.y - s / 2 + 3), s, s); }
-    }
-  }
-
-  drawHigh(ctx) {
-    for (const p of this.parts) {
-      const k = p.t / p.life;
-      const px = Math.round(p.x), py = Math.round(p.y - p.z);
-      switch (p.k) {
-        case 'puff': {
-          ctx.globalAlpha = (p.a0 || 0.3) * (1 - k);
-          ctx.fillStyle = p.col;
-          const s = Math.round(p.r + (p.grow || 0) * k);
-          ctx.fillRect(px - s / 2, py - s / 2, s, s);
-          break;
-        }
-        case 'fire': {
-          ctx.globalAlpha = Math.min(1, (1 - k) * 1.3);
-          ctx.fillStyle = k < 0.3 ? '#fff0a0' : k < 0.6 ? '#ff9a2a' : '#c23a12';
-          const s = Math.max(2, Math.round(p.r * (1 - k * 0.6)));
-          ctx.fillRect(px - s / 2, py - s / 2, s, s);
-          break;
-        }
-        case 'glow': {
-          const a = (1 - k);
-          const g = ctx.createRadialGradient(px, py, 0, px, py, p.r);
-          g.addColorStop(0, p.col === '#ffffff' ? `rgba(255,255,255,${0.9 * a})` : `rgba(255,240,200,${0.85 * a})`); g.addColorStop(1, 'rgba(255,200,120,0)');
-          ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(px - p.r, py - p.r, p.r * 2, p.r * 2);
-          break;
-        }
-        case 'flash': {
-          ctx.globalAlpha = 1 - k; ctx.fillStyle = '#fff6c0'; const s = p.r; ctx.fillRect(px - s / 2, py - s / 2, s, s);
-          ctx.fillStyle = '#ffb030'; ctx.fillRect(px - s / 4, py - s / 4, s / 2, s / 2);
-          break;
-        }
-        default: {
-          ctx.globalAlpha = k > 0.7 ? 1 - (k - 0.7) / 0.3 : 1;
-          ctx.fillStyle = p.col;
-          const s = Math.max(1, Math.round(p.r));
-          ctx.fillRect(px - s / 2, py - s / 2, s, s);
-          if (p.k === 'debris') { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px - s / 2, py + s / 2 - 1, s, 1); }
-        }
-      }
-    }
-    for (const r of this.rings) {
-      const k = r.t / r.life;
-      ctx.globalAlpha = (1 - k) * 0.85; ctx.strokeStyle = r.color; ctx.lineWidth = r.width * (1 - k * 0.5);
-      const rr = r.r0 + (r.r1 - r.r0) * (1 - Math.pow(1 - k, 2));
-      ctx.save(); ctx.translate(r.x, r.y); ctx.scale(1, 0.8);
-      ctx.strokeRect(-rr, -rr, rr * 2, rr * 2); ctx.restore();
-    }
-    for (const t of this.tracers) {
-      const k = t.t / t.life;
-      ctx.globalAlpha = (1 - k) * (t.own ? 0.9 : 0.75);
-      const g = ctx.createLinearGradient(t.x0, t.y0, t.x1, t.y1);
-      g.addColorStop(0, 'rgba(255,230,150,0)'); g.addColorStop(0.15, 'rgba(255,240,190,0.9)'); g.addColorStop(1, 'rgba(255,200,90,0.5)');
-      ctx.strokeStyle = g; ctx.lineWidth = t.big ? 2.6 : 1.5; ctx.lineCap = 'square';
-      ctx.beginPath(); ctx.moveTo(t.x0, t.y0); ctx.lineTo(t.x1, t.y1); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  drawFloaters(ctx) {
-    ctx.textAlign = 'center'; ctx.font = '800 14px ui-monospace, Menlo, Consolas, monospace';
-    for (const f of this.floaters) {
-      const k = f.t / f.life;
-      ctx.globalAlpha = 1 - k * k;
-      ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillText(f.text, f.x + 1, f.y - k * 34 + 1);
-      ctx.fillStyle = f.color; ctx.fillText(f.text, f.x, f.y - k * 34);
-    }
-    ctx.globalAlpha = 1;
   }
 }

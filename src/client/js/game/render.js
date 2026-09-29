@@ -1,23 +1,26 @@
-// Draws the world in 2.5D: baked voxel ground, y-sorted extruded blocks, stacked-voxel units, fog of war and overlays.
-import { PLAYER_R, SPEC, GREN_ORDER, TILE, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST } from '../../shared/constants.js';
-import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, ALT } from '../../shared/weapons.js';
+// The 3D renderer: a chase camera behind the player, voxel terrain and units built from cubes, real shadows. The 2D canvas
+// above it (overlay.js) carries the name tags, markers and crosshair. World axes: x, z = map x, y; y = up.
+import * as THREE from '../../vendor/three/three.module.js';
+import { SPEC, GREN_ORDER, TILE } from '../../shared/constants.js';
+import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ } from '../../shared/weapons.js';
 import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
-import { TILES } from '../../shared/gamemap.js';
-import { canSee } from '../../shared/vision.js';
-import { computeVision } from './vision.js';
-import { soldierModel, vehicleModel, drawSprite, box25, TEAM_PAL, TAU } from './voxel.js';
+import { TEAM_PAL } from './voxel.js';
+import { soldierGeo, vehicleGeo, propGeo, grenadeGeo, VOXEL_MAT } from './models3d.js';
+import { BlockField, Ground, tileHeight } from './world3d.js';
+import { FX3D } from './fx3d.js';
+import { Overlay } from './overlay.js';
+
+export { TEAM_COL } from './overlay.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const lerp = (a, b, t) => a + (b - a) * t;
 const PROJ_LIST = Object.keys(PROJ);
-export const TEAM_COL = {
-  0: { body: '#c4472f', dark: '#8c2e20', helm: '#7a281c', text: '#ff8a72' },
-  1: { body: '#3f7fd8', dark: '#264f8f', helm: '#213f73', text: '#7fb0ff' },
-  2: { body: '#888', dark: '#555', helm: '#666', text: '#c8ccd2' },
-};
-const GREN_COL = { he: '#4a6b3a', flash: '#e8e8e8', smoke: '#b0b8c0', molo: '#d4552a' };
 const KIND_TIP = { pistol: 14, smg: 20, rifle: 26, dmr: 26, lmg: 28, sniper: 32, shotgun: 24, knife: 16, launcher: 24, tool: 16, grenade: 12 };
-const WALL_LIFT = 40;
 const AIR_ALT = 44;
+const TOP = { jeep: 21, apc: 21, tank: 15, boat: 18 };
+const SKY = new THREE.Color('#9cc4ea');
+const FOV = 62;
+const SCOPE = [{ d: 95, fov: 50 }, { d: 52, fov: 34 }, { d: 32, fov: 22 }, { d: 22, fov: 14 }];
 
 function weaponKindOf(held) {
   if (held >= HELD_GADGET_BASE) { const g = GADGET_LIST[held - HELD_GADGET_BASE]; return g ? (g.kind === 'launcher' ? 'launcher' : 'tool') : 'tool'; }
@@ -26,749 +29,540 @@ function weaponKindOf(held) {
   return w ? w.kind : 'rifle';
 }
 
+/** id -> entry pool: entries not asked for during a frame are removed */
+class Pool {
+  constructor(parent, make) { this.parent = parent; this.make = make; this.map = new Map(); this.used = new Set(); }
+  get(key) {
+    let e = this.map.get(key);
+    if (!e) { e = this.make(key); this.parent.add(e.obj); this.map.set(key, e); }
+    e.obj.visible = true;
+    this.used.add(key);
+    return e;
+  }
+  sweep() {
+    for (const [k, e] of this.map) {
+      if (this.used.has(k)) continue;
+      this.parent.remove(e.obj);
+      if (e.dispose) e.dispose();
+      this.map.delete(k);
+    }
+    this.used.clear();
+  }
+  clear() { this.used.clear(); this.sweep(); }
+}
+
+const flatRing = (inner, outer, seg = 48, a0 = 0, len = Math.PI * 2) => { const g = new THREE.RingGeometry(inner, outer, seg, 1, a0, len); g.rotateX(-Math.PI / 2); return g; };
+const UNIT_RING = flatRing(0.965, 1, 64);
+const UNIT_DISC = (() => { const g = new THREE.CircleGeometry(1, 48); g.rotateX(-Math.PI / 2); return g; })();
+const BOX = new THREE.BoxGeometry(1, 1, 1);
+
 export class Renderer {
   constructor(canvas, game) {
-    this.canvas = canvas;
-    this.ctx = canvas.getContext('2d');
+    this.canvas = canvas;                 // the 2D overlay: it also receives the mouse
     this.game = game;
-    this.dpr = 1;
-    this.W = 0; this.H = 0;
-    this.scale = 1;
-    this.userZoom = 1;
-    this.cam = { x: 0, y: 0 };
-    this.fogCanvas = document.createElement('canvas');
-    this.fctx = this.fogCanvas.getContext('2d');
-    this.map = null; this.terrain = null;
+    this.dpr = 1; this.W = 0; this.H = 0;
     this.t = 0;
-    this.smoothCam = null;
-    this.seen = new Map();
-    this.viewRect = { x0: 0, y0: 0, x1: 0, y1: 0 };
-    this.items = [];
-    this.smokeT = 0;
-    try { const z = parseFloat(localStorage.getItem('cs.zoom')); if (Number.isFinite(z)) this.userZoom = clamp(z, 0.7, 1.4); } catch { /* ignore */ }
+    this.yaw = 0; this.pitch = 0;
+    this.focal = 700;
+    this.crossDY = 0;
+    this.cam = { x: 0, y: 0 };            // free camera centre lives in game.cam; this mirrors the pivot for spectators
+    this.map = null; this.terrain = null;
+    this.scopeK = 0; this.fovNow = FOV; this.camT = 1;
+    this.aimGround = null;
+    this.ctx = canvas.getContext('2d');
+    this.overlay = new Overlay(this);
+
+    this.gl = document.createElement('canvas');
+    this.gl.id = 'game3d';
+    canvas.parentNode.insertBefore(this.gl, canvas);
+    this.renderer = new THREE.WebGLRenderer({ canvas: this.gl, antialias: true, powerPreference: 'high-performance' });
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.scene = new THREE.Scene();
+    this.scene.background = SKY;
+    this.scene.fog = new THREE.Fog(SKY, 650, 2300);
+    this.camera = new THREE.PerspectiveCamera(FOV, 1, 3, 4200);
+    this.scene.add(this.camera);
+
+    this.hemi = new THREE.HemisphereLight(0xdcecff, 0x8a8570, 1.9);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xfff1d6, 2.7);
+    this.sun.castShadow = true;
+    this.sun.shadow.mapSize.set(2048, 2048);
+    const sc = this.sun.shadow.camera; sc.left = -720; sc.right = 720; sc.top = 720; sc.bottom = -720; sc.near = 50; sc.far = 2200;
+    this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.6;
+    this.scene.add(this.sun, this.sun.target);
+    this.sunDir = new THREE.Vector3(-0.55, 1, -0.4).normalize();
+
+    this.void = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x2a3038 }));
+    this.void.position.y = -2;
+    this.scene.add(this.void);
+
+    this.world = new THREE.Group(); this.scene.add(this.world);
+    this.pools = {};
+    this.mkPools();
+    this._v = new THREE.Vector3(); this._ray = new THREE.Raycaster();
     window.addEventListener('resize', () => this.resize());
     this.resize();
   }
 
-  setMap(map, terrain) { this.map = map; this.terrain = terrain; this.smoothCam = null; }
+  mkPools() {
+    const W = this.world;
+    const mesh = (geo, mat = VOXEL_MAT) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = false; return m; };
+    this.pools.soldiers = new Pool(W, () => {
+      const obj = mesh(soldierGeo(0, 'assault', 'rifle', 0));
+      const shield = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.28, depthWrite: false }));
+      shield.scale.set(20, 34, 20); shield.position.y = 17; shield.visible = false; obj.add(shield);
+      return { obj, shield, geo: null };
+    });
+    this.pools.corpses = new Pool(W, () => ({ obj: mesh(soldierGeo(0, 'assault', 'rifle', 0, true)), geo: null }));
+    this.pools.vehicles = new Pool(W, (id) => ({ obj: new THREE.Group(), id, key: '', parts: {} , dispose() { /* geometry is shared */ } }));
+    this.pools.flags = new Pool(W, () => {
+      const obj = new THREE.Group();
+      obj.add(mesh(propGeo('flagBase')));
+      const banner = new THREE.Mesh(new THREE.PlaneGeometry(26, 15), new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, color: 0xffffff }));
+      banner.castShadow = true; obj.add(banner);
+      const zone = new THREE.Mesh(UNIT_DISC, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.1, depthWrite: false })); zone.renderOrder = 1; zone.position.y = 1.2;
+      const rim = new THREE.Mesh(UNIT_RING, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.75, depthWrite: false })); rim.renderOrder = 1; rim.position.y = 1.4;
+      W.add(zone, rim);
+      return { obj, banner, zone, rim, arc: null, arcKey: -1, dispose() { W.remove(zone, rim); if (this.arc) { W.remove(this.arc); this.arc.geometry.dispose(); } } };
+    });
+    this.pools.mcoms = new Pool(W, () => {
+      const obj = new THREE.Group();
+      const body = mesh(propGeo('mcom')); obj.add(body);
+      const lamp = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0x5aa7ff })); lamp.scale.set(10, 3, 6); lamp.position.set(0, 18, 0); obj.add(lamp);
+      return { obj, body, lamp, state: -1 };
+    });
+    this.pools.gadgets = new Pool(W, () => {
+      const obj = new THREE.Group();
+      const m = mesh(propGeo('gadget')); obj.add(m);
+      const ring = new THREE.Mesh(UNIT_RING, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.4, depthWrite: false })); ring.position.y = 1.6; ring.renderOrder = 1; ring.visible = false; W.add(ring);
+      const cone = new THREE.Mesh(new THREE.CircleGeometry(150, 20, -0.75, 1.5).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide })); cone.position.y = 1.5; cone.visible = false; W.add(cone);
+      return { obj, m, ring, cone, id: '', dispose() { W.remove(ring, cone); } };
+    });
+    this.pools.grenades = new Pool(W, () => ({ obj: mesh(grenadeGeo('he')), kind: '' }));
+    this.pools.projectiles = new Pool(W, () => ({ obj: mesh(propGeo('rocket')) }));
+    this.pools.revive = new Pool(W, () => {
+      const obj = new THREE.Group();
+      const mat = new THREE.MeshBasicMaterial({ color: 0x5dff9a, transparent: true, opacity: 0.8 });
+      const a = new THREE.Mesh(BOX, mat); a.scale.set(20, 2, 5); a.position.y = 3;
+      const b = new THREE.Mesh(BOX, mat); b.scale.set(5, 2, 20); b.position.y = 3;
+      obj.add(a, b);
+      return { obj, mat };
+    });
+    this.pools.fires = new Pool(W, () => {
+      const obj = new THREE.Mesh(UNIT_DISC, new THREE.MeshBasicMaterial({ color: 0xff7a1e, transparent: true, opacity: 0.35, depthWrite: false }));
+      obj.renderOrder = 1; obj.position.y = 1.6;
+      return { obj };
+    });
+    this.smoke = new THREE.InstancedMesh(BOX, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.92 }), 900);
+    this.smoke.frustumCulled = false; this.smoke.count = 0; this.smoke.setColorAt(0, new THREE.Color(1, 1, 1));
+    W.add(this.smoke);
+    this.muzzles = [];
+  }
 
-  setZoom(z) { this.userZoom = clamp(z, 0.7, 1.4); try { localStorage.setItem('cs.zoom', String(this.userZoom)); } catch { /* ignore */ } }
+  // ------------------------------------------------------------------ setup
+  setMap(map, terrain) {
+    this.map = map; this.terrain = terrain;
+    if (this.ground) this.ground.dispose();
+    if (this.blocks) { this.scene.remove(this.blocks.group); }
+    for (const p of Object.values(this.pools)) p.clear();
+    this.ground = new Ground(this.scene, terrain, this.game.fx);
+    this.blocks = new BlockField(this.scene, map, terrain);
+    map.onChange((tx, ty, old, ch) => this.blocks.tileChanged(tx, ty, old, ch));
+    if (!this.fx3d) this.fx3d = new FX3D(this.scene, this.game.fx);
+    // sky and haze follow the map's mood
+    const th = terrain.th.c;
+    this.void.material.color.setRGB(th.rock[0] / 700, th.rock[1] / 700, th.rock[2] / 700, THREE.SRGBColorSpace);
+    this.camT = 1;
+  }
 
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.W = window.innerWidth; this.H = window.innerHeight;
-    this.canvas.width = Math.floor(this.W * this.dpr);
-    this.canvas.height = Math.floor(this.H * this.dpr);
-    this.canvas.style.width = this.W + 'px';
-    this.canvas.style.height = this.H + 'px';
-    this.fogCanvas.width = Math.ceil(this.canvas.width / 2);
-    this.fogCanvas.height = Math.ceil(this.canvas.height / 2);
+    this.canvas.width = Math.floor(this.W * this.dpr); this.canvas.height = Math.floor(this.H * this.dpr);
+    this.canvas.style.width = this.W + 'px'; this.canvas.style.height = this.H + 'px';
+    this.renderer.setPixelRatio(Math.min(this.dpr, 1.5));
+    this.renderer.setSize(this.W, this.H, false);
+    this.gl.style.width = this.W + 'px'; this.gl.style.height = this.H + 'px';
+    this.camera.aspect = this.W / this.H;
+    this.camera.updateProjectionMatrix();
   }
 
-  worldToScreen(x, y) { return { x: (x - this.cam.x) * this.scale + this.W / 2, y: (y - this.cam.y) * this.scale + this.H / 2 }; }
-  screenToWorld(sx, sy) { return { x: (sx - this.W / 2) / this.scale + this.cam.x, y: (sy - this.H / 2) / this.scale + this.cam.y }; }
+  // ------------------------------------------------------------------ projection helpers (used by the overlay and input)
+  project(x, y, z = 0, allowBehind = false) {
+    const v = this._v.set(x, z, y).applyMatrix4(this.camera.matrixWorldInverse);
+    const depth = -v.z;
+    const e = this.camera.projectionMatrix.elements;
+    const behind = depth < 1;
+    if (behind && !allowBehind) return null;
+    const d = behind ? (depth < 0 ? depth : -1) : depth;
+    const nx = e[0] * v.x / d, ny = e[5] * v.y / d;
+    return { x: (nx * 0.5 + 0.5) * this.W, y: (-ny * 0.5 + 0.5) * this.H, dist: Math.hypot(v.x, v.y, v.z), behind };
+  }
 
-  // ------------------------------------------------------------------ main
+  /** ground point under a screen position */
+  screenToWorld(sx, sy) {
+    this._ray.setFromCamera({ x: (sx / this.W) * 2 - 1, y: -(sy / this.H) * 2 + 1 }, this.camera);
+    const o = this._ray.ray.origin, d = this._ray.ray.direction;
+    let t = d.y < -0.02 ? -o.y / d.y : 2200;
+    t = Math.min(t, 3200);
+    return { x: o.x + d.x * t, y: o.z + d.z * t };
+  }
+
+  worldToScreen(x, y) { const p = this.project(x, y, 0, true); return { x: p.x, y: p.y }; }
+
+  // ------------------------------------------------------------------ camera
+  camParams(viewer) {
+    const g = this.game, me = g.me;
+    if (g.freecam) return { D: 0, H: g.camH || 240, ahead: 300, fov: FOV, hideOwn: false };
+    if (!viewer) return { D: 0, H: 320, ahead: 300, fov: FOV, hideOwn: false };
+    if (me && me.veh) {
+      const def = g.vehDef();
+      if (def && def.kind === 'air') return { D: 250, H: 56, ahead: 520, fov: FOV, hideOwn: false };
+      const r = def ? def.r : 14;
+      return { D: 120 + r * 6, H: 18 + r * 0.9, ahead: 330, fov: FOV, hideOwn: false };
+    }
+    const lvl = clamp(viewer.scopeLvl || 0, 0, 3);
+    const s = SCOPE[lvl];
+    const k = this.scopeK;
+    return { D: lerp(165, s.d, k), H: lerp(24, 26, k), ahead: lerp(280, 420, k), fov: lerp(FOV, s.fov, k), hideOwn: k > 0.6 && lvl >= 1 };
+  }
+
+  /** first tile along the pivot -> camera segment whose top is above the ray: keeps the camera out of walls */
+  clipCamera(px, pz, py, cx, cz, cy) {
+    const map = this.map;
+    if (!map) return 1;
+    const dist = Math.hypot(cx - px, cz - pz, cy - py);
+    const n = Math.max(1, Math.ceil(dist / 8));
+    for (let i = 1; i <= n; i++) {
+      const f = i / n;
+      const x = px + (cx - px) * f, z = pz + (cz - pz) * f, y = py + (cy - py) * f;
+      const tx = Math.floor(x / TILE), ty = Math.floor(z / TILE);
+      if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) continue;
+      const h = tileHeight(map.chars[ty * map.w + tx]);
+      if (h > 0 && y < h + 4) return Math.max(0.1, (i - 1.6) / n);
+    }
+    return 1;
+  }
+
+  updateCamera(dt, viewer) {
+    const g = this.game, cam = this.camera;
+    const P = this.camParams(viewer);
+    const scoped = !!(viewer && viewer.scoped && g.alive);
+    this.scopeK += ((scoped ? 1 : 0) - this.scopeK) * (1 - Math.exp(-12 * dt));
+    this.fovNow += (P.fov - this.fovNow) * (1 - Math.exp(-14 * dt));
+    let px, py;
+    if (g.freecam) { px = g.cam.x; py = g.cam.y; }
+    else if (viewer) { px = viewer.x; py = viewer.y; }
+    else { px = this.map.width / 2; py = this.map.height / 2; }
+    const yaw = g.yaw;
+    this.yaw = yaw;
+    const elev = clamp(g.elev, 0.05, 1.3) * (1 - this.scopeK * 0.35);
+    const dh = P.D * Math.cos(elev), dv = P.D * Math.sin(elev);
+    let cx = px - Math.cos(yaw) * dh, cz = py - Math.sin(yaw) * dh, cy = P.H + dv;
+    if (P.D === 0) { cy = P.H; cx = px; cz = py; }
+    const t = P.D > 0 ? this.clipCamera(px, py, P.H, cx, cz, cy) : 1;
+    this.camT = t < this.camT ? t : this.camT + (t - this.camT) * (1 - Math.exp(-5 * dt));
+    const k = this.camT;
+    cx = px + (cx - px) * k; cz = py + (cz - py) * k; cy = P.H + (cy - P.H) * k;
+    const sh = g.fx.shake;
+    cam.position.set(cx + g.fx.shakeX * 0.7, cy + g.fx.shakeY * 0.5, cz + (g.fx.shakeY) * 0.7);
+    // freecam pitches with the mouse; everything else looks at a point ahead of the pivot
+    if (P.D === 0) cam.lookAt(px + Math.cos(yaw) * 400, P.H - Math.tan(elev) * 400, py + Math.sin(yaw) * 400);
+    else cam.lookAt(px + Math.cos(yaw) * P.ahead, P.H - 2, py + Math.sin(yaw) * P.ahead);
+    if (Math.abs(cam.fov - this.fovNow) > 0.01) { cam.fov = this.fovNow; cam.updateProjectionMatrix(); }
+    cam.updateMatrixWorld();
+    this.focal = this.H / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
+    this.pivot = { x: px, y: py, h: P.H };
+    this.camDist = P.D * k;
+    this.hideOwn = P.hideOwn || this.camDist < 46;
+    this.cam.x = px; this.cam.y = py;
+    void sh;
+    // ground point under the crosshair drives grenade range and spotting
+    const a = this.screenToWorld(this.W / 2, this.H / 2 + this.crossDY);
+    this.aimGround = a;
+    // shadows follow the action
+    const tx = px + Math.cos(yaw) * 240, tz = py + Math.sin(yaw) * 240;
+    this.sun.target.position.set(tx, 0, tz);
+    this.sun.position.set(tx + this.sunDir.x * 1200, this.sunDir.y * 1200, tz + this.sunDir.z * 1200);
+    this.sun.target.updateMatrixWorld();
+  }
+
+  // ------------------------------------------------------------------ frame
   render(dt, nowMs) {
-    const g = this.game, ctx = this.ctx;
-    if (!this.map || !this.terrain) return;
+    const g = this.game;
+    if (!this.map || !this.terrain || !this.ground) return;
     this.t = nowMs / 1000;
-    // fixed amount of world on screen (ultra-wide monitors must not see farther than everyone else)
-    this.scale = Math.max(this.H / 760, this.W / 1850) * this.userZoom;
     const viewer = g.viewer();
-
-    // ---- camera
-    let tx, ty;
-    const inp = g.input;
-    if (g.freecam) {
-      const sp = 1100 / this.scale * dt;
-      if (inp.down.has('KeyW')) g.cam.y -= sp; if (inp.down.has('KeyS')) g.cam.y += sp;
-      if (inp.down.has('KeyA')) g.cam.x -= sp; if (inp.down.has('KeyD')) g.cam.x += sp;
-      tx = g.cam.x; ty = g.cam.y;
-    } else if (viewer) {
-      const own = g.alive && g.me && g.me.own;
-      let lx = 0, ly = 0;
-      if (own) {
-        const k = viewer.scoped ? (viewer.scopeLvl >= 2 ? 0.95 : 0.66) : 0.30;
-        lx = (inp.mx - this.W / 2) * k / this.scale;
-        ly = (inp.my - this.H / 2) * k / this.scale;
-        const m = viewer.scoped ? (viewer.scopeLvl >= 3 ? 950 : viewer.scopeLvl === 2 ? 760 : 560) : (viewer.air ? 300 : 380);
-        const l = Math.hypot(lx, ly);
-        if (l > m) { lx *= m / l; ly *= m / l; }
-      }
-      tx = viewer.x + lx; ty = viewer.y + ly - 12;
-    } else { tx = this.map.width / 2; ty = this.map.height / 2; }
-    if (!this.smoothCam) this.smoothCam = { x: tx, y: ty };
-    const follow = 1 - Math.exp(-(viewer && g.alive ? 16 : 7) * dt);
-    this.smoothCam.x += (tx - this.smoothCam.x) * follow;
-    this.smoothCam.y += (ty - this.smoothCam.y) * follow;
-    this.cam.x = this.smoothCam.x + g.fx.shakeX;
-    this.cam.y = this.smoothCam.y + g.fx.shakeY;
-    const halfW = this.W / 2 / this.scale, halfH = this.H / 2 / this.scale;
-    this.viewRect = { x0: this.cam.x - halfW - 40, y0: this.cam.y - halfH - 40, x1: this.cam.x + halfW + 40, y1: this.cam.y + halfH + 40 };
-    const vr = this.viewRect;
-
-    // ---- world layer
-    const sc = this.scale * this.dpr;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = '#05060a'; ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-    ctx.setTransform(sc, 0, 0, sc, Math.round((this.W / 2 - this.cam.x * this.scale) * this.dpr), Math.round((this.H / 2 - this.cam.y * this.scale) * this.dpr));
-    ctx.imageSmoothingEnabled = false;
-    this.terrain.drawGround(ctx, vr.x0, vr.y0, vr.x1, vr.y1);
-    g.fx.drawDecals(ctx, vr.x0, vr.y0, vr.x1, vr.y1);
-
-    const smokes = g.smokeCircles();
-    this.drawFlagRings(ctx);
-    this.drawGroundStuff(ctx, viewer);
-    g.fx.drawLow(ctx);
-    this.drawFires(ctx);
-
-    // ---- y-sorted pass: blocks and everything that stands on the ground
-    this.drawWorld(ctx, viewer, smokes);
-
-    // ---- above it all: aircraft, smoke clouds, effects
-    this.drawAir(ctx, viewer, smokes);
-    this.drawSmokes(ctx);
-    g.fx.drawHigh(ctx);
-
-    // ---- fog of war
-    let poly = null;
-    if (viewer && g.fogOn && !g.freecam) poly = computeVision(this.map, smokes, viewer.x, viewer.y, viewer.angle, viewer.view);
-    this.drawFog(poly, viewer);
-
-    // ---- world-space labels that should stay readable in the dark
-    ctx.setTransform(sc, 0, 0, sc, Math.round((this.W / 2 - this.cam.x * this.scale) * this.dpr), Math.round((this.H / 2 - this.cam.y * this.scale) * this.dpr));
-    this.drawLabels(ctx, viewer);
-    this.drawFlagLabels(ctx);
-    this.drawPings(ctx);
-    g.fx.drawFloaters(ctx);
-
-    // ---- screen-space overlays
-    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.drawOffscreenMarkers(ctx);
-    this.drawOverlays(ctx, viewer, dt);
+    if (g.freecam) this.moveFreecam(dt);
+    this.updateCamera(dt, viewer);
+    this.ground.update(this.pivot.x + Math.cos(this.yaw) * 400, this.pivot.y + Math.sin(this.yaw) * 400, 1700);
+    this.updateEntities(viewer, nowMs);
+    this.fx3d.update();
+    this.renderer.render(this.scene, this.camera);
+    this.overlay.draw(this.ctx, viewer, dt);
   }
 
-  inView(x, y, m = 40) { const v = this.viewRect; return x > v.x0 - m && x < v.x1 + m && y > v.y0 - m && y < v.y1 + m; }
+  moveFreecam(dt) {
+    const g = this.game, inp = g.input, sp = 900 * dt;
+    let f = 0, r = 0;
+    if (inp.down.has('KeyW')) f += 1; if (inp.down.has('KeyS')) f -= 1;
+    if (inp.down.has('KeyD')) r += 1; if (inp.down.has('KeyA')) r -= 1;
+    const c = Math.cos(g.yaw), s = Math.sin(g.yaw);
+    g.cam.x += (f * c - r * s) * sp; g.cam.y += (f * s + r * c) * sp;
+    if (inp.down.has('Space')) g.camH = Math.min(1200, (g.camH || 240) + sp * 0.6);
+    if (inp.down.has('ControlLeft') || inp.down.has('KeyC')) g.camH = Math.max(40, (g.camH || 240) - sp * 0.6);
+    g.cam.x = clamp(g.cam.x, 0, this.map.width); g.cam.y = clamp(g.cam.y, 0, this.map.height);
+  }
 
-  // ------------------------------------------------------------------ ground-level things
-  drawFlagRings(ctx) {
-    const g = this.game;
-    for (const f of g.flagList()) {
-      if (!this.inView(f.x, f.y, f.r + 20)) continue;
-      const col = f.owner === 0 ? '255,110,90' : f.owner === 1 ? '110,160,255' : '235,235,235';
-      const capCol = f.cap < 0 ? '255,110,90' : '110,160,255';
-      // owned area
-      ctx.fillStyle = `rgba(${col},${f.owner < 0 ? 0.06 : 0.11})`;
-      const s = f.r;
-      ctx.beginPath(); ctx.arc(f.x, f.y, s, 0, TAU); ctx.fill();
-      ctx.lineWidth = 3; ctx.strokeStyle = `rgba(${col},0.7)`; ctx.setLineDash([12, 9]);
-      ctx.beginPath(); ctx.arc(f.x, f.y, s, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      // capture progress arc
-      const prog = Math.abs(f.cap);
-      if (prog > 0.01 && prog < 0.999 || (f.owner < 0 && prog > 0.01)) {
-        ctx.lineWidth = 6; ctx.strokeStyle = `rgba(${capCol},0.95)`;
-        ctx.beginPath(); ctx.arc(f.x, f.y, s - 6, -Math.PI / 2, -Math.PI / 2 + TAU * prog); ctx.stroke();
-      }
-      if (f.contested) { ctx.lineWidth = 4; ctx.strokeStyle = `rgba(255,220,80,${0.5 + 0.4 * Math.sin(this.t * 8)})`; ctx.beginPath(); ctx.arc(f.x, f.y, s - 2, 0, TAU); ctx.stroke(); }
+  near(x, y, m = 2600) { const c = this.camera.position; return Math.abs(x - c.x) < m && Math.abs(y - c.z) < m; }
+
+  updateEntities(viewer, nowMs) {
+    const g = this.game, P = this.pools, t = this.t;
+    const now = nowMs;
+    // soldiers
+    for (const p of g.soldiers()) {
+      if (!this.near(p.x, p.y)) continue;
+      const e = P.soldiers.get(p.id);
+      const team = p.team >= 0 ? p.team : 2;
+      const kind = weaponKindOf(p.held);
+      const speed = p.speed || 0;
+      const frame = speed > 35 ? (Math.floor(t * (speed > 240 ? 12 : 9) + p.id) % 2 === 0 ? 1 : 2) : 0;
+      const geo = soldierGeo(team, p.cls || 'assault', kind, frame);
+      if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
+      e.obj.position.set(p.x, 0, p.y); e.obj.rotation.y = -p.a;
+      e.obj.visible = !(p.own && this.hideOwn);
+      e.shield.visible = !!(p.fl & 32);
+      if ((g.muzzle.get(p.id) || 0) > now) this.muzzle(p.x + Math.cos(p.a) * (KIND_TIP[kind] || 20), 15, p.y + Math.sin(p.a) * (KIND_TIP[kind] || 20));
     }
-  }
-
-  drawGroundStuff(ctx, viewer) {
-    const g = this.game;
-    // corpses (flat sprites)
+    P.soldiers.sweep();
+    // corpses
     for (const c of g.corpses) {
-      if (!this.inView(c.x, c.y)) continue;
-      const m = soldierModel(c.team, c.cls || 'assault', 'rifle', 0, true);
-      ctx.globalAlpha = 0.95;
-      drawSprite(ctx, m.sprite(c.a + 0.5), c.x, c.y);
-      ctx.globalAlpha = 1;
+      if (!this.near(c.x, c.y)) continue;
+      const e = P.corpses.get(c.id);
+      const geo = soldierGeo(c.team >= 0 ? c.team : 2, c.cls || 'assault', 'rifle', 0, true);
+      if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
+      e.obj.position.set(c.x, 0, c.y); e.obj.rotation.y = -(c.a + 0.5);
     }
-    // revive markers on the ground for downed teammates
+    P.corpses.sweep();
+    this.updateVehicles(now);
+    this.updateObjectives(t);
+    this.updateGadgets(t);
+    // grenades and projectiles
+    for (const n of g.ents.g || []) {
+      const [id, type, x, y] = n;
+      if (!this.near(x, y)) continue;
+      const e = P.grenades.get(id);
+      const kind = GREN_ORDER[type];
+      if (e.kind !== kind) { e.obj.geometry = grenadeGeo(kind); e.kind = kind; }
+      e.obj.position.set(x, 8 + Math.abs(Math.sin(t * 9 + id)) * 3, y); e.obj.rotation.y = t * 6;
+    }
+    P.grenades.sweep();
+    for (const q of g.projectilesDrawn()) {
+      if (!this.near(q.x, q.y)) continue;
+      const pr = PROJ[PROJ_LIST[q.idx]];
+      const e = P.projectiles.get(q.id);
+      const geo = propGeo(pr && pr.speed > 1000 ? 'shell' : 'rocket');
+      if (e.obj.geometry !== geo) e.obj.geometry = geo;
+      e.obj.position.set(q.x, 17, q.y); e.obj.rotation.y = -q.a;
+      if (Math.random() < 0.6) g.fx.smokeTrail(q.x - Math.cos(q.a) * 8, q.y - Math.sin(q.a) * 8, 16);
+    }
+    P.projectiles.sweep();
+    // revive markers
+    let i = 0;
     for (const c of g.ents.cp || []) {
-      const [, x, y, left] = c;
-      if (!this.inView(x, y)) continue;
-      const pulse = 0.5 + 0.5 * Math.sin(this.t * 6);
-      ctx.fillStyle = `rgba(80,255,140,${0.18 + 0.2 * pulse})`; ctx.fillRect(x - 12, y - 12, 24, 24);
-      ctx.fillStyle = '#5dff9a'; ctx.fillRect(x - 2, y - 9, 4, 18); ctx.fillRect(x - 9, y - 2, 18, 4);
-      void left;
+      const [, x, y] = c;
+      if (!this.near(x, y)) continue;
+      const e = P.revive.get(i++);
+      e.obj.position.set(x, 0, y); e.obj.rotation.y = t * 1.5;
+      e.mat.opacity = 0.55 + 0.35 * Math.sin(t * 6);
     }
-    // deployables
-    for (const d of g.ents.gd || []) {
-      const [, gi, x, y, a, team, armed, life] = d;
-      if (!this.inView(x, y)) continue;
-      const def = GADGET_LIST[gi];
-      if (!def) continue;
-      const col = team === 0 ? '255,120,100' : '120,170,255';
-      if (def.id === 'medkit' || def.id === 'ammo') {
-        ctx.strokeStyle = `rgba(${def.id === 'medkit' ? '90,255,150' : '255,220,110'},0.35)`; ctx.lineWidth = 2; ctx.setLineDash([6, 6]);
-        ctx.beginPath(); ctx.arc(x, y, def.radius || 110, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      }
-      if (def.id === 'sensor') { ctx.strokeStyle = `rgba(${col},0.25)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, 340, 0, TAU); ctx.stroke(); }
-      if (def.id === 'claymore') { ctx.fillStyle = `rgba(${col},0.16)`; ctx.beginPath(); ctx.moveTo(x, y); ctx.arc(x, y, 150, a - 0.75, a + 0.75); ctx.closePath(); ctx.fill(); }
-      void armed; void life;
+    P.revive.sweep();
+    // fires (molotov)
+    i = 0;
+    for (const f of g.ents.fi || []) {
+      const [, x, y, r, age] = f;
+      if (!this.near(x, y)) continue;
+      const e = P.fires.get(i++);
+      const fade = clamp((7 - age) / 1.2, 0, 1) * clamp(age / 0.2, 0, 1);
+      e.obj.position.x = x; e.obj.position.z = y; e.obj.scale.set(r * 0.95, 1, r * 0.95);
+      e.obj.material.opacity = 0.36 * fade;
+      if (fade > 0.3) g.fx.flames(x, y, r * 0.85);
     }
-    // grenade shadows
-    for (const n of g.ents.g || []) { if (this.inView(n[2], n[3])) { ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(n[2] - 3, n[3] + 1, 6, 4); } }
+    P.fires.sweep();
+    this.updateSmoke(t);
+    // muzzle flashes were queued during this frame
+    this.flushMuzzles();
     void viewer;
   }
 
-  drawFires(ctx) {
-    const g = this.game;
-    for (const f of g.ents.fi || []) {
-      const [, x, y, r, age] = f;
-      if (!this.inView(x, y, r)) continue;
-      const fade = clamp((7 - age) / 1.2, 0, 1) * clamp(age / 0.2, 0, 1);
-      ctx.fillStyle = `rgba(255,120,30,${0.32 * fade})`; ctx.fillRect(x - r * 0.9, y - r * 0.7, r * 1.8, r * 1.4);
-      ctx.fillStyle = `rgba(255,200,80,${0.30 * fade})`; ctx.fillRect(x - r * 0.55, y - r * 0.45, r * 1.1, r * 0.9);
-      if (fade > 0.3) g.fx.flames(x, y, r * 0.85);
-    }
-  }
+  muzzle(x, y, z) { this.muzzles.push(x, y, z); }
 
-  // ------------------------------------------------------------------ the y-sorted world
-  drawWorld(ctx, viewer, smokes) {
-    const g = this.game, map = this.map, terrain = this.terrain, vr = this.viewRect;
-    const items = this.items; items.length = 0;
-    const now = performance.now();
-    const myTeam = g.myTeam();
-    const ownId = g.alive && g.me && g.me.own ? g.you : 0;
-    // soldiers
-    for (const p of g.soldiers()) {
-      if (!p.own && !this.inView(p.x, p.y, 60)) continue;
-      if (p.own && !this.inView(p.x, p.y, 60)) continue;
-      if (!p.mate && viewer && g.fogOn && !g.freecam) {
-        if (!canSee(map, smokes, viewer.x, viewer.y, viewer.angle, viewer.view, p.x, p.y, 0, PLAYER_R)) continue;
-        let rec = this.seen.get(p.id);
-        if (!rec || now - rec.last > 350) rec = { first: now, last: now };
-        rec.last = now; this.seen.set(p.id, rec);
-        p.alpha = Math.min(1, (now - rec.first) / 130 + 0.25);
+  flushMuzzles() {
+    const list = this.muzzles, fx3 = this.fx3d;
+    let n = 0;
+    for (let i = 0; i < list.length; i += 3) {
+      let s = this.muzzleSprites && this.muzzleSprites[n];
+      if (!s) {
+        s = new THREE.Sprite(new THREE.SpriteMaterial({ map: fx3.glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true, color: 0xffd27a }));
+        s.renderOrder = 5; this.scene.add(s);
+        (this.muzzleSprites || (this.muzzleSprites = [])).push(s);
       }
-      items.push({ y: p.y + 2, k: 0, o: p });
+      s.visible = true; s.position.set(list[i], list[i + 1], list[i + 2]); s.scale.set(30, 30, 1);
+      n++;
     }
-    // ground vehicles
-    const airList = this.airList || (this.airList = []); airList.length = 0;
-    for (const v of g.vehiclesDrawn()) {
-      if (!this.inView(v.x, v.y, 90)) continue;
-      const def = VEHICLES[VEHICLE_LIST[v.ty]];
-      if (!def) continue;
-      if (v.team !== myTeam && v.team >= 0 && viewer && g.fogOn && !g.freecam && myTeam !== SPEC) {
-        const air = def.kind === 'air';
-        const view = air ? { range: viewer.view.range, fov: viewer.view.fov, air: true } : viewer.view;
-        if (!canSee(map, smokes, viewer.x, viewer.y, viewer.angle, view, v.x, v.y, 0, def.r)) continue;
-      }
-      v.def = def;
-      if (def.kind === 'air') airList.push(v); else items.push({ y: v.y + def.r * 0.4, k: 1, o: v });
-    }
-    // flags, m-coms, gadgets, projectiles, grenades
-    for (const f of g.flagList()) if (this.inView(f.x, f.y, 90)) items.push({ y: f.y + 6, k: 2, o: f });
-    for (const m of g.mcomList()) if (this.inView(m.x, m.y, 60)) items.push({ y: m.y + 8, k: 3, o: m });
-    for (const d of g.ents.gd || []) if (this.inView(d[2], d[3], 40)) items.push({ y: d[3], k: 4, o: d });
-    for (const n of g.ents.g || []) if (this.inView(n[2], n[3], 20)) items.push({ y: n[3], k: 5, o: n });
-    for (const q of g.projectilesDrawn()) if (this.inView(q.x, q.y, 40)) items.push({ y: q.y + 30, k: 6, o: q });
-    items.sort((a, b) => a.y - b.y);
-    this.airList = airList;
-
-    // fade the wall pieces that would hide the local viewer
-    const vx = viewer ? viewer.x : -9999, vy = viewer ? viewer.y : -9999;
-    const c0 = clamp(Math.floor(vr.x0 / TILE) - 1, 0, map.w - 1), c1 = clamp(Math.floor(vr.x1 / TILE) + 1, 0, map.w - 1);
-    const r0 = clamp(Math.floor(vr.y0 / TILE), 0, map.h - 1), r1 = clamp(Math.floor(vr.y1 / TILE) + 4, 0, map.h - 1);
-    let ii = 0;
-    const solid = map.solid;
-    for (let ty = r0; ty <= r1; ty++) {
-      const limit = (ty + 1) * TILE;
-      while (ii < items.length && items[ii].y < limit) this.drawItem(ctx, items[ii++], viewer, now);
-      const base = ty * map.w;
-      for (let tx = c0; tx <= c1; tx++) {
-        if (!solid[base + tx]) continue;
-        const s = terrain.spriteAt(tx, ty);
-        const spr = s.spr;
-        const x = tx * TILE - spr.ox, y = ty * TILE - spr.oy;
-        if (y > vr.y1 || y + spr.h < vr.y0) continue;
-        let alpha = 1;
-        if (viewer && ty * TILE > vy - 4 && ty * TILE - vy < s.H + 26 && Math.abs((tx + 0.5) * TILE - vx) < 40) alpha = 0.38;
-        else if (s.ch === 'T') alpha = 0.9;
-        if (alpha < 1) ctx.globalAlpha = alpha;
-        ctx.drawImage(spr.c, x, y, spr.w + 0.6, spr.h);
-        if (alpha < 1) ctx.globalAlpha = 1;
-      }
-    }
-    while (ii < items.length) this.drawItem(ctx, items[ii++], viewer, now);
-    void ownId;
-  }
-
-  drawItem(ctx, it, viewer, now) {
-    switch (it.k) {
-      case 0: return this.drawSoldier(ctx, it.o, now);
-      case 1: return this.drawVehicle(ctx, it.o, now);
-      case 2: return this.drawFlag(ctx, it.o);
-      case 3: return this.drawMcom(ctx, it.o);
-      case 4: return this.drawGadget(ctx, it.o);
-      case 5: return this.drawGrenade(ctx, it.o);
-      case 6: return this.drawProjectile(ctx, it.o);
-      default: return null;
-    }
-  }
-
-  // ------------------------------------------------------------------ soldiers
-  drawSoldier(ctx, p, now) {
-    const g = this.game;
-    const team = p.team >= 0 ? p.team : 2;
-    const kind = weaponKindOf(p.held);
-    const speed = p.speed || 0;
-    const frame = speed > 35 ? (Math.floor(this.t * (speed > 240 ? 12 : 9) + p.id) % 2 === 0 ? 1 : 2) : 0;
-    const model = soldierModel(team, p.cls || 'assault', kind, frame);
-    const spr = model.sprite(p.a);
-    if (p.alpha !== undefined && p.alpha < 1) ctx.globalAlpha = p.alpha;
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.30)';
-    ctx.beginPath(); ctx.ellipse(p.x + 4, p.y + 3, 12, 8, 0, 0, TAU); ctx.fill();
-    drawSprite(ctx, spr, p.x, p.y);
-    // muzzle flash
-    if ((g.muzzle.get(p.id) || 0) > now) {
-      const tip = KIND_TIP[kind] || 20;
-      const fx = p.x + Math.cos(p.a) * tip, fy = p.y + Math.sin(p.a) * tip - 13;
-      ctx.fillStyle = 'rgba(255,240,170,0.95)'; ctx.fillRect(fx - 4, fy - 4, 8, 8);
-      ctx.fillStyle = '#ffae30'; ctx.fillRect(fx - 2, fy - 2, 4, 4);
-      ctx.fillStyle = 'rgba(255,200,80,0.25)'; ctx.fillRect(fx - 12, fy - 12, 24, 24);
-    }
-    ctx.globalAlpha = 1;
-    if (p.fl & 32) { // spawn protection shimmer
-      ctx.strokeStyle = `rgba(160,220,255,${0.4 + 0.3 * Math.sin(this.t * 10)})`; ctx.lineWidth = 2;
-      ctx.strokeRect(p.x - 14, p.y - 18, 28, 30);
-    }
-    if (p.own) {
-      const me = g.me;
-      if (me.pl > 0) this.progressRing(ctx, p.x, p.y - 8, me.pl, me.plk === 'revive' ? '#5dff9a' : '#f5a742');
-      if (me.rel > 0) this.progressRing(ctx, p.x, p.y - 8, me.rel, '#ffffff', 20);
-    }
-  }
-
-  progressRing(ctx, x, y, k, color, r = 24) {
-    ctx.save(); ctx.translate(x, y);
-    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.stroke();
-    ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, r, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(k, 0, 1)); ctx.stroke();
-    ctx.restore();
+    if (this.muzzleSprites) for (let i = n; i < this.muzzleSprites.length; i++) this.muzzleSprites[i].visible = false;
+    list.length = 0;
   }
 
   // ------------------------------------------------------------------ vehicles
-  drawVehicle(ctx, v, now) {
-    const def = v.def;
-    const team = v.team >= 0 ? v.team : 2;
-    const body = vehicleModel(def.id, team, 'body');
-    // ground shadow
-    ctx.save(); ctx.translate(v.x + 5, v.y + 5); ctx.rotate(v.a);
-    ctx.fillStyle = 'rgba(0,0,0,0.30)'; ctx.fillRect(-def.size[0] / 2, -def.size[1] / 2, def.size[0], def.size[1]); ctx.restore();
-    if (def.id === 'quad') { drawSprite(ctx, vehicleModel('quad', team, 'body').sprite(v.a), v.x, v.y); }
-    else drawSprite(ctx, body.sprite(v.a), v.x, v.y);
-    const top = { jeep: 21, apc: 21, tank: 15, boat: 18 }[def.id] || 0;
-    if (def.id === 'tank' || def.id === 'apc') {
-      drawSprite(ctx, vehicleModel(def.id, team, 'turret').sprite(v.ta), v.x, v.y - top);
-      if (def.id === 'tank') drawSprite(ctx, vehicleModel('tank', team, 'gun').sprite(v.ga), v.x + Math.cos(v.ta) * -6, v.y - top - 15 + Math.sin(v.ta) * -6);
-      else drawSprite(ctx, vehicleModel('apc', team, 'gun').sprite(v.ga), v.x - 12 * Math.cos(v.a), v.y - top - 12 - 12 * Math.sin(v.a));
-    } else if (def.id === 'jeep' || def.id === 'boat') {
-      drawSprite(ctx, vehicleModel(def.id, team, 'gun').sprite(v.ga), v.x - Math.cos(v.a) * 9, v.y - top - Math.sin(v.a) * 9);
-    }
-    // occupants of open vehicles are visible
+  buildVehicle(e, def, team) {
+    const grp = e.obj;
+    while (grp.children.length) grp.remove(grp.children[0]);
+    e.parts = {};
+    const add = (part) => { const m = new THREE.Mesh(vehicleGeo(def.id, team, part), VOXEL_MAT); m.castShadow = true; grp.add(m); e.parts[part] = m; return m; };
+    add('body');
+    if (def.id === 'tank' || def.id === 'apc') { add('turret'); add('gun'); }
+    else if (def.id === 'jeep' || def.id === 'boat') add('gun');
+    else if (def.id === 'heli') { add('rotor'); add('gun'); }
     if (def.open) {
       const c = TEAM_PAL[team] || TEAM_PAL[2];
-      ctx.fillStyle = c.hat; ctx.fillRect(v.x - Math.cos(v.a) * 3 - 4, v.y - 16 - Math.sin(v.a) * 3, 8, 6);
+      const hat = new THREE.Mesh(propGeo('hat'), new THREE.MeshLambertMaterial({ vertexColors: true })); hat.castShadow = true; grp.add(hat); e.parts.hat = hat; void c;
     }
-    // damage
-    const hp = v.hp / 100;
-    if (hp < 0.55 && this.game.fx.shouldSmoke(v.id, now)) this.game.fx.damageSmoke(v.x, v.y, hp < 0.25);
-    if (v.own) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1; ctx.strokeRect(v.x - def.r - 2, v.y - def.r - 2 - 10, def.r * 2 + 4, def.r * 2 + 4);
-    }
+    e.key = `${def.id}${team}`;
+    for (const m of Object.values(e.parts)) m.matrixAutoUpdate = true;
   }
 
-  drawAir(ctx, viewer, smokes) {
-    void viewer; void smokes;
-    for (const v of this.airList || []) {
-      const def = v.def;
+  updateVehicles(now) {
+    const g = this.game, P = this.pools;
+    for (const v of g.vehiclesDrawn()) {
+      const def = VEHICLES[VEHICLE_LIST[v.ty]];
+      if (!def || !this.near(v.x, v.y)) continue;
       const team = v.team >= 0 ? v.team : 2;
-      const alt = AIR_ALT;
-      ctx.save(); ctx.translate(v.x + 22, v.y + 26); ctx.rotate(v.a);
-      ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.fillRect(-def.size[0] / 2, -def.size[1] / 2 + 3, def.size[0], def.size[1] - 6); ctx.fillRect(-2, -def.size[0] * 0.55, 4, def.size[0] * 1.1);
-      ctx.restore();
-      drawSprite(ctx, vehicleModel('heli', team, 'body').sprite(v.a), v.x, v.y - alt);
-      // spinning rotor: translucent blades
-      ctx.globalAlpha = 0.55;
-      drawSprite(ctx, vehicleModel('heli', team, 'rotor').sprite(this.t * 26), v.x, v.y - alt - 24);
-      ctx.globalAlpha = 0.16; ctx.fillStyle = '#cfd6dd'; ctx.beginPath(); ctx.ellipse(v.x, v.y - alt - 24, 38, 38, 0, 0, TAU); ctx.fill();
-      ctx.globalAlpha = 1;
-      drawSprite(ctx, vehicleModel('heli', team, 'gun').sprite(v.ga), v.x + Math.cos(v.a) * 9, v.y - alt + Math.sin(v.a) * 9 + 2);
-      if (v.hp < 55 && this.game.fx.shouldSmoke(v.id, performance.now())) this.game.fx.damageSmoke(v.x, v.y - alt + 20, v.hp < 25);
+      const e = P.vehicles.get(v.id);
+      if (e.key !== `${def.id}${team}`) this.buildVehicle(e, def, team);
+      const pr = e.parts;
+      const t = this.t;
+      const bob = def.kind === 'boat' ? Math.sin(t * 2.2 + v.id) * 1.4 : 0;
+      const top = TOP[def.id] || 0;
+      const x = v.x, z = v.y, a = v.a;
+      e.obj.position.set(0, 0, 0);
+      const set = (m, px, py, pz, ang) => { m.position.set(px, py, pz); m.rotation.y = -ang; };
+      if (def.id === 'heli') {
+        const alt = AIR_ALT + Math.sin(t * 1.7 + v.id) * 1.5;
+        set(pr.body, x, alt, z, a);
+        pr.body.rotation.z = clamp((v.speed || 0) / 340, 0, 1) * -0.09;
+        set(pr.rotor, x, alt + 24, z, t * 26);
+        set(pr.gun, x + Math.cos(a) * 9, alt - 2, z + Math.sin(a) * 9, v.ga);
+        if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25, alt + 12);
+      } else {
+        set(pr.body, x, bob, z, a);
+        if (def.id === 'tank') {
+          set(pr.turret, x, top, z, v.ta);
+          set(pr.gun, x - Math.cos(v.ta) * 6, top + 15, z - Math.sin(v.ta) * 6, v.ga);
+        } else if (def.id === 'apc') {
+          set(pr.turret, x, top, z, v.ta);
+          set(pr.gun, x - Math.cos(a) * 12, top + 12, z - Math.sin(a) * 12, v.ga);
+        } else if (def.id === 'jeep' || def.id === 'boat') set(pr.gun, x - Math.cos(a) * 9, top + bob, z - Math.sin(a) * 9, v.ga);
+        if (pr.hat) set(pr.hat, x - Math.cos(a) * 3, 17, z - Math.sin(a) * 3, a);
+        if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25);
+      }
     }
+    P.vehicles.sweep();
   }
 
-  // ------------------------------------------------------------------ objects
-  drawFlag(ctx, f) {
-    const col = f.owner === 0 ? '#e0523a' : f.owner === 1 ? '#3f86e8' : '#d8dce0';
-    const capCol = f.cap < 0 ? '#e0523a' : '#3f86e8';
-    const x = f.x, y = f.y;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x + 4, y - 2, 30, 8);
-    box25(ctx, x, y, 12, 12, 5, '#8d8f94', '#5a5d63');
-    // pole
-    ctx.fillStyle = '#2d3036'; ctx.fillRect(x - 1, y - 56, 3, 52); ctx.fillStyle = '#cfd3d8'; ctx.fillRect(x - 1, y - 58, 3, 3);
-    // banner rises as the flag is captured
-    const prog = f.owner >= 0 ? 1 : Math.abs(f.cap);
-    const by = y - 50 + (1 - prog) * 26;
-    const wave = Math.sin(this.t * 4 + f.id) * 2;
-    for (let i = 0; i < 6; i++) {
-      const cx = x + 2 + i * 4, cy = by + Math.sin(this.t * 5 + i * 0.8 + f.id) * 1.5 + wave * (i / 6);
-      ctx.fillStyle = f.owner >= 0 ? col : (prog > 0.05 ? capCol : col);
-      ctx.fillRect(cx, cy, 4, 14);
-      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(cx, cy + 10, 4, 4);
+  // ------------------------------------------------------------------ flags, M-COMs, gadgets, smoke
+  updateObjectives(t) {
+    const g = this.game, P = this.pools;
+    const COL = { 0: 0xe0523a, 1: 0x3f86e8, '-1': 0xd8dce0 };
+    for (const f of g.flagList()) {
+      if (!this.near(f.x, f.y)) continue;
+      const e = P.flags.get(f.id);
+      e.obj.position.set(f.x, 0, f.y);
+      const prog = f.owner >= 0 ? 1 : Math.abs(f.cap);
+      const col = f.owner >= 0 ? COL[f.owner] : (prog > 0.05 ? (f.cap < 0 ? COL[0] : COL[1]) : COL['-1']);
+      e.banner.material.color.setHex(col);
+      e.banner.position.set(15, 14 + prog * 34, 0);
+      e.banner.rotation.y = Math.sin(t * 3 + f.id) * 0.25;
+      const zc = f.owner >= 0 ? COL[f.owner] : COL['-1'];
+      e.zone.position.set(f.x, 1.2, f.y); e.zone.scale.set(f.r, 1, f.r); e.zone.material.color.setHex(zc);
+      e.rim.position.set(f.x, 1.4, f.y); e.rim.scale.set(f.r, 1, f.r); e.rim.material.color.setHex(zc);
+      const key = Math.round(prog * 50) + (f.cap < 0 ? 100 : 0);
+      if (prog > 0.01 && prog < 0.999) {
+        if (e.arcKey !== key) {
+          if (e.arc) { this.world.remove(e.arc); e.arc.geometry.dispose(); }
+          e.arc = new THREE.Mesh(flatRing(0.9, 0.96, 64, -Math.PI / 2, -Math.PI * 2 * prog), new THREE.MeshBasicMaterial({ color: f.cap < 0 ? COL[0] : COL[1], transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+          e.arc.renderOrder = 2; this.world.add(e.arc); e.arcKey = key;
+        }
+        e.arc.position.set(f.x, 1.8, f.y); e.arc.scale.set(f.r, 1, f.r); e.arc.visible = true;
+      } else if (e.arc) e.arc.visible = false;
     }
-    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '800 9px ui-monospace, monospace'; ctx.textAlign = 'center';
-    ctx.fillText(f.letter, x + 14, by + 10);
-  }
-
-  drawMcom(ctx, m) {
-    const x = m.x, y = m.y;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(x - 12, y + 2, 26, 8);
-    if (m.state === 2) {
-      ctx.fillStyle = '#2a2624'; ctx.fillRect(x - 12, y - 4, 24, 12); ctx.fillStyle = '#4a4440'; ctx.fillRect(x - 8, y - 8, 10, 6);
-      if (Math.random() < 0.15) this.game.fx.damageSmoke(x, y, true);
-      return;
+    P.flags.sweep();
+    for (const m of g.mcomList()) {
+      if (!this.near(m.x, m.y)) continue;
+      const e = P.mcoms.get(m.id);
+      e.obj.position.set(m.x, 0, m.y);
+      if (e.state !== m.state) { e.body.geometry = propGeo(m.state === 2 ? 'mcomDead' : 'mcom'); e.state = m.state; }
+      e.lamp.visible = m.state !== 2;
+      const armed = m.state === 1;
+      const blink = armed && Math.floor(t * (m.timer < 10 ? 8 : 3)) % 2 === 0;
+      e.lamp.material.color.setHex(armed ? (blink ? 0xff3b2f : 0x661a14) : 0x5aa7ff);
+      if (m.state === 2 && Math.random() < 0.15) g.fx.damageSmoke(m.x, m.y, true);
     }
-    const armed = m.state === 1;
-    const blink = armed && Math.floor(this.t * (m.timer < 10 ? 8 : 3)) % 2 === 0;
-    box25(ctx, x, y, 24, 14, 14, '#4b5158', '#2b2f33');
-    ctx.fillStyle = armed ? (blink ? '#ff3b2f' : '#661a14') : '#5aa7ff'; ctx.fillRect(x - 8, y - 13, 16, 8);
-    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(x - 8, y - 4, 16, 3);
-    ctx.fillStyle = armed ? '#ff9a80' : '#bcd8ff'; ctx.font = '700 8px ui-monospace, monospace'; ctx.textAlign = 'center';
-    ctx.fillText(armed ? String(Math.ceil(m.timer)) : 'M-COM', x, y - 7);
-    if (armed && blink) { ctx.fillStyle = 'rgba(255,60,40,0.18)'; ctx.fillRect(x - 40, y - 40, 80, 70); }
+    P.mcoms.sweep();
   }
 
-  drawGadget(ctx, d) {
-    const [, gi, x, y, a, team, armed, life] = d;
-    const def = GADGET_LIST[gi];
-    if (!def) return;
-    const tc = team === 0 ? '#e0523a' : '#3f86e8';
-    switch (def.id) {
-      case 'medkit': box25(ctx, x, y, 14, 10, 9, '#f2f2f2', '#c9cdd2'); ctx.fillStyle = '#d0392b'; ctx.fillRect(x - 1, y - 14, 3, 8); ctx.fillRect(x - 4, y - 11, 9, 3); break;
-      case 'ammo': box25(ctx, x, y, 16, 10, 8, '#7d9a4a', '#586f34'); ctx.fillStyle = '#e8d26a'; ctx.fillRect(x - 5, y - 10, 10, 2); break;
-      case 'mine': ctx.fillStyle = '#20232a'; ctx.fillRect(x - 8, y - 4, 16, 8); ctx.fillStyle = armed ? '#e05a3a' : '#777'; ctx.fillRect(x - 2, y - 2, 4, 4); break;
-      case 'claymore': box25(ctx, x, y, 12, 5, 6, '#5d7a45', '#3d5230'); ctx.fillStyle = armed ? '#ff5a3a' : '#777'; ctx.fillRect(x + Math.cos(a) * 4 - 1, y + Math.sin(a) * 3 - 8, 3, 3); break;
-      case 'c4': box25(ctx, x, y, 12, 8, 6, '#d9cdaa', '#a89c78'); ctx.fillStyle = Math.floor(this.t * 3) % 2 ? '#ff3b2f' : '#601810'; ctx.fillRect(x + 2, y - 8, 3, 3); break;
-      case 'beacon': box25(ctx, x, y, 8, 8, 4, '#3a3f46', '#22262b'); ctx.fillStyle = '#2b2f36'; ctx.fillRect(x - 1, y - 30, 3, 26); ctx.fillStyle = Math.floor(this.t * 2) % 2 ? tc : '#222'; ctx.fillRect(x - 3, y - 34, 7, 5); break;
-      case 'sensor': box25(ctx, x, y, 10, 10, 4, '#3a3f46', '#22262b'); ctx.fillStyle = '#7fe08a'; ctx.fillRect(x - 3, y - 10, 7, 4); ctx.strokeStyle = 'rgba(127,224,138,0.6)'; ctx.lineWidth = 1; ctx.strokeRect(x - 5, y - 12, 11, 8); break;
-      default: box25(ctx, x, y, 10, 10, 6, '#aaa', '#777');
+  updateGadgets(t) {
+    const g = this.game, P = this.pools;
+    for (const d of g.ents.gd || []) {
+      const [id, gi, x, y, a, team, armed] = d;
+      const def = GADGET_LIST[gi];
+      if (!def || !this.near(x, y)) continue;
+      const e = P.gadgets.get(id);
+      if (e.id !== def.id) {
+        e.id = def.id; e.m.geometry = propGeo(['medkit', 'ammo', 'mine', 'claymore', 'c4', 'beacon', 'sensor'].includes(def.id) ? def.id : 'gadget');
+        const ringCol = def.id === 'medkit' ? 0x5aff96 : def.id === 'ammo' ? 0xffdc6e : def.id === 'sensor' ? (team === 0 ? 0xff7864 : 0x78aaff) : 0;
+        e.ring.visible = !!ringCol; if (ringCol) e.ring.material.color.setHex(ringCol);
+        e.cone.visible = def.id === 'claymore'; e.cone.material.color.setHex(team === 0 ? 0xff7864 : 0x78aaff);
+      }
+      e.obj.position.set(x, 0, y); e.obj.rotation.y = -a;
+      e.ring.position.x = x; e.ring.position.z = y;
+      const rad = def.id === 'sensor' ? 340 : def.radius || 110;
+      e.ring.scale.set(rad, 1, rad);
+      e.cone.position.x = x; e.cone.position.z = y; e.cone.rotation.y = -a;
+      void armed; void t;
     }
-    void life;
+    P.gadgets.sweep();
   }
 
-  drawGrenade(ctx, n) {
-    const [, type, x, y] = n;
-    const c = GREN_COL[GREN_ORDER[type]] || '#888';
-    ctx.fillStyle = c; ctx.fillRect(x - 3, y - 9, 6, 6);
-    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(x - 3, y - 9, 6, 2);
-  }
-
-  projectilePos(q) { return q; }
-
-  drawProjectile(ctx, q) {
-    const pr = PROJ[PROJ_LIST[q.idx]];
-    const z = 16;
-    const len = pr && pr.speed > 1000 ? 12 : 9;
-    const dx = Math.cos(q.a), dy = Math.sin(q.a);
-    ctx.lineCap = 'square';
-    ctx.strokeStyle = '#2a2d33'; ctx.lineWidth = 4;
-    ctx.beginPath(); ctx.moveTo(q.x - dx * len, q.y - dy * len - z); ctx.lineTo(q.x + dx * len * 0.4, q.y + dy * len * 0.4 - z); ctx.stroke();
-    ctx.strokeStyle = '#d6d9de'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(q.x - dx * len * 0.5, q.y - dy * len * 0.5 - z); ctx.lineTo(q.x + dx * len * 0.4, q.y + dy * len * 0.4 - z); ctx.stroke();
-    ctx.fillStyle = '#ffb030'; ctx.fillRect(q.x - dx * len - 2, q.y - dy * len - z - 2, 5, 5);
-    if (Math.random() < 0.6) this.game.fx.smokeTrail(q.x - dx * len, q.y - dy * len, z);
-    ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(q.x - 3, q.y + 3, 6, 4);
-  }
-
-  drawSmokes(ctx) {
+  updateSmoke(t) {
     const g = this.game;
+    const D = this._d || (this._d = new THREE.Object3D()), C = this._c || (this._c = new THREE.Color());
+    let n = 0;
     for (const s of g.ents.sm || []) {
       const [id, x, y, r, age] = s;
-      if (!this.inView(x, y, r + 30)) continue;
-      const fadeOut = age > 16 ? clamp((18 - age) / 2, 0, 1) : 1;
-      const puffs = 22;
-      for (let i = 0; i < puffs; i++) {
-        const h = Math.sin(id * 12.9898 + i * 78.233) * 43758.5453; const q = h - Math.floor(h);
-        const h2 = Math.sin(id * 4.1414 + i * 37.719) * 12345.678; const q2 = h2 - Math.floor(h2);
-        const ang = q * TAU + this.t * (0.12 + q2 * 0.2) * (i % 2 ? 1 : -1);
-        const d = Math.sqrt(q2) * r * 0.66;
-        const px = x + Math.cos(ang) * d, py = y + Math.sin(ang) * d - 10 - (i % 3) * 8;
-        const pr = Math.round(r * (0.32 + q * 0.2) / 4) * 4;
-        const shade = 176 + Math.floor(q2 * 44);
-        ctx.globalAlpha = 0.85 * fadeOut;
-        ctx.fillStyle = `rgb(${shade},${shade + 3},${shade + 7})`;
-        ctx.fillRect(Math.round(px - pr), Math.round(py - pr), pr * 2, pr * 2);
-        ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(Math.round(px - pr), Math.round(py - pr), pr * 2, 3);
-      }
-      ctx.globalAlpha = 1;
-    }
-  }
-
-  // ------------------------------------------------------------------ fog
-  drawFog(poly, viewer) {
-    const g = this.game, ctx = this.ctx;
-    if (!poly || !viewer) return;
-    const f = this.fctx, fw = this.fogCanvas.width, fh = this.fogCanvas.height;
-    const th = (this.map.theme && this.map.theme.fog) || [8, 10, 16];
-    f.globalCompositeOperation = 'source-over';
-    f.clearRect(0, 0, fw, fh);
-    f.fillStyle = `rgba(${th[0]},${th[1]},${th[2]},0.68)`;
-    f.fillRect(0, 0, fw, fh);
-    f.globalCompositeOperation = 'destination-out';
-    const s = this.scale * this.dpr * 0.5;
-    const ox = (this.W / 2 - this.cam.x * this.scale) * this.dpr * 0.5, oy = (this.H / 2 - this.cam.y * this.scale) * this.dpr * 0.5;
-    const lift = viewer.air ? 0 : (this.lift !== undefined ? this.lift : WALL_LIFT);
-    f.beginPath();
-    for (let i = 0; i < poly.n; i++) {
-      const x = poly.pts[i * 2] * s + ox, y = (poly.pts[i * 2 + 1] - (poly.hit[i] ? lift : 0)) * s + oy;
-      if (i === 0) f.moveTo(x, y); else f.lineTo(x, y);
-    }
-    f.closePath();
-    f.fillStyle = 'rgba(0,0,0,1)'; f.fill();
-    f.lineJoin = 'round';
-    f.strokeStyle = 'rgba(0,0,0,0.5)'; f.lineWidth = 9 * this.scale * 0.5; f.stroke();
-    f.strokeStyle = 'rgba(0,0,0,0.25)'; f.lineWidth = 18 * this.scale * 0.5; f.stroke();
-    // the viewer stands slightly above the ground: never let a wall face swallow their own sprite
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(this.fogCanvas, 0, 0, this.canvas.width, this.canvas.height);
-    ctx.imageSmoothingEnabled = false;
-    void g;
-  }
-
-  // ------------------------------------------------------------------ labels & markers
-  drawLabels(ctx, viewer) {
-    const g = this.game;
-    ctx.textAlign = 'center';
-    ctx.font = '700 10px ui-monospace, Menlo, Consolas, monospace';
-    const myTeam = g.me ? (g.roster.get(g.me.id) || {}).tm : g.myTeam();
-    for (const p of g.soldiers()) {
-      if (p.own || !this.inView(p.x, p.y)) continue;
-      const mate = p.team === myTeam;
-      if (!mate && g.myTeam() !== SPEC) continue;
-      if (!mate && viewer && g.fogOn && !g.freecam && !canSee(this.map, g.smokeCircles(), viewer.x, viewer.y, viewer.angle, viewer.view, p.x, p.y, 0, PLAYER_R)) continue;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
-      const r = g.roster.get(p.id);
-      const sq = mate && r && g.mySquad() >= 0 && r.sq === g.mySquad();
-      const name = g.nameOf(p.id);
-      const y = p.y - 36;
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(name, p.x + 1, y + 1);
-      ctx.fillStyle = sq ? '#7dff9a' : col.text; ctx.fillText(name, p.x, y);
-      if (sq) { ctx.fillStyle = '#7dff9a'; ctx.beginPath(); ctx.moveTo(p.x, y - 8); ctx.lineTo(p.x - 4, y - 14); ctx.lineTo(p.x + 4, y - 14); ctx.closePath(); ctx.fill(); }
-      if (p.hp > 0) {
-        const w = 24;
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(p.x - w / 2 - 1, y + 3, w + 2, 4);
-        ctx.fillStyle = p.hp > 50 ? '#4cd964' : p.hp > 25 ? '#f5c542' : '#ff453a';
-        ctx.fillRect(p.x - w / 2, y + 4, w * clamp(p.hp / 100, 0, 1), 2);
+      if (!this.near(x, y)) continue;
+      const fade = age > 16 ? clamp((18 - age) / 2, 0, 1) : 1;
+      const grow = clamp(age / 1.2, 0.25, 1);
+      for (let i = 0; i < 26 && n < 900; i++) {
+        const h = Math.sin(id * 12.9898 + i * 78.233) * 43758.5453, q = h - Math.floor(h);
+        const h2 = Math.sin(id * 4.1414 + i * 37.719) * 12345.678, q2 = h2 - Math.floor(h2);
+        const ang = q * Math.PI * 2 + t * (0.1 + q2 * 0.15) * (i % 2 ? 1 : -1);
+        const d = Math.sqrt(q2) * r * 0.7 * grow;
+        const size = r * (0.3 + q * 0.2) * fade * grow * 1.4;
+        D.position.set(x + Math.cos(ang) * d, size * 0.5 + (i % 4) * 9 + 2, y + Math.sin(ang) * d);
+        D.rotation.set(0, q * 3 + t * 0.1, 0); D.scale.setScalar(size); D.updateMatrix();
+        this.smoke.setMatrixAt(n, D.matrix);
+        const shade = (176 + q2 * 44) / 255; C.setRGB(shade, shade, shade + 0.03, THREE.SRGBColorSpace);
+        this.smoke.setColorAt(n, C);
+        n++;
       }
     }
-    // friendly vehicles get a tag
-    for (const v of g.vehiclesDrawn()) {
-      if (!this.inView(v.x, v.y) || !v.def) continue;
-      const mate = v.team === myTeam;
-      const y = v.y - (v.def.kind === 'air' ? AIR_ALT + 40 : v.def.r + 30);
-      ctx.font = '700 10px ui-monospace, Menlo, Consolas, monospace';
-      const col = v.team >= 0 ? TEAM_COL[v.team] : TEAM_COL[2];
-      if (mate || v.team < 0) {
-        ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(v.def.name, v.x + 1, y + 1);
-        ctx.fillStyle = col.text; ctx.fillText(v.def.name, v.x, y);
-        const w = 34;
-        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(v.x - w / 2 - 1, y + 3, w + 2, 4);
-        ctx.fillStyle = v.hp > 50 ? '#4cd964' : v.hp > 25 ? '#f5c542' : '#ff453a'; ctx.fillRect(v.x - w / 2, y + 4, w * clamp(v.hp / 100, 0, 1), 2);
-      }
-    }
-    // spotted enemies: red markers even through the fog
-    for (const s of g.ents.sp || []) {
-      const [, x, y, kind] = s;
-      if (!this.inView(x, y)) continue;
-      const bob = Math.sin(this.t * 5) * 2;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.moveTo(x, y - 30 + bob + 1); ctx.lineTo(x - 8, y - 44 + bob + 1); ctx.lineTo(x + 8, y - 44 + bob + 1); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.moveTo(x, y - 31 + bob); ctx.lineTo(x - 7, y - 43 + bob); ctx.lineTo(x + 7, y - 43 + bob); ctx.closePath(); ctx.fill();
-      if (kind) { ctx.fillStyle = '#fff'; ctx.fillRect(x - 2, y - 41 + bob, 4, 4); }
-    }
-    void viewer;
-  }
-
-  drawFlagLabels(ctx) {
-    for (const f of this.game.flagList()) {
-      if (!this.inView(f.x, f.y, 100)) continue;
-      const col = f.owner === 0 ? '#ff8a72' : f.owner === 1 ? '#7fb0ff' : '#e6e9ec';
-      ctx.font = '800 13px ui-monospace, Menlo, monospace'; ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(`${f.letter} · ${f.name}`, f.x + 1, f.y - 68);
-      ctx.fillStyle = col; ctx.fillText(`${f.letter} · ${f.name}`, f.x, f.y - 69);
-    }
-  }
-
-  drawPings(ctx) {
-    const g = this.game, now = performance.now();
-    g.pings = g.pings.filter((p) => now - p.t < 4500);
-    for (const p of g.pings) {
-      const age = (now - p.t) / 1000;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
-      const k = (age * 1.4) % 1;
-      ctx.strokeStyle = col.text; ctx.globalAlpha = (1 - k) * clamp((4.5 - age) / 1, 0, 1);
-      ctx.lineWidth = 2; const rr = 8 + k * 28; ctx.strokeRect(p.x - rr, p.y - rr * 0.8, rr * 2, rr * 1.6);
-      ctx.globalAlpha = clamp((4.5 - age) / 1, 0, 1);
-      ctx.fillStyle = col.text;
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - 7, p.y - 17); ctx.lineTo(p.x + 7, p.y - 17); ctx.closePath(); ctx.fill();
-      ctx.font = '700 11px ui-monospace, monospace'; ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillText(g.nameOf(p.id), p.x + 1, p.y - 22);
-      ctx.fillStyle = '#fff'; ctx.fillText(g.nameOf(p.id), p.x, p.y - 23);
-    }
-    ctx.globalAlpha = 1;
-  }
-
-  drawOffscreenMarkers(ctx) {
-    const g = this.game;
-    const marks = [];
-    for (const f of g.flagList()) {
-      const col = f.owner === 0 ? '#ff6a52' : f.owner === 1 ? '#5a9cff' : '#d8dce0';
-      marks.push({ x: f.x, y: f.y, label: f.letter, col, pulse: f.contested });
-    }
-    for (const m of g.mcomList()) if (m.state !== 2) marks.push({ x: m.x, y: m.y, label: 'M', col: m.state === 1 ? '#ff3b2f' : '#ffb84a', pulse: m.state === 1 });
-    for (const m of marks) {
-      const p = this.worldToScreen(m.x, m.y);
-      const pad = 40;
-      if (p.x > pad && p.x < this.W - pad && p.y > pad && p.y < this.H - pad) continue;
-      const cx = this.W / 2, cy = this.H / 2;
-      const dx = p.x - cx, dy = p.y - cy;
-      const k = Math.min((this.W / 2 - pad) / Math.abs(dx || 1e-6), (this.H / 2 - pad) / Math.abs(dy || 1e-6));
-      const ex = cx + dx * k, ey = cy + dy * k, a = Math.atan2(dy, dx);
-      ctx.save(); ctx.translate(ex, ey);
-      const pulse = m.pulse ? 0.6 + 0.4 * Math.sin(this.t * 8) : 0.9;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(-13, -13, 26, 26);
-      ctx.rotate(a); ctx.fillStyle = m.col; ctx.globalAlpha = pulse;
-      ctx.beginPath(); ctx.moveTo(24, 0); ctx.lineTo(14, -7); ctx.lineTo(14, 7); ctx.closePath(); ctx.fill();
-      ctx.rotate(-a); ctx.globalAlpha = 1;
-      ctx.fillStyle = m.col; ctx.font = '800 14px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText(m.label, 0, 1);
-      ctx.restore();
-    }
-  }
-
-  // ------------------------------------------------------------------ screen overlays
-  drawOverlays(ctx, viewer, dt) {
-    void dt;
-    const g = this.game, W = this.W, H = this.H, now = performance.now();
-    g.damageDirs = g.damageDirs.filter((d) => now - d.t < 900);
-    for (const d of g.damageDirs) {
-      const k = (now - d.t) / 900;
-      ctx.save(); ctx.translate(W / 2, H / 2); ctx.rotate(d.a);
-      ctx.strokeStyle = `rgba(255,40,30,${0.7 * (1 - k)})`; ctx.lineWidth = 9;
-      ctx.beginPath(); ctx.arc(0, 0, Math.min(W, H) * 0.36, -0.28, 0.28); ctx.stroke();
-      ctx.restore();
-    }
-    if (g.alive && g.me && g.me.own && g.me.hp < 35) {
-      const a = (0.25 + 0.1 * Math.sin(this.t * 5)) * (1 - g.me.hp / 35);
-      const gr = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
-      gr.addColorStop(0, 'rgba(160,0,0,0)'); gr.addColorStop(1, `rgba(160,0,0,${a + 0.25})`);
-      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-    }
-    if (viewer && viewer.scoped && g.alive) {
-      const gr = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.7);
-      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, viewer.scopeLvl ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.24)');
-      ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
-    }
-    const el = (now - g.flashRecv) / 1000;
-    const full = g.flashFull - el, left = g.flashLeft - el;
-    if (left > 0) {
-      const a = full > 0 ? 1 : clamp(left / Math.max(0.6, g.flashLeft - g.flashFull), 0, 1) * 0.95;
-      ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fillRect(0, 0, W, H);
-    }
-    if (g.alive && g.me && g.me.own && !(g.ui.isOverlayOpen && g.ui.isOverlayOpen())) this.drawCrosshair(ctx, viewer, now);
-  }
-
-  drawCrosshair(ctx, viewer, now) {
-    const g = this.game, me = g.me, inp = g.input;
-    const mx = inp.mx, my = inp.my;
-    const held = me.held;
-    // vehicle: the reticle shows where the turret is really pointing
-    if (me.veh) {
-      const v = me.veh, def = VEHICLES[VEHICLE_LIST[v.ty]];
-      const sd = def.seats[v.seat];
-      ctx.save(); ctx.translate(mx, my);
-      const hm = now - g.hitMarker < 170;
-      const col = hm ? '#ffffff' : 'rgba(120,255,160,0.95)';
-      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 4;
-      for (const pass of [0, 1]) {
-        ctx.strokeStyle = pass ? col : 'rgba(0,0,0,0.6)'; ctx.lineWidth = pass ? 2 : 4;
-        ctx.strokeRect(-11, -11, 22, 22); ctx.beginPath(); ctx.moveTo(-16, 0); ctx.lineTo(-6, 0); ctx.moveTo(16, 0); ctx.lineTo(6, 0); ctx.moveTo(0, -16); ctx.lineTo(0, -6); ctx.moveTo(0, 16); ctx.lineTo(0, 6); ctx.stroke();
-      }
-      if (v.rel > 0 || v.cd > 0.05) {
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, 20, -Math.PI / 2, -Math.PI / 2 + TAU * (v.rel > 0 ? v.rel : 1 - Math.min(1, v.cd / (sd.weapon === 'cannon' ? 2.2 : 0.4)))); ctx.stroke();
-      }
-      ctx.restore();
-      if (sd.weapon && viewer) {
-        // where the turret / gun points right now
-        const ang = sd.aim === 'turret' ? g.turretAngle() : sd.aim === 'body' ? g.predVeh.a : v.sa;
-        const ps = this.worldToScreen(viewer.x, viewer.y);
-        ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 1; ctx.setLineDash([4, 6]);
-        ctx.beginPath(); ctx.moveTo(ps.x, ps.y - 12); ctx.lineTo(ps.x + Math.cos(ang) * 400 * this.scale, ps.y - 12 + Math.sin(ang) * 400 * this.scale); ctx.stroke(); ctx.setLineDash([]);
-      }
-      return;
-    }
-    const w = held < HELD_GREN_BASE ? WEAPON_LIST[held] : null;
-    // grenade landing preview
-    if (held >= HELD_GREN_BASE && held < HELD_GADGET_BASE && viewer) {
-      const type = GREN_ORDER[held - HELD_GREN_BASE];
-      const ps = this.worldToScreen(viewer.x, viewer.y);
-      const wm = this.screenToWorld(mx, my);
-      let d = Math.hypot(wm.x - viewer.x, wm.y - viewer.y);
-      d = clamp(d, GREN_MIN_DIST, GREN_MAX_DIST);
-      const a = Math.atan2(my - ps.y, mx - ps.x);
-      const lx = ps.x + Math.cos(a) * d * this.scale, ly = ps.y + Math.sin(a) * d * this.scale;
-      const rad = (type === 'he' ? HE_RADIUS : type === 'smoke' ? SMOKE_RADIUS : type === 'molo' ? FIRE_RADIUS : 60) * this.scale;
-      ctx.save();
-      ctx.setLineDash([6, 6]); ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(ps.x, ps.y); ctx.lineTo(lx, ly); ctx.stroke();
-      ctx.strokeStyle = type === 'he' ? 'rgba(255,110,60,0.8)' : type === 'molo' ? 'rgba(255,140,40,0.8)' : 'rgba(255,255,255,0.7)';
-      ctx.setLineDash([4, 5]); ctx.strokeRect(lx - rad, ly - rad, rad * 2, rad * 2);
-      ctx.setLineDash([]); ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fillRect(lx - 2, ly - 2, 5, 5);
-      ctx.restore();
-    }
-    // underbarrel grenade landing point
-    if (me.alt && viewer && w) {
-      const ps = this.worldToScreen(viewer.x, viewer.y);
-      const wm = this.screenToWorld(mx, my);
-      const d = clamp(Math.hypot(wm.x - viewer.x, wm.y - viewer.y), 90, 900);
-      const a = Math.atan2(my - ps.y, mx - ps.x);
-      const lx = ps.x + Math.cos(a) * d * this.scale, ly = ps.y + Math.sin(a) * d * this.scale, rad = ALT.ugl.radius * this.scale;
-      ctx.save(); ctx.strokeStyle = 'rgba(255,150,70,0.8)'; ctx.setLineDash([4, 5]); ctx.lineWidth = 1.5; ctx.strokeRect(lx - rad, ly - rad, rad * 2, rad * 2); ctx.restore();
-    }
-    let gap = 7;
-    if (viewer) {
-      const wm = this.screenToWorld(mx, my);
-      const dist = Math.hypot(wm.x - viewer.x, wm.y - viewer.y);
-      gap = clamp(Math.tan(me.sp || 0) * dist * this.scale, 5, 160);
-    }
-    g._gap = g._gap === undefined ? gap : g._gap + (gap - g._gap) * 0.35;
-    const gp = g._gap;
-    ctx.save(); ctx.translate(mx, my);
-    const hm = now - g.hitMarker < 170;
-    const col = hm ? (g.hitKill ? '#ff453a' : '#ffffff') : 'rgba(120,255,160,0.95)';
-    const len = 8;
-    const ticks = (color, lw) => {
-      ctx.strokeStyle = color; ctx.lineWidth = lw; ctx.beginPath();
-      ctx.moveTo(gp, 0); ctx.lineTo(gp + len, 0); ctx.moveTo(-gp, 0); ctx.lineTo(-gp - len, 0);
-      ctx.moveTo(0, gp); ctx.lineTo(0, gp + len); ctx.moveTo(0, -gp); ctx.lineTo(0, -gp - len); ctx.stroke();
-    };
-    const gadget = held >= HELD_GADGET_BASE;
-    if (!gadget && (!w || w.kind !== 'knife')) { ticks('rgba(0,0,0,0.6)', 4); ticks(col, 2); }
-    ctx.fillStyle = col; ctx.fillRect(-1.5, -1.5, 3, 3);
-    if (hm) { ctx.strokeStyle = g.hitKill ? '#ff453a' : '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-9, -9); ctx.lineTo(-4, -4); ctx.moveTo(9, -9); ctx.lineTo(4, -4); ctx.moveTo(-9, 9); ctx.lineTo(-4, 4); ctx.moveTo(9, 9); ctx.lineTo(4, 4); ctx.stroke(); }
-    if (me.rel > 0) {
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, gp + 16, 0, TAU); ctx.stroke();
-      ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, gp + 16, -Math.PI / 2, -Math.PI / 2 + TAU * me.rel); ctx.stroke();
-    }
-    if (me.lk) {
-      ctx.strokeStyle = me.lk[1] >= 1 ? '#ff3b2f' : '#ffd24a'; ctx.lineWidth = 3; ctx.strokeRect(-18, -18, 36, 36);
-      ctx.fillStyle = ctx.strokeStyle; ctx.font = '800 11px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.fillText(me.lk[1] >= 1 ? 'LOCKED' : 'LOCKING', 0, 32);
-    }
-    ctx.restore();
+    this.smoke.count = n;
+    this.smoke.instanceMatrix.needsUpdate = true;
+    if (this.smoke.instanceColor) this.smoke.instanceColor.needsUpdate = true;
   }
 }
-export { TILES };
+export { SPEC };

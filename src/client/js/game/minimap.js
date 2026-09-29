@@ -58,9 +58,12 @@ export class Minimap {
     }
     const thumb = this.terrain.thumb, S = this.terrain.thumbS;
     ctx.save();
-    if (!this.big) { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); }
+    // the radar turns with the camera: up is where you are looking
+    let rot = 0;
+    if (!this.big) { ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.clip(); rot = -Math.PI / 2 - game.yaw; ctx.translate(W / 2, H / 2); ctx.rotate(rot); ctx.translate(-W / 2, -H / 2); }
     ctx.drawImage(thumb, 0, 0, thumb.width, thumb.height, ox, oy, map.width * s, map.height * s);
-    ctx.fillStyle = 'rgba(5,8,14,0.28)'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(5,8,14,0.28)'; ctx.fillRect(-W, -H, W * 3, H * 3);
+    const label = (str, x, y) => { ctx.save(); ctx.translate(x, y); ctx.rotate(-rot); ctx.fillText(str, 0, 0); ctx.restore(); };
     void S;
     const X = (x) => x * s + ox, Y = (y) => y * s + oy;
     const k = d * (this.big ? 1.25 : 1);
@@ -76,14 +79,14 @@ export class Minimap {
       ctx.fillStyle = col; ctx.fillRect(X(f.x) - r + 2, Y(f.y) - r + 2, r * 2 - 4, r * 2 - 4);
       if (f.contested) { ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 2 * d; ctx.strokeRect(X(f.x) - r - 2, Y(f.y) - r - 2, r * 2 + 4, r * 2 + 4); }
       ctx.fillStyle = '#0b0e14'; ctx.font = `800 ${Math.round(11 * k)}px ui-monospace, monospace`;
-      ctx.fillText(f.letter, X(f.x), Y(f.y) + 1);
+      label(f.letter, X(f.x), Y(f.y) + 1);
     }
     for (const m of game.mcomList()) {
       if (m.state === 2) continue;
       const on = m.state === 1 && Math.floor(now / 250) % 2 === 0;
       ctx.fillStyle = m.state === 1 ? (on ? '#ff3b2f' : '#7a1d16') : '#ffb84a';
       const r = 7 * k; ctx.fillRect(X(m.x) - r, Y(m.y) - r, r * 2, r * 2);
-      ctx.fillStyle = '#0b0e14'; ctx.font = `800 ${Math.round(10 * k)}px ui-monospace, monospace`; ctx.fillText('M', X(m.x), Y(m.y) + 1);
+      ctx.fillStyle = '#0b0e14'; ctx.font = `800 ${Math.round(10 * k)}px ui-monospace, monospace`; label('M', X(m.x), Y(m.y) + 1);
     }
     // smokes, fires
     for (const sm of game.ents.sm) { ctx.fillStyle = 'rgba(210,215,220,0.55)'; const r = Math.max(2, sm[3] * s); ctx.fillRect(X(sm[1]) - r, Y(sm[2]) - r, r * 2, r * 2); }

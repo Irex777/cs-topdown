@@ -16,7 +16,10 @@ class App {
     this.playing = false;
     this.inviteCode = (new URLSearchParams(location.search).get('room') || location.hash.replace('#', '')).toUpperCase().replace(/[^A-Z]/g, '').slice(0, 4);
     const dummyUI = {};
-    this.game = new ClientGame($('game'), this.net, dummyUI);
+    try { this.game = new ClientGame($('game'), this.net, dummyUI); } catch (e) {
+      document.body.innerHTML = '<div style="padding:40px;font:16px ui-monospace,monospace;color:#eef2f8;max-width:560px;margin:auto"><h2>3D graphics are not available</h2><p style="margin-top:12px;color:#9aa6b8">Frontline needs WebGL. Enable hardware acceleration in your browser settings (or try a different browser) and reload.</p><p style="margin-top:12px"><a href="/" style="color:#ffd95a">◀ Back to the game picker</a></p></div>';
+      throw e;
+    }
     this.hud = new HUD(this.game, this.net, this);
     this.home = new Home(this);
     this.lobby = new Lobby(this);

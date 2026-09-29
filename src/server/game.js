@@ -2,7 +2,7 @@
 // (Conquest / Rush / Team Deathmatch) lives in modes/*.js and hooks into this class.
 import { SPEC, PHASE, RULES, KEY, DT, otherTeam, SQUAD_NAMES } from '../shared/constants.js';
 import { maxSpeedFor, sanitizeLoadout } from '../shared/weapons.js';
-import { stepMovement } from '../shared/movement.js';
+import { stepMovement, relativeDir } from '../shared/movement.js';
 import { createMap } from '../shared/maps/index.js';
 import { Player, newStats } from './player.js';
 import { tryFire, tickWeaponTimers, damagePlayer } from './combat.js';
@@ -353,6 +353,7 @@ export class Game {
     p.scoped = wantScope;
     p.walking = (keys & KEY.WALK) !== 0;
     p.sprinting = (keys & KEY.SPRINT) !== 0 && !wantScope && !p.walking && !fire;
+    if (ax === undefined) [ax, ay] = relativeDir(keys, angle);   // humans: keys are relative to the view
     stepMovement(this.map, p, keys, maxSpeedFor(w, p.walking, p.scoped, p.sprinting), false, ax, ay);
     // footsteps
     const sp = p.speed;

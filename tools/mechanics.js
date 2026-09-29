@@ -42,6 +42,32 @@ console.log('flag capture');
   check(ps[0].stats.captures >= 1 && ps[0].stats.score >= RULES.score.capture, 'the capturer is awarded points');
 }
 
+console.log('view-relative controls (third-person camera)');
+{
+  const { g, ps, hold, spawn } = setup();
+  const s = open(g, 34 * 32, 40 * 32);
+  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), s.x, s.y);
+  const x0 = ps[0].x, y0 = ps[0].y;
+  hold(ps[0], KEY.UP, 0, 30);
+  check(ps[0].x > x0 + 20 && Math.abs(ps[0].y - y0) < 5, 'W walks toward the view direction (looking east)');
+  const y1 = ps[0].y;
+  hold(ps[0], KEY.UP, Math.PI / 2, 30);
+  check(ps[0].y > y1 + 15, 'W follows the view when the camera turns (looking south)');
+  const x2 = ps[0].x;
+  hold(ps[0], KEY.RIGHT, Math.PI / 2, 30);
+  check(ps[0].x < x2 - 15, 'D strafes to the right of the view (looking south, right is west)');
+  // helicopter: W flies where the pilot looks
+  const heli = g.vehicles.find((v) => v.type === 'heli');
+  heli.x = 40 * 32; heli.y = 40 * 32; heli.vx = heli.vy = 0;
+  spawn(ps[1], lo('assault', 'm416', ['defib', 'medkit']), heli.x + 10, heli.y);
+  ps[1].usePrev = false; g.applyCmd(ps[1], KEY.USE, 0, 0, 0);
+  if (ps[1].veh === heli.id) {
+    const hx = heli.x, hy = heli.y;
+    hold(ps[1], KEY.UP, Math.PI / 2, 60);
+    check(heli.y > hy + 60 && Math.abs(heli.x - hx) < 40, `W flies the helicopter toward the view (${Math.round(heli.y - hy)} px south)`);
+  } else check(false, 'the pilot could board the helicopter');
+}
+
 console.log('ticket bleed and match end');
 {
   const { g, tick } = setup();

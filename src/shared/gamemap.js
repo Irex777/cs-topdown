@@ -1,6 +1,6 @@
 // Tile map: collision, ray casting, destruction, objectives. Used by server, bots and client prediction.
 //
-// The world is a grid of 32 px tiles. Logic is 2D; the client extrudes solid tiles into voxel blocks (2.5D).
+// The world is a grid of 32 px tiles. Logic is 2D; the client builds the solid tiles into 3D voxel blocks.
 // Solid tiles have hit points and can be destroyed by explosives, turning into walkable rubble.
 import { TILE } from './constants.js';
 import { VEHICLES } from './vehicles.js';
