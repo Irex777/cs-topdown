@@ -1,6 +1,8 @@
 // Keyboard + mouse state for the local player.
 import { KEY } from '../../shared/constants.js';
 
+const clampMove = (v) => (Number.isFinite(v) ? Math.max(-400, Math.min(400, v)) : 0);   // ignore the odd giant jump some browsers report
+
 export class Input {
   constructor(canvas) {
     this.canvas = canvas;
@@ -27,7 +29,8 @@ export class Input {
     window.addEventListener('keyup', (e) => this.onKey(e, false));
     window.addEventListener('mousemove', (e) => {
       this.mx = e.clientX; this.my = e.clientY;
-      if (this.lookEnabled) { this.look.dx += e.movementX || 0; this.look.dy += e.movementY || 0; }
+      // the view only turns with the mouse once it is captured (or when the browser refuses pointer lock)
+      if (this.lookEnabled && (this.locked || this.lockDenied)) { this.look.dx += clampMove(e.movementX); this.look.dy += clampMove(e.movementY); }
     });
     document.addEventListener('pointerlockchange', () => {
       const was = this.locked;

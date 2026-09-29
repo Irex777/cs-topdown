@@ -254,14 +254,18 @@ export class Renderer {
   /** first person: on foot (yours, or the soldier you are spectating); vehicles, the death view and the free camera use the chase camera */
   isFps(viewer) {
     const g = this.game, me = g.me;
-    if (g.freecam || !viewer || !me || me.veh) return false;
+    if (g.freecam || !viewer) return false;
+    if (!g.alive && !g.spec) return !(me && me.veh) && this.game.deathLook;      // just died: the view sinks to the ground where you fell
+    if (!me || me.veh) return false;
     if (g.alive && me.own) return true;
     return !g.alive && !!g.spec && me.id === g.spec && !me.own;
   }
 
   updateCameraFps(dt, viewer) {
-    const g = this.game, cam = this.camera, me = g.me;
-    const own = !!me.own;
+    const g = this.game, cam = this.camera, me = g.me || {};
+    const dead = !g.alive && !g.spec;
+    this.deadT = dead ? (this.deadT || 0) + dt : 0;
+    const own = dead ? true : !!me.own;
     const yaw = own ? g.viewYaw() : g.yaw;
     const pitch = own ? g.viewPitch() : g.pitch;
     this.yaw = yaw;
@@ -270,21 +274,23 @@ export class Renderer {
     this.scopeK += ((scoped ? 1 : 0) - this.scopeK) * (1 - Math.exp(-(viewer.scopeLvl >= 2 ? 8 : 12) * dt));
     const aspect = Math.max(1.2, this.W / this.H);
     const hFov = Math.min(g.fov, 118) * Math.PI / 180;
-    const sprintK = own && me.spr ? 1 : 0;
+    const sprintK = own && !dead && me.spr ? 1 : 0;
     this.sprintFov = (this.sprintFov || 0) + (sprintK - (this.sprintFov || 0)) * (1 - Math.exp(-6 * dt));
     let tanHalf = Math.tan(hFov / 2) / aspect * (1 + 0.06 * this.sprintFov);
     tanHalf *= 1 + (g.zoomMul(viewer.scopeLvl) - 1) * this.scopeK;
     const vfov = 2 * Math.atan(tanHalf) * 180 / Math.PI;
     if (Math.abs(cam.fov - vfov) > 0.01 || cam.near !== 1.4) { cam.fov = vfov; cam.near = 1.4; cam.updateProjectionMatrix(); }
     // eye position: crouching lowers it, walking bobs it, landing dips it
-    const speed = own ? Math.hypot(g.pred.vx, g.pred.vy) : Math.hypot(me.vx || 0, me.vy || 0);
-    const air = own ? Math.abs(g.pred.vz) > 1 : Math.abs(me.vz || 0) > 1;
+    const speed = dead ? 0 : own ? Math.hypot(g.pred.vx, g.pred.vy) : Math.hypot(me.vx || 0, me.vy || 0);
+    const air = dead ? false : own ? Math.abs(g.pred.vz) > 1 : Math.abs(me.vz || 0) > 1;
     const moving = Math.min(1.6, speed / 92) * (air ? 0 : 1);
     this.bobT += dt * (3 + moving * 5.5);
     const ads = this.scopeK;
     const bobA = moving * (sprintK ? 1.5 : viewer.cf > 0.5 ? 0.5 : 1) * (1 - ads * 0.85);
     g.landDip *= Math.exp(-9 * dt);
     let eye = viewer.eye + Math.abs(Math.cos(this.bobT)) * -0.55 * bobA - g.landDip * 3.2;
+    const sink = dead ? Math.min(1, this.deadT / 0.55) : 0;
+    eye = eye + (5 - eye) * sink * sink;
     if (this.eyeSmooth === null || Math.abs(eye - this.eyeSmooth) > 30) this.eyeSmooth = eye;
     this.eyeSmooth += (eye - this.eyeSmooth) * (1 - Math.exp(-22 * dt));   // stepping onto cover glides instead of snapping
     eye = this.eyeSmooth;
@@ -297,9 +303,9 @@ export class Renderer {
     cam.lookAt(px + cy * cp, cam.position.y + Math.sin(pitch), pz + sy * cp);
     // lean into strafing, wobble with explosions
     const rx = -sy, ry = cy;
-    const strafe = own ? (g.pred.vx * rx + g.pred.vy * ry) / 92 : 0;
+    const strafe = own && !dead ? (g.pred.vx * rx + g.pred.vy * ry) / 92 : 0;
     this.leanRoll = (this.leanRoll || 0) + ((clamp(strafe, -1, 1) * 0.012 + g.fx.shakeX * 0.002) - (this.leanRoll || 0)) * (1 - Math.exp(-10 * dt));
-    cam.rotateZ(this.leanRoll + Math.sin(this.bobT) * 0.0035 * bobA);
+    cam.rotateZ(this.leanRoll + Math.sin(this.bobT) * 0.0035 * bobA + sink * 0.9);
     cam.updateMatrixWorld();
     this.focal = this.H / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     this.pivot = { x: viewer.x, y: viewer.y, h: eye };
@@ -378,7 +384,7 @@ export class Renderer {
 
   drawViewmodel(dt, viewer) {
     const g = this.game, me = g.me, vm = this.viewmodel;
-    if (!this.fpsNow || !me || me.veh || !viewer) { vm.visible = false; return; }
+    if (!this.fpsNow || !me || me.veh || !viewer || !g.alive && !g.spec) { vm.visible = false; return; }
     const own = !!me.own;
     if (!vm.flash.material.map && this.fx3d) { vm.flash.material.map = this.fx3d.glowTex; vm.flash.material.needsUpdate = true; }
     const held = me.held;
@@ -449,7 +455,12 @@ export class Renderer {
       const e = P.grenades.get(id);
       const kind = GREN_ORDER[type];
       if (e.kind !== kind) { e.obj.geometry = grenadeGeo(kind); e.kind = kind; }
-      e.obj.position.set(x, 8 + Math.abs(Math.sin(t * 9 + id)) * 3, y); e.obj.rotation.y = t * 6;
+      // a thrown grenade leaves at eye height and falls in an arc, then bounces along the ground
+      const seen = this.nadeSeen || (this.nadeSeen = new Map());
+      if (!seen.has(id)) seen.set(id, t);
+      const age = t - seen.get(id);
+      const arc = Math.max(0, 1 - age / 0.5);
+      e.obj.position.set(x, 4 + arc * arc * 22 + (age > 0.5 ? Math.abs(Math.sin((age - 0.5) * 9)) * 3 / (1 + (age - 0.5) * 2) : 0), y); e.obj.rotation.y = t * 6; e.obj.rotation.x = t * 9;
     }
     P.grenades.sweep();
     for (const q of g.projectilesDrawn()) {

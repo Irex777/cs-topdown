@@ -66,6 +66,7 @@ export class ClientGame {
     this.rc = -1;
     this.angle = 0;
     this.aimDist = 300;
+    this.deathLook = true;            // dead view: stay in first person and sink to the ground
     this.yaw = 0;                     // where the camera (and aim) points, radians, 0 = +x
     this.pitch = 0;                   // look up (+) / down (-), radians
     this.recoil = { p: 0, y: 0, hot: 0 };   // camera kick from shooting (added to the view, recovers over time)
@@ -563,7 +564,23 @@ export class ClientGame {
     inp.on('unlock', () => { this._unlockAt = performance.now(); if (this.active && this.playing() && this.ui.toggleMenu) this.ui.toggleMenu(); });
     inp.on('spot', () => {
       const v = this.viewer(); if (!v || !this.alive) return;
-      const w = this.crosshairWorld();
+      let w = this.crosshairWorld();
+      // first person: mark whatever is under the crosshair (the soldier or vehicle closest to the screen centre)
+      if (this.playing()) {
+        const r = this.renderer, cx = r.W / 2, cy = r.H / 2;
+        let best = null, bd = 110;
+        for (const p of this.soldiers()) {
+          if (p.own || p.team === this.myTeam()) continue;
+          const s = r.project(p.x, p.y, (p.z || 0) + 15);
+          if (s && Math.hypot(s.x - cx, s.y - cy) < bd) { bd = Math.hypot(s.x - cx, s.y - cy); best = p; }
+        }
+        for (const q of this.vehiclesDrawn()) {
+          if (q.team === this.myTeam()) continue;
+          const s = r.project(q.x, q.y, 16);
+          if (s && Math.hypot(s.x - cx, s.y - cy) < bd) { bd = Math.hypot(s.x - cx, s.y - cy); best = q; }
+        }
+        if (best) w = { x: best.x, y: best.y };
+      }
       send('spot', { x: Math.round(w.x), y: Math.round(w.y) });
     });
     for (let i = 1; i <= 6; i++) {
