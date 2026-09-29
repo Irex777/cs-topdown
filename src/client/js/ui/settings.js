@@ -8,6 +8,7 @@ export function settingsHTML(g) {
       <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
       <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="4" max="60" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
       <div class="slider"><span>Field of view</span><input type="range" id="fovRange" min="70" max="120" value="${Math.round(g.fov)}" aria-label="Field of view"><b id="fovVal" style="min-width:34px;text-align:right">${Math.round(g.fov)}°</b></div>
+      <div class="slider"><span>Graphics</span><select id="gfxQ" aria-label="Graphics quality" style="flex:1;padding:7px;background:#0b0f16;color:#fff;border:1px solid rgba(255,255,255,.25)"><option value="0" ${(g.renderer.quality === 0) ? 'selected' : ''}>Low — fastest (no shadows)</option><option value="1" ${(g.renderer.quality === 1) ? 'selected' : ''}>Medium</option><option value="2" ${(g.renderer.quality === 2) ? 'selected' : ''}>High — shadows, sharp</option></select></div>
       <div class="row" style="gap:16px"><label class="chk"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}> Invert Y</label><label class="chk"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}> Toggle aim (RMB)</label></div>`;
 }
 
@@ -16,6 +17,7 @@ export function bindSettings(root, g) {
   $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
   $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; save('fl.sens', g.sens); };
   $('fovRange').oninput = (e) => { g.fov = Number(e.target.value); $('fovVal').textContent = g.fov + '°'; save('fl.fov', g.fov); };
+  $('gfxQ').onchange = (e) => g.renderer.setQuality(Number(e.target.value));
   $('invY').onchange = (e) => { g.invertY = e.target.checked; save('fl.inv', g.invertY ? 1 : 0); };
   $('adsT').onchange = (e) => { g.input.adsToggle = e.target.checked; g.input.right = false; save('fl.adsT', g.input.adsToggle ? 1 : 0); };
 }

@@ -1,7 +1,9 @@
 // Keyboard + mouse state for the local player.
 import { KEY } from '../../shared/constants.js';
 
-const clampMove = (v) => (Number.isFinite(v) ? Math.max(-400, Math.min(400, v)) : 0);   // ignore the odd giant jump some browsers report
+// Some browsers report a giant bogus jump when the pointer is captured or released (and now and then mid-game): drop those events
+// instead of spinning the view.
+const clampMove = (v) => (Number.isFinite(v) && Math.abs(v) < 160 ? v : 0);
 
 export class Input {
   constructor(canvas) {
@@ -30,11 +32,13 @@ export class Input {
     window.addEventListener('mousemove', (e) => {
       this.mx = e.clientX; this.my = e.clientY;
       // the view only turns with the mouse once it is captured (or when the browser refuses pointer lock)
-      if (this.lookEnabled && (this.locked || this.lockDenied)) { this.look.dx += clampMove(e.movementX); this.look.dy += clampMove(e.movementY); }
+      if (this.lookEnabled && (this.locked || this.lockDenied) && performance.now() - (this.lockAt || 0) > 120) { this.look.dx += clampMove(e.movementX); this.look.dy += clampMove(e.movementY); }
     });
     document.addEventListener('pointerlockchange', () => {
       const was = this.locked;
       this.locked = document.pointerLockElement === this.canvas;
+      this.lockAt = performance.now();          // ignore the first moments of a new lock (spurious movement)
+      this.look.dx = 0; this.look.dy = 0;
       if (this.locked) this.lockErrors = 0;
       if (was && !this.locked) { if (this.releasing) this.releasing = false; else this.fire('unlock'); }
     });

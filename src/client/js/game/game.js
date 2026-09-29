@@ -32,7 +32,7 @@ export class ClientGame {
     this.offset = 0;                 // serverTime - localTime
     this.haveOffset = false;
     // player settings (kept in the browser)
-    this.sens = 0.0018; this.fov = 100; this.invertY = false;
+    this.sens = 0.0012; this.fov = 90; this.invertY = false;
     try {
       const n = (k) => parseFloat(localStorage.getItem(k));
       if (Number.isFinite(n('fl.sens'))) this.sens = clamp(n('fl.sens'), 0.0004, 0.008);
@@ -818,8 +818,7 @@ export class ClientGame {
     const rw = this.heldWeapon(me) || w;
     const ads = (keys & KEY.SCOPE) !== 0;
     const kd = (0.16 + rw.kick * 0.22) * (ads ? 0.62 : 1) * Math.PI / 180;
-    this.recoil.p = Math.min(0.16, this.recoil.p + kd);
-    this.recoil.y += (Math.random() - 0.5) * 2 * kd * 0.55;
+    this.recoil.p = Math.min(0.1, this.recoil.p + kd * 0.6);   // vertical kick only: a random sideways swing made the aim feel loose
     this.recoil.hot = 0.16;
     this.shotKick = 1;
     const v = this.viewer();

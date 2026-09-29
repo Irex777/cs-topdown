@@ -290,6 +290,7 @@ export function damagePlayer(game, v, attacker, raw, wid, o = {}) {
     const from = attacker && !self ? Math.atan2(attacker.y - v.y, attacker.x - v.x) : (o.angle !== undefined ? o.angle + Math.PI : 0);
     game.emit(['hurt', Math.ceil(hp), Math.round(from * 100) / 100], v.x, v.y, 0, v.id);
   }
+  if (v.bot && attacker && !self && v.hp > 0.01 && v.bot.onHurt) v.bot.onHurt(attacker);
   if (v.hp <= 0.01) killPlayer(game, v, attacker, wid, o);
   return hp;
 }

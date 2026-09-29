@@ -14,10 +14,10 @@ export const BOT_NAMES = [
 ];
 
 const DIFF = {
-  easy:   { sight: 520, react: 0.60, turn: 6,  sigma: 0.10,  burst: 0.55, aggr: 0.25, hold: 0.45 },
-  normal: { sight: 680, react: 0.34, turn: 9,  sigma: 0.058, burst: 0.75, aggr: 0.45, hold: 0.7 },
-  hard:   { sight: 820, react: 0.21, turn: 13, sigma: 0.032, burst: 0.9,  aggr: 0.6,  hold: 0.85 },
-  expert: { sight: 960, react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  aggr: 0.75, hold: 1.0 },
+  easy:   { sight: 520, react: 0.55, turn: 6,  sigma: 0.065, burst: 0.55, aggr: 0.25, hold: 0.45 },
+  normal: { sight: 700, react: 0.28, turn: 10, sigma: 0.032, burst: 0.75, aggr: 0.45, hold: 0.7 },
+  hard:   { sight: 840, react: 0.18, turn: 14, sigma: 0.018, burst: 0.9,  aggr: 0.6,  hold: 0.85 },
+  expert: { sight: 980, react: 0.10, turn: 20, sigma: 0.009, burst: 1.0,  aggr: 0.75, hold: 1.0 },
 };
 
 const rnd = Math.random;
@@ -147,7 +147,7 @@ export class BotBrain {
     this.errA = 0; this.errT = 0;
     this.noFireT = 0; this.stuckT = 0; this.travel = 0; this.moveWant = 0; this.lastTX = p.x; this.lastTY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
     this.burstLeft = 4; this.burstPause = 0; this.pulse = false; this.lastClip = 99;
-    this.flashedUntil = 0;
+    this.flashedUntil = 0; this.hitBy = null; this.danger = null;
     this.percT = 0; this.holdPos = null; this.holdT = 0;
     this.job = null; this.jobCd = 4 + rnd() * 6;
     this.wantVeh = 0; this.vehWait = 0; this.vehStuck = 0; this.vehRev = 0;
@@ -162,9 +162,23 @@ export class BotBrain {
     this.aim = this.p.angle;
     this.considerVehicle();
   }
+  /** somebody shot us: turn to them at once (even from behind) instead of being killed by an enemy we never noticed */
+  onHurt(attacker) {
+    if (!attacker || attacker.team === this.p.team || !attacker.alive) return;
+    this.hitBy = { id: attacker.id, t: this.g.time };
+    this.heard = { x: attacker.x, y: attacker.y, t: this.g.time, kind: 'hit', d: Math.hypot(attacker.x - this.p.x, attacker.y - this.p.y) };
+    this.g.mind.report(this.p.team, attacker.x, attacker.y);
+    this.percT = 0;
+  }
   onFlashed(dur) { this.flashedUntil = Math.max(this.flashedUntil, this.g.time + dur * 0.8); }
-  onDeathSeen(v) {
-    if (this.p.team === v.team && Math.hypot(v.x - this.p.x, v.y - this.p.y) < 900 && !this.visible) this.heard = { x: v.x, y: v.y, t: this.g.time };
+  /** a soldier died nearby: a teammate's killer is where the danger is, so remember that spot and approach it carefully */
+  onDeathSeen(v, attacker) {
+    const p = this.p;
+    if (p.team !== v.team || Math.hypot(v.x - p.x, v.y - p.y) > 900) return;
+    const from = attacker && attacker.team !== p.team && attacker.alive ? attacker : null;
+    const spot = from ? { x: from.x + (rnd() - 0.5) * 90, y: from.y + (rnd() - 0.5) * 90 } : { x: v.x, y: v.y };
+    this.danger = { x: spot.x, y: spot.y, t: this.g.time };
+    if (!this.visible) this.heard = { x: spot.x, y: spot.y, t: this.g.time };
   }
   hear(x, y, kind) {
     if (this.visible) return;
@@ -366,7 +380,7 @@ export class BotBrain {
     if (!engaged) this.aimZ = undefined;
 
     let mv = { mode: 'stop' };
-    let fire = false, aimAt = null, use = false, walk = false, scope = false, look, sprint = false, altUse = false;
+    let fire = false, aimAt = null, use = false, walk = false, scope = false, crouch = false, look, sprint = false, altUse = false;
 
     if (this.job && !engaged) {
       const r = this.runJob(dt);
@@ -375,7 +389,7 @@ export class BotBrain {
       if (this.job) this.job = null;
       // rocket launchers at armoured vehicles, otherwise the regular gun fight
       const res = this.fight(tq, w, dt);
-      fire = res.fire; aimAt = res.aimAt; scope = res.scope;
+      fire = res.fire; aimAt = res.aimAt; scope = res.scope; crouch = !!res.crouch;
       if (res.mv) mv = res.mv;
       else {
         const obj = this.objective(dt);
@@ -415,6 +429,15 @@ export class BotBrain {
       const a = Math.atan2(my, mx) + Math.PI / 2 * this.nudgeDir;
       mx = mx * 0.4 + Math.cos(a) * 0.9; my = my * 0.4 + Math.sin(a) * 0.9;
     }
+    // do not walk in a tight clump: a grenade or one burst would kill the whole squad
+    if (mx || my) {
+      for (const q of g.players.values()) {
+        if (q === p || !q.alive || q.veh || q.team !== p.team) continue;
+        const sx = p.x - q.x, sy = p.y - q.y, sd = Math.hypot(sx, sy);
+        if (sd < 46 && sd > 0.5) { const k = (1 - sd / 46) * 0.9; mx += sx / sd * k; my += sy / sd * k; }
+      }
+      const ml = Math.hypot(mx, my); if (ml > 1) { mx /= ml; my /= ml; }
+    }
     cmd.ax = mx; cmd.ay = my;
 
     // ---- aiming
@@ -445,6 +468,7 @@ export class BotBrain {
     if (walk) keys |= KEY.WALK;
     if (use) keys |= KEY.USE;
     if (scope) keys |= KEY.SCOPE;
+    if (crouch) keys |= KEY.CROUCH;
     if (sprint && !fire && (mx || my) && !engaged) keys |= KEY.SPRINT;
     if (this.wantVeh) keys |= this.boardKeys();
     if (this.job && this.job.rmb) keys |= KEY.SCOPE;
@@ -607,7 +631,8 @@ export class BotBrain {
     const outOfRange = dist >= maxEff;
     const reacted = now - this.targetSince >= this.d.react;
     const ammo = w ? p.ammoOf(w) : { clip: 0, reserve: 0 };
-    const scope = !!(w && w.scope > 0 && dist > 380 && this.d.hold > 0.6);
+    // aim down the sights whenever the fight is beyond hip-fire range (a scoped weapon only when it is really far)
+    const scope = !!(w && kind !== 'knife' && kind !== 'shotgun' && this.d.hold > 0.4 && dist > (w.scope > 0 ? 380 : 170));
     if (ammo.clip < this.lastClip) {
       this.burstLeft--;
       if (this.burstLeft <= 0) { this.burstPause = 0.18 + rnd() * 0.3 * (1.6 - this.d.burst); this.burstLeft = 3 + Math.floor(rnd() * 4); }
@@ -617,6 +642,7 @@ export class BotBrain {
     const angErr = Math.abs(angleDiff(toEnemy, this.aim));
     const tol = Math.atan2(10 * (tq.veh ? tq.veh.def.r / 12 : 1), Math.max(60, dist)) + 0.03;
     let fire = false;
+    this.why = !reacted ? 'react' : !w ? 'noweapon' : angErr >= tol ? 'aim' : p.drawT > 0 ? 'draw' : p.reloadT > 0 ? 'reload' : p.spawnProt > 0 ? 'prot' : ammo.clip <= 0 ? 'empty' : dist >= maxEff ? 'range' : tooFarForMoving ? 'moving' : (w.auto && dist > 340 && this.burstPause > 0) ? 'burst' : 'fire';
     if (reacted && w && angErr < tol && p.drawT <= 0 && p.reloadT <= 0 && p.spawnProt <= 0) {
       if (kind === 'knife') fire = dist < 56;
       else if (ammo.clip > 0 && dist < maxEff && !tooFarForMoving) fire = !(w.auto && dist > 340 && this.burstPause > 0);
@@ -645,10 +671,12 @@ export class BotBrain {
       else mv = { mode: 'manual', ax: Math.cos(perp) * 0.9 + Math.cos(toEnemy) * 0.15, ay: Math.sin(perp) * 0.9 + Math.sin(toEnemy) * 0.15 };
     } else mv = { mode: 'manual', ax: Math.cos(perp), ay: Math.sin(perp) };
     if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > 300 && p.hp > 45 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
-    if (fire && !tq.veh && !this.clearShot(tq, toEnemy, dist)) fire = false;
+    if (fire && !tq.veh && !this.clearShot(tq, toEnemy, dist)) { fire = false; this.why = 'blocked'; }
     if (tq.veh) this.aimZ = tq.z + tq.h * 0.5;
     this.noFireT = fire ? 0 : this.noFireT + dt;
-    return { mv: outOfRange || (this.noFireT > 1.4 && dist > 300) ? null : mv, fire, aimAt: { x: tq.x, y: tq.y }, scope };
+    // dig in: standing still at range behind a steady rifle is worth crouching for (tighter spread, smaller target)
+    const crouch = mv.mode === 'stop' && dist > 260 && (kind === 'rifle' || kind === 'lmg' || kind === 'dmr' || kind === 'sniper') && this.d.hold > 0.6;
+    return { mv: outOfRange || (this.noFireT > 1.4 && dist > 300) ? null : mv, fire, aimAt: { x: tq.x, y: tq.y }, scope, crouch };
   }
 
   /** Is there a line for a bullet to the chest (or failing that the head) over any low cover? Remembers the height to aim at. */
@@ -670,12 +698,27 @@ export class BotBrain {
     const w = p.weapon();
     const full = viewParams(p.scoped, w && w.kind !== 'knife' ? w.scope : 0);
     const view = { range: Math.min(full.range, Math.max(this.d.sight, p.scoped ? full.range * 0.85 : 0)), fov: full.fov * 0.9 };
-    let best = null, bd = Infinity;
+    let best = null, bd = Infinity, cur = null, curD = Infinity;
+    const keep = this.target && this.target.kind === 'p' ? this.target.id : -1;
     for (const q of g.players.values()) {
       if (!q.alive || q.veh || q.team === p.team || q.team === SPEC) continue;
       const d = Math.hypot(q.x - p.x, q.y - p.y);
-      if (d >= bd) continue;
-      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0)) { best = { kind: 'p', id: q.id, x: q.x, y: q.y, vx: q.vx, vy: q.vy }; bd = d; }
+      if (!(d < bd || q.id === keep)) continue;
+      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0)) {
+        const c = { kind: 'p', id: q.id, x: q.x, y: q.y, vx: q.vx, vy: q.vy };
+        if (q.id === keep) { cur = c; curD = d; }
+        if (d < bd) { best = c; bd = d; }
+      }
+    }
+    // stick with the enemy we are already fighting unless another one is clearly closer (no re-acquiring every few frames)
+    if (cur && best !== cur && bd > curD * 0.6) { best = cur; bd = curD; }
+    // whoever just shot us is noticed even outside our field of view, as long as we can be seen by them
+    if (this.hitBy && g.time - this.hitBy.t < 2.5) {
+      const q = g.players.get(this.hitBy.id);
+      if (q && q.alive && !q.veh && q.team !== p.team) {
+        const d = Math.hypot(q.x - p.x, q.y - p.y);
+        if (d < bd && d < 900 && g.map.los(p.x, p.y, q.x, q.y)) { best = { kind: 'p', id: q.id, x: q.x, y: q.y, vx: q.vx, vy: q.vy }; bd = d; }
+      }
     }
     // enemy vehicles: a soldier with a rocket launcher wants them; everyone else notices them but only shoots the soft ones
     for (const v of g.vehicles) {
@@ -690,7 +733,7 @@ export class BotBrain {
     if (best) {
       const id = best.kind + best.id;
       if (!this.target || this.target.kind + this.target.id !== id || !this.visible) {
-        if (!this.target || this.target.kind + this.target.id !== id) this.targetSince = g.time;
+        if (!this.target || this.target.kind + this.target.id !== id) this.targetSince = this.visible ? g.time - this.d.react * 0.7 : g.time;   // switching between visible enemies is quick
         else if (!this.visible && this.lastSeen && g.time - this.lastSeen.t > 0.6) this.targetSince = g.time;
       }
       this.target = best;
@@ -721,6 +764,11 @@ export class BotBrain {
       if (v && !v.dead && !p.veh) return { goal: { x: v.x, y: v.y }, sprint: true };
     }
     const tgt = g.mind.targetFor(p);
+    // known danger ahead (a teammate just died there): keep going, but walking, weapon up and pointed at the spot
+    if (this.danger && now - this.danger.t < 14 && !this.visible) {
+      const dd = Math.hypot(this.danger.x - p.x, this.danger.y - p.y);
+      if (dd < 520 && dd > 60 && (tgt.kind === 'mcom' || d0(tgt, p) > 90)) return { goal: { x: tgt.x, y: tgt.y }, walk: dd < 380, aimAt: { x: this.danger.x, y: this.danger.y }, sprint: false };
+    }
     const d = Math.hypot(tgt.x - p.x, tgt.y - p.y);
     // M-COM work
     if (tgt.kind === 'mcom' && d < 44) {
@@ -758,4 +806,5 @@ export class BotBrain {
 }
 
 const PLAYER_RADIUS = 11;
+function d0(t, p) { return Math.hypot(t.x - p.x, t.y - p.y); }
 export { VEHICLES, RULES, TILE, rayCircle, GADGETS };

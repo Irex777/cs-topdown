@@ -79,7 +79,9 @@ export class Renderer {
     this.gl.id = 'game3d';
     canvas.parentNode.insertBefore(this.gl, canvas);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.gl, antialias: true, powerPreference: 'high-performance' });
-    this.renderer.shadowMap.enabled = true;
+    let q = 1; try { const v = parseInt(localStorage.getItem('fl.q'), 10); if (v >= 0 && v <= 2) q = v; } catch { /* ignore */ }
+    this.quality = q;                     // 0 low (no shadows, native pixels), 1 medium, 2 high
+    this.renderer.shadowMap.enabled = q > 0;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.scene = new THREE.Scene();
@@ -92,8 +94,8 @@ export class Renderer {
     this.hemi = new THREE.HemisphereLight(0xdcecff, 0x8a8570, 1.9);
     this.scene.add(this.hemi);
     this.sun = new THREE.DirectionalLight(0xfff1d6, 2.7);
-    this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
+    this.sun.castShadow = q > 0;
+    this.sun.shadow.mapSize.set(q >= 2 ? 2048 : 1024, q >= 2 ? 2048 : 1024);
     const sc = this.sun.shadow.camera; sc.left = -720; sc.right = 720; sc.top = 720; sc.bottom = -720; sc.near = 50; sc.far = 2200;
     this.sun.shadow.bias = -0.0006; this.sun.shadow.normalBias = 0.6;
     this.scene.add(this.sun, this.sun.target);
@@ -195,12 +197,24 @@ export class Renderer {
     this.sunDir.set(m.sunDir[0], m.sunDir[1], m.sunDir[2]).normalize();
   }
 
+  /** graphics quality from the settings: applies immediately */
+  setQuality(q) {
+    this.quality = q;
+    try { localStorage.setItem('fl.q', String(q)); } catch { /* ignore */ }
+    this.renderer.shadowMap.enabled = q > 0;
+    this.sun.castShadow = q > 0;
+    const sz = q >= 2 ? 2048 : 1024;
+    if (this.sun.shadow.mapSize.x !== sz) { this.sun.shadow.mapSize.set(sz, sz); if (this.sun.shadow.map) { this.sun.shadow.map.dispose(); this.sun.shadow.map = null; } }
+    this.scene.traverse((o) => { if (o.material) { for (const m of [].concat(o.material)) m.needsUpdate = true; } });
+    this.resize();
+  }
+
   resize() {
     this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.W = window.innerWidth; this.H = window.innerHeight;
     this.canvas.width = Math.floor(this.W * this.dpr); this.canvas.height = Math.floor(this.H * this.dpr);
     this.canvas.style.width = this.W + 'px'; this.canvas.style.height = this.H + 'px';
-    this.renderer.setPixelRatio(Math.min(this.dpr, 1.5));
+    this.renderer.setPixelRatio(Math.min(this.dpr, this.quality >= 2 ? 1.5 : 1));
     this.renderer.setSize(this.W, this.H, false);
     this.gl.style.width = this.W + 'px'; this.gl.style.height = this.H + 'px';
     this.camera.aspect = this.W / this.H;
@@ -290,7 +304,7 @@ export class Renderer {
     const hFov = Math.min(g.fov, 118) * Math.PI / 180;
     const sprintK = own && !dead && me.spr ? 1 : 0;
     this.sprintFov = (this.sprintFov || 0) + (sprintK - (this.sprintFov || 0)) * (1 - Math.exp(-6 * dt));
-    let tanHalf = Math.tan(hFov / 2) / aspect * (1 + 0.06 * this.sprintFov);
+    let tanHalf = Math.tan(hFov / 2) / aspect * (1 + 0.025 * this.sprintFov);
     tanHalf *= 1 + (g.zoomMul(viewer.scopeLvl) - 1) * this.scopeK;
     const vfov = 2 * Math.atan(tanHalf) * 180 / Math.PI;
     if (Math.abs(cam.fov - vfov) > 0.01 || cam.near !== 1.4) { cam.fov = vfov; cam.near = 1.4; cam.updateProjectionMatrix(); }
@@ -302,14 +316,14 @@ export class Renderer {
     const ads = this.scopeK;
     const bobA = moving * (sprintK ? 1.5 : viewer.cf > 0.5 ? 0.5 : 1) * (1 - ads * 0.85);
     g.landDip *= Math.exp(-9 * dt);
-    let eye = viewer.eye + Math.abs(Math.cos(this.bobT)) * -0.55 * bobA - g.landDip * 3.2;
+    let eye = viewer.eye + Math.abs(Math.cos(this.bobT)) * -0.22 * bobA - g.landDip * 2.2;
     const sink = dead ? Math.min(1, this.deadT / 0.55) : 0;
     eye = eye + (5 - eye) * sink * sink;
     if (this.eyeSmooth === null || Math.abs(eye - this.eyeSmooth) > 30) this.eyeSmooth = eye;
     this.eyeSmooth += (eye - this.eyeSmooth) * (1 - Math.exp(-22 * dt));   // stepping onto cover glides instead of snapping
     eye = this.eyeSmooth;
     const cy = Math.cos(yaw), sy = Math.sin(yaw);
-    const side = Math.sin(this.bobT) * 0.32 * bobA;
+    const side = Math.sin(this.bobT) * 0.06 * bobA;
     const sh = g.fx.shake;
     const px = viewer.x - sy * side + g.fx.shakeX * 0.35, pz = viewer.y + cy * side + g.fx.shakeY * 0.35;
     cam.position.set(px, eye + g.fx.shakeY * 0.25, pz);
@@ -318,8 +332,8 @@ export class Renderer {
     // lean into strafing, wobble with explosions
     const rx = -sy, ry = cy;
     const strafe = own && !dead ? (g.pred.vx * rx + g.pred.vy * ry) / 92 : 0;
-    this.leanRoll = (this.leanRoll || 0) + ((clamp(strafe, -1, 1) * 0.012 + g.fx.shakeX * 0.002) - (this.leanRoll || 0)) * (1 - Math.exp(-10 * dt));
-    cam.rotateZ(this.leanRoll + Math.sin(this.bobT) * 0.0035 * bobA + sink * 0.9);
+    this.leanRoll = (this.leanRoll || 0) + ((clamp(strafe, -1, 1) * 0.004 + g.fx.shakeX * 0.0015) - (this.leanRoll || 0)) * (1 - Math.exp(-10 * dt));
+    cam.rotateZ(this.leanRoll + sink * 0.9);
     cam.updateMatrixWorld();
     this.focal = this.H / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
     this.pivot = { x: viewer.x, y: viewer.y, h: eye };
