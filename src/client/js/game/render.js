@@ -21,6 +21,8 @@ const PROJ_LIST = Object.keys(PROJ);
 const KIND_TIP = { pistol: 14, smg: 20, rifle: 26, dmr: 26, lmg: 28, sniper: 32, shotgun: 24, knife: 16, launcher: 24, tool: 16, grenade: 12 };
 const AIR_ALT = 56;
 const TOP = { jeep: 21, apc: 21, tank: 15, boat: 18 };
+// the voxel fallback models are drawn this much larger (the Blender models come in at the same size)
+const VOX_K = { quad: 1.4, jeep: 1.45, apc: 1.4, tank: 1.4, heli: 1.35, boat: 1.45 };
 const SKY = new THREE.Color('#9cc4ea');
 const FOV = 62;
 const SCOPE = [{ d: 95, fov: 50 }, { d: 52, fov: 34 }, { d: 32, fov: 22 }, { d: 22, fov: 14 }];
@@ -80,7 +82,8 @@ export class Renderer {
     this.gl.id = 'game3d';
     canvas.parentNode.insertBefore(this.gl, canvas);
     this.renderer = new THREE.WebGLRenderer({ canvas: this.gl, antialias: true, powerPreference: 'high-performance' });
-    let q = 1; try { const v = parseInt(localStorage.getItem('fl.q'), 10); if (v >= 0 && v <= 2) q = v; } catch { /* ignore */ }
+    let q = 1; try { const v = parseInt(localStorage.getItem('fl.q'), 10); if (v >= 0 && v <= 2) q = v; this.qLocked = localStorage.getItem('fl.qm') === '1'; } catch { /* ignore */ }
+    this.slowT = 0; this.slowCool = 0;
     this.quality = q;                     // 0 low (no shadows, native pixels), 1 medium, 2 high
     this.renderer.shadowMap.enabled = q > 0;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -219,9 +222,21 @@ export class Renderer {
     this.sunDir.set(m.sunDir[0], m.sunDir[1], m.sunDir[2]).normalize();
   }
 
+  /** a machine that cannot keep up (under ~24 fps for 4 s of play) steps the graphics down one level, unless the player chose one himself */
+  autoQuality(dt) {
+    if (this.qLocked || this.quality === 0 || navigator.webdriver) return;
+    this.slowCool = Math.max(0, this.slowCool - dt);
+    this.slowT = dt > 1 / 24 ? this.slowT + dt : Math.max(0, this.slowT - dt * 2);
+    if (this.slowT < 4 || this.slowCool > 0) return;
+    this.slowT = 0; this.slowCool = 10;
+    this.setQuality(this.quality - 1);
+    try { const ui = this.game.ui && this.game.ui.app; if (ui && ui.toast) ui.toast(`Running slowly: graphics set to ${this.quality === 0 ? 'Low' : 'Medium'} (Esc, Graphics to change)`); } catch { /* ignore */ }
+  }
+
   /** graphics quality from the settings: applies immediately */
-  setQuality(q) {
+  setQuality(q, manual = false) {
     this.quality = q;
+    if (manual) { this.qLocked = true; try { localStorage.setItem('fl.qm', '1'); } catch { /* ignore */ } }
     try { localStorage.setItem('fl.q', String(q)); } catch { /* ignore */ }
     this.renderer.shadowMap.enabled = q > 0;
     this.sun.castShadow = q > 0;
@@ -633,31 +648,32 @@ export class Renderer {
       const M = e.glb ? e.glb.mount : null;
       const t = this.t;
       const bob = def.kind === 'boat' ? Math.sin(t * 2.2 + v.id) * 1.4 : 0;
-      const top = TOP[def.id] || 0;
+      const k = M ? 1 : (VOX_K[def.id] || 1);
+      const top = (TOP[def.id] || 0) * k;
       const x = v.x, z = v.y, a = v.a;
       e.obj.position.set(0, 0, 0);
-      const set = (m, px, py, pz, ang) => { m.position.set(px, py, pz); m.rotation.y = -ang; };
+      const set = (m, px, py, pz, ang) => { m.position.set(px, py, pz); m.rotation.y = -ang; if (!M) m.scale.setScalar(k); };
       // a point `f` ahead and `r` to the right of (x, z) for heading h
       const off = (h, f, r) => [x + Math.cos(h) * f - Math.sin(h) * r, z + Math.sin(h) * f + Math.cos(h) * r];
       if (def.id === 'heli') {
         const alt = AIR_ALT + Math.sin(t * 1.7 + v.id) * 1.5;
         set(pr.body, x, alt, z, a);
         pr.body.rotation.z = clamp((v.speed || 0) / 340, 0, 1) * -0.09;
-        if (pr.rotor) set(pr.rotor, x, alt + (M ? M.ry : 24), z, t * 26);
-        if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, alt + M.gy, gz, v.ga); } else set(pr.gun, x + Math.cos(a) * 9, alt - 2, z + Math.sin(a) * 9, v.ga); }
+        if (pr.rotor) set(pr.rotor, x, alt + (M ? M.ry : 24 * k), z, t * 26);
+        if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, alt + M.gy, gz, v.ga); } else set(pr.gun, x + Math.cos(a) * 9 * k, alt - 2 * k, z + Math.sin(a) * 9 * k, v.ga); }
         if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25, alt + 12);
       } else {
         set(pr.body, x, bob, z, a);
         if (def.id === 'tank') {
           if (pr.turret) set(pr.turret, x, M ? M.ty : top, z, v.ta);
-          if (pr.gun) { if (M) { const [gx, gz] = off(v.ta, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(v.ta) * 6, top + 15, z - Math.sin(v.ta) * 6, v.ga); }
+          if (pr.gun) { if (M) { const [gx, gz] = off(v.ta, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(v.ta) * 6 * k, top + 15 * k, z - Math.sin(v.ta) * 6 * k, v.ga); }
         } else if (def.id === 'apc') {
           if (pr.turret) set(pr.turret, x, M ? M.ty : top, z, v.ta);
-          if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 12, top + 12, z - Math.sin(a) * 12, v.ga); }
+          if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 12 * k, top + 12 * k, z - Math.sin(a) * 12 * k, v.ga); }
         } else if ((def.id === 'jeep' || def.id === 'boat') && pr.gun) {
-          if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy + bob, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 9, top + bob, z - Math.sin(a) * 9, v.ga);
+          if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy + bob, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 9 * k, top + bob, z - Math.sin(a) * 9 * k, v.ga);
         }
-        if (pr.hat) set(pr.hat, x - Math.cos(a) * 3, 17, z - Math.sin(a) * 3, a);
+        if (pr.hat) set(pr.hat, x - Math.cos(a) * 3 * k, 17 * k, z - Math.sin(a) * 3 * k, a);
         if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25);
       }
     }

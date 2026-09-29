@@ -201,7 +201,7 @@ const VEH_LOOK = [
   { paint: '#8f4a3c', paint2: '#6a362d' }, { paint: '#4a6690', paint2: '#374e70' }, { paint: '#6f7a66', paint2: '#4a5344' },
 ];
 /** px per metre for each vehicle model (so the hull matches the size the simulation uses) */
-export const VEH_SCALE = { tank: 12.6, jeep: 13.5, apc: 10.7, quad: 15.4, heli: 7.6, boat: 9.4 };
+export const VEH_SCALE = { tank: 11.3, jeep: 13.5, apc: 9.9, quad: 15.4, heli: 7.6, boat: 9.4 };
 const vehMats = new Map();
 
 export function hasVehicle(id) { return !!assets.vehicles[id]; }

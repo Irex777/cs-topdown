@@ -59,8 +59,8 @@ export function updateProjectiles(game, dt) {
       if (v.dead || (v.id === pj.veh && pj.t < 0.3)) continue;
       if (v.team === pj.team && v.team >= 0 && !game.ff && v.id !== pj.veh) continue;
       if (v.def.kind === 'air' && pr.air === 0) continue;
-      if (Math.abs(v.x - pj.x) > step + v.def.r + 10 || Math.abs(v.y - pj.y) > step + v.def.r + 10) continue;
-      const d = rayCircle(pj.x, pj.y, dx, dy, v.x, v.y, v.def.r * 0.95 + pr.radius);
+      if (Math.abs(v.x - pj.x) > step + v.def.hr + 10 || Math.abs(v.y - pj.y) > step + v.def.hr + 10) continue;
+      const d = rayCircle(pj.x, pj.y, dx, dy, v.x, v.y, v.def.hr * 0.95 + pr.radius);
       if (d >= 0 && d < hitD) { hitD = d; hitKind = 3; hitV = v; hitP = null; }
     }
     if (hitKind) {

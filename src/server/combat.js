@@ -238,8 +238,8 @@ export function castRay(game, ox, oy, oz, ang, pitch, opts) {
   for (const v of game.vehicles) {
     if (v.dead || v === opts.ignoreVeh) continue;
     if (v.team === shooter.team && !game.ff && v.team >= 0) continue;
-    if (Math.abs(v.x - ox) > best + v.def.r || Math.abs(v.y - oy) > best + v.def.r) continue;
-    const c = chord(ox, oy, dx, dy, v.x, v.y, v.def.r * 0.92);
+    if (Math.abs(v.x - ox) > best + v.def.hr || Math.abs(v.y - oy) > best + v.def.hr) continue;
+    const c = chord(ox, oy, dx, dy, v.x, v.y, v.def.hr * 0.92);
     if (!c) continue;
     const zr = v.def.zr || [0, 26];
     const d = bandHit(oz, slope, c[0], c[1], zr[0], zr[1]);

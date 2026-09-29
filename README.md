@@ -138,6 +138,7 @@ npm run maps                              # validate maps (reachability, vehicle
 node tools/sim.js riverside 300 8 hard conquest   # headless bot match: map, seconds, team size, difficulty, mode
 node tools/mechanics.js                   # scripted checks: revive, vehicles, C4, destruction, M-COM…
 node tools/botstats.js harbor 300 16      # bot behaviour + tick cost + bandwidth at 16v16
+node tools/vehcheck.js 240 10 -v          # vehicle sizes: spawn clearance, can each vehicle reach the flags, bot drivers standing still
 CS_DEBUG=1 npm start                      # enables developer commands (teleport, give, enter vehicle, …)
 npx eslint src tools                      # lint
 ```
@@ -157,6 +158,8 @@ python3 tools/blender/build_props.py         # crate, barrels, sandbags, tree ->
 python3 tools/blender/build_textures.py      # seamless PBR sets (albedo/normal/roughness) baked with Cycles -> assets/tex/
 python3 tools/blender/montage.py out.png brick:c brick:n --tile   # contact sheet to eyeball tiling
 ```
+
+The game steps Graphics down one level by itself when it runs under ~24 fps (until you pick a level in Esc → Graphics).
 
 Add `--preview` to a build script to render pictures into `/tmp/bl_preview/`. Units are metres (the game uses 16 px per metre).
 

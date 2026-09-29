@@ -29,7 +29,7 @@ export function explode(game, o) {
   if (o.veh > 0) {
     for (const v of [...game.vehicles]) {
       if (v.dead) continue;
-      const d = Math.max(0, Math.hypot(v.x - x, v.y - y) - v.def.r);
+      const d = Math.max(0, Math.hypot(v.x - x, v.y - y) - v.def.hr);
       if (d > radius) continue;
       if (v.def.kind === 'air' && !o.air && v !== o.hitVeh) continue;   // ground blasts do not reach a helicopter in the air
       const fall = v === o.hitVeh ? 1 : 0.3 + 0.7 * clamp(1 - d / radius, 0, 1);

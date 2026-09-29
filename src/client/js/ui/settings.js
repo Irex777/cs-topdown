@@ -17,7 +17,7 @@ export function bindSettings(root, g) {
   $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
   $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; save('fl.sens', g.sens); };
   $('fovRange').oninput = (e) => { g.fov = Number(e.target.value); $('fovVal').textContent = g.fov + '°'; save('fl.fov', g.fov); };
-  $('gfxQ').onchange = (e) => g.renderer.setQuality(Number(e.target.value));
+  $('gfxQ').onchange = (e) => g.renderer.setQuality(Number(e.target.value), true);
   $('invY').onchange = (e) => { g.invertY = e.target.checked; save('fl.inv', g.invertY ? 1 : 0); };
   $('adsT').onchange = (e) => { g.input.adsToggle = e.target.checked; g.input.right = false; save('fl.adsT', g.input.adsToggle ? 1 : 0); };
 }

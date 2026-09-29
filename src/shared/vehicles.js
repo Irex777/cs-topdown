@@ -27,16 +27,16 @@ export const VEHICLES = {
     respawn: 50, size: [58, 35, 23], zr: [0, 38], pts: 100,
   },
   apc: {
-    name: 'APC', kind: 'tracked', r: 31, hp: 700, maxSpeed: 180, revSpeed: 79, accel: 173, drag: 2.2, grip: 12, turn: 1.9, turretTurn: 3.2,
+    name: 'APC', kind: 'tracked', r: 26, hp: 700, maxSpeed: 180, revSpeed: 79, accel: 173, drag: 2.2, grip: 12, turn: 1.9, turretTurn: 3.2,
     resist: { bullet: 0.12, expl: 0.8 }, view: { range: 1100, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'autocannon', aim: 'turret', turn: 3.2 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 6 }, { name: 'Passenger' }, { name: 'Passenger' }],
-    respawn: 75, size: [75, 42, 30], zr: [0, 45], pts: 180,
+    respawn: 75, size: [70, 39, 28], zr: [0, 42], pts: 180,
   },
   tank: {
-    name: 'Main Battle Tank', kind: 'tracked', r: 37, hp: 1000, maxSpeed: 156, revSpeed: 70, accel: 148, drag: 2.4, grip: 14, turn: 1.6, turretTurn: 1.7,
+    name: 'Main Battle Tank', kind: 'tracked', r: 27, hp: 1000, maxSpeed: 156, revSpeed: 70, accel: 148, drag: 2.4, grip: 14, turn: 1.6, turretTurn: 1.7,
     resist: { bullet: 0.035, expl: 0.65 }, view: { range: 1200, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'cannon', aim: 'turret', turn: 1.7 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 5 }],
-    respawn: 100, size: [87, 50, 34], zr: [0, 43], pts: 260, crush: true,
+    respawn: 100, size: [78, 45, 31], zr: [0, 39], pts: 260, crush: true,
   },
   heli: {
     name: 'Attack Helicopter', kind: 'air', r: 32, hp: 560, maxSpeed: 265, accel: 1.7, turn: 3.0, alt: 56,
@@ -52,7 +52,8 @@ export const VEHICLES = {
   },
 };
 export const VEHICLE_LIST = Object.keys(VEHICLES);
-VEHICLE_LIST.forEach((id, i) => { VEHICLES[id].id = id; VEHICLES[id].idx = i; });
+// r is the collision circle (it has to fit the 2-tile alleys, so it stays smaller than the model); hr is the bullet / shell hit circle
+VEHICLE_LIST.forEach((id, i) => { const d = VEHICLES[id]; d.id = id; d.idx = i; d.hr = Math.max(d.r, Math.round(d.size[0] * 0.42)); });
 
 export const isAir = (def) => def.kind === 'air';
 

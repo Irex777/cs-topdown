@@ -713,6 +713,7 @@ export class ClientGame {
     this.fx.update(dt);
     this.engineSounds(dt);
     this.renderer.render(dt, nowMs);
+    if (this.alive) this.renderer.autoQuality(dt);
     this.ui.onFrame && this.ui.onFrame(this, dt);
   }
 
