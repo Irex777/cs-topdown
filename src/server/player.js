@@ -34,7 +34,7 @@ export class Player {
     this.alive = false;
     this.x = 0; this.y = 0; this.vx = 0; this.vy = 0; this.angle = 0;
     this.z = 0; this.vz = 0; this.cf = 0; this.pitch = 0;      // feet height, vertical speed, crouch factor 0..1, look pitch (up +)
-    this.hp = 100;
+    this.hp = 100; this.armor = 0;
     this.veh = 0; this.seat = 0;
     this.cls = this.loadout ? this.loadout.cls : 'assault';
     this.primaryW = null; this.secondaryW = null;

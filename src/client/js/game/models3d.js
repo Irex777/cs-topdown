@@ -23,18 +23,19 @@ const FACES = [
 export function voxelGeometry(model, opts = {}) {
   const u = model.u;
   const vox = model.vox;
-  let zmax = 0;
+  let zmax = 0, zmin = 0;
   const cells = [];
   for (const [key, col] of vox) {
     const [x, y, z] = key.split(',').map(Number);
     cells.push([x, y, z, col]);
     if (z > zmax) zmax = z;
+    if (z < zmin) zmin = z;
   }
   const pos = [], nor = [], colr = [], idx = [];
   for (const [x, y, z, col] of cells) {
     // voxel axes (x fwd, y right, z up) -> three (X, Z, Y): three vector components are [X, Y, Z] = [x, z, y]
     const three = [x, z, y];
-    const base = z / Math.max(1, zmax);
+    const base = (z - zmin) / Math.max(1, zmax - zmin);
     const grad = 0.74 + 0.26 * base;
     const jit = 0.96 + hash3(x, y, z) * 0.08;
     for (const f of FACES) {

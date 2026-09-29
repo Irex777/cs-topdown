@@ -95,15 +95,15 @@ try {
   await sleep(500);
   check(a.snaps > 5, `snapshots stream in while dead (${a.snaps})`);
   check(a.last.al === 0 && Array.isArray(a.last.sps) || a.msgs.length > 0, 'spawn options are offered on the deploy screen');
-  a.send({ t: 'a', a: 'loadout', lo: { cls: 'recon', primary: { id: 'sv98', att: { optic: 'scope12', barrel: 'supp' } }, secondary: { id: 'deagle', att: {} }, gadgets: ['beacon', 'sensor'], gren: 'smoke' } });
+  a.send({ t: 'a', a: 'loadout', lo: { cls: 'recon', primary: { id: 'sr50', att: { optic: 'sniper', barrel: 'supp' } }, secondary: { id: 'p18', att: {} }, gadgets: ['beacon', 'sensor'], gren: 'smoke' } });
   a.send({ t: 'a', a: 'deploy', k: 'base', id: 0 });
   await sleep(800);
   const snap = a.last;
   check(snap.al === 1 && snap.me && snap.me.own === 1 && snap.me.hp === 100, 'deploying spawns the player');
   check(snap.me.cls === 'recon' && snap.me.pw >= 0, 'the chosen class and weapon are applied');
-  check(snap.me.mv && snap.me.mv[1] === 3, 'a 12x scope reports scope level 3 (movement profile)');
+  check(snap.me.mv && snap.me.mv[1] === 2, 'the sniper scope reports scope level 2 (movement profile)');
   check(snap.p.length >= 1 && snap.p.every((t) => t.length === 12), 'player tuples well-formed');
-  check(a.msgs.some((m) => m.t === 'kit' && m.lo.primary.id === 'sv98'), 'server confirms the applied loadout');
+  check(a.msgs.some((m) => m.t === 'kit' && m.lo.primary.id === 'sr50'), 'server confirms the applied loadout');
 
   // movement, sprint is faster than walking
   let seq = 0;
@@ -147,7 +147,7 @@ try {
   d.send({ t: 'create', name: 'Dora', autostart: true, settings: { map: 'riverside', mode: 'conquest', teamSize: 4, bots: true, vehicles: true } });
   await d.wait((m) => m.t === 'match');
   await sleep(700);
-  d.send({ t: 'a', a: 'deploy', k: 'base', id: 0, lo: { cls: 'engineer', primary: { id: 'mp7', att: {} }, secondary: { id: 'm9', att: {} }, gadgets: ['repair', 'rpg'], gren: 'he' } });
+  d.send({ t: 'a', a: 'deploy', k: 'base', id: 0, lo: { cls: 'engineer', primary: { id: 'vx9', att: {} }, secondary: { id: 'p18', att: {} }, gadgets: ['repair', 'rpg'], gren: 'he' } });
   await sleep(1200);
   const cs = d.last;
   check(cs.al === 1 && Array.isArray(cs.fl) && cs.fl.length === 7, 'conquest snapshot carries 7 flags');

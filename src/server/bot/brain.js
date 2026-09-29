@@ -190,8 +190,8 @@ export class BotBrain {
     const w = WEAPONS[pid];
     const choose = (slot, wp, banned = []) => { const opts = attachOptions(wp, slot).filter((o) => !banned.includes(o)); return opts.length ? pick(opts) : undefined; };
     const att = {
-      optic: w.kind === 'sniper' ? pick(['scope8', 'scope12', 'scope8']) : pick(attachOptions(w, 'optic').filter((o) => o !== 'scope12' || w.kind === 'dmr')),
-      barrel: choose('barrel', w, ['long']), under: choose('under', w, ['ugl', 'mk']), mag: choose('mag', w, ['slug']),
+      optic: w.kind === 'sniper' ? 'sniper' : pick(attachOptions(w, 'optic')),
+      barrel: choose('barrel', w), under: choose('under', w), mag: choose('mag', w),
     };
     const sid = pick(SIDEARMS);
     const gadgets = c.gadgets.map((list) => {

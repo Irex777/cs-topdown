@@ -1,6 +1,6 @@
 // Class gadgets: defibrillator, repair tool, medic bag, ammo crate, mines, claymores, C4, beacons, sensors, rocket launchers.
 import { DT, RULES, SPEC } from '../shared/constants.js';
-import { PROJ } from '../shared/weapons.js';
+import { PROJ, CLASSES } from '../shared/weapons.js';
 import { canSee } from '../shared/vision.js';
 import { angleDiff } from '../shared/gamemap.js';
 import { explode } from './world.js';
@@ -164,7 +164,9 @@ export function updateGadgets(game, dt) {
           for (const p of game.players.values()) {
             if (!p.alive || p.veh || p.team !== q.team) continue;
             if (Math.hypot(p.x - q.x, p.y - q.y) > 110) continue;
-            if (p.resupply(0.34) && owner && owner !== p) game.addScore(owner, RULES.score.resupply, 'Resupply');
+            const maxAr = (CLASSES[p.cls] && CLASSES[p.cls].armor) || 0;
+            const armored = p.armor < maxAr; if (armored) p.armor = Math.min(maxAr, p.armor + 12);
+            if ((p.resupply(0.34) || armored) && owner && owner !== p) game.addScore(owner, RULES.score.resupply, 'Resupply');
           }
         }
         break;

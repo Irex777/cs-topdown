@@ -1,7 +1,7 @@
 // One match: players, spawning, squads, revive, vehicles, projectiles, gadgets. Owned by a Room; the game mode
 // (Conquest / Rush / Team Deathmatch) lives in modes/*.js and hooks into this class.
 import { SPEC, PHASE, RULES, KEY, DT, otherTeam, SQUAD_NAMES } from '../shared/constants.js';
-import { maxSpeedFor, sanitizeLoadout } from '../shared/weapons.js';
+import { maxSpeedFor, sanitizeLoadout, CLASSES } from '../shared/weapons.js';
 import { stepMovement, relativeDir } from '../shared/movement.js';
 import { createMap } from '../shared/maps/index.js';
 import { Player, newStats } from './player.js';
@@ -196,6 +196,7 @@ export class Game {
   spawnPlayer(p, opt) {
     p.equip();
     p.alive = true; p.hp = 100; p.veh = 0; p.seat = 0;
+    p.armor = opt.revived ? 0 : ((CLASSES[p.cls] && CLASSES[p.cls].armor) || 0);
     let x = opt.x, y = opt.y;
     if (opt.k === 'base') {
       const sp = this.map.spawns[p.team];

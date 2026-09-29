@@ -2,6 +2,7 @@
 import { Room } from '../src/server/room.js';
 import { T, CT, KEY, TILE, RULES } from '../src/shared/constants.js';
 import { WEAPONS } from '../src/shared/weapons.js';
+import { damagePlayer } from '../src/server/combat.js';
 
 let failures = 0;
 const check = (cond, msg) => { if (cond) console.log('  ok  ', msg); else { failures++; console.log('  FAIL', msg); } };
@@ -24,7 +25,7 @@ function setup(settings = {}, humans = 2) {
   };
   return { room, g, ps, tick, cmd, hold, spawn };
 }
-const lo = (cls, primary, gadgets, extra = {}) => ({ cls, primary: { id: primary, att: extra.att || {} }, secondary: { id: 'm9', att: {} }, gadgets, gren: 'he' });
+const lo = (cls, primary, gadgets, extra = {}) => ({ cls, primary: { id: primary, att: extra.att || {} }, secondary: { id: 'p18', att: {} }, gadgets, gren: 'he' });
 const open = (g, x, y) => g.map.nearestClear(x, y, g.map.blockInf, 2);
 
 console.log('flag capture');
@@ -32,11 +33,11 @@ console.log('flag capture');
   const { g, ps, tick, spawn } = setup();
   const f = g.flags[1];
   const spot = open(g, f.x, f.y);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), spot.x, spot.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), spot.x, spot.y);
   const before = f.owner;
   tick(60 * 25);
   check(before === -1 && f.owner === T, `a lone soldier captures a neutral flag in about 20 s (owner ${f.owner})`);
-  spawn(ps[1], lo('assault', 'm416', ['defib', 'medkit']), spot.x + 20, spot.y);
+  spawn(ps[1], lo('assault', 'ar7', ['defib', 'medkit']), spot.x + 20, spot.y);
   tick(30);
   check(f.contested, 'an enemy on the flag contests it');
   check(ps[0].stats.captures >= 1 && ps[0].stats.score >= RULES.score.capture, 'the capturer is awarded points');
@@ -46,7 +47,7 @@ console.log('view-relative controls (third-person camera)');
 {
   const { g, ps, hold, spawn } = setup();
   const s = open(g, 34 * 32, 40 * 32);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), s.x, s.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), s.x, s.y);
   const x0 = ps[0].x, y0 = ps[0].y;
   hold(ps[0], KEY.UP, 0, 30);
   check(ps[0].x > x0 + 20 && Math.abs(ps[0].y - y0) < 5, 'W walks toward the view direction (looking east)');
@@ -59,7 +60,7 @@ console.log('view-relative controls (third-person camera)');
   // helicopter: W flies where the pilot looks
   const heli = g.vehicles.find((v) => v.type === 'heli');
   heli.x = 40 * 32; heli.y = 40 * 32; heli.vx = heli.vy = 0;
-  spawn(ps[1], lo('assault', 'm416', ['defib', 'medkit']), heli.x + 10, heli.y);
+  spawn(ps[1], lo('assault', 'ar7', ['defib', 'medkit']), heli.x + 10, heli.y);
   ps[1].usePrev = false; g.applyCmd(ps[1], KEY.USE, 0, 0, 0);
   if (ps[1].veh === heli.id) {
     const hx = heli.x, hy = heli.y;
@@ -75,7 +76,7 @@ console.log('vertical play: jumping, cover, headshots');
   const tx = Math.floor(s.x / TILE), ty = Math.floor(s.y / TILE);
   // a flat test yard: clear a strip 14 tiles long, put sandbags 2 tiles to the east
   for (let dx = -1; dx <= 14; dx++) for (let dy = -2; dy <= 2; dy++) g.map.setTile(tx + dx, ty + dy, '.');
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), (tx + 0.5) * TILE, (ty + 0.5) * TILE);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), (tx + 0.5) * TILE, (ty + 0.5) * TILE);
   g.map.setTile(tx + 2, ty, 'L');
   const p = ps[0];
   // jump toward the sandbags and land on top
@@ -86,13 +87,13 @@ console.log('vertical play: jumping, cover, headshots');
     maxZ = Math.max(maxZ, p.z);
     if (p.x > (tx + 2) * TILE + 6 && p.z > 12) onTop = true;
   }
-  const jz = (() => { const q = ps[1]; if (!q.alive) { q.loadout = lo('assault', 'm416', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); } q.x = (tx + 10.5) * TILE; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; let m = 0; for (let i = 0; i < 40; i++) { g.applyCmd(q, KEY.JUMP, 0, 0, 0); tick(); m = Math.max(m, q.z); } return m; })();
+  const jz = (() => { const q = ps[1]; if (!q.alive) { q.loadout = lo('assault', 'ar7', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); } q.x = (tx + 10.5) * TILE; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; let m = 0; for (let i = 0; i < 40; i++) { g.applyCmd(q, KEY.JUMP, 0, 0, 0); tick(); m = Math.max(m, q.z); } return m; })();
   check(jz > 18 && jz < 26, `a jump on open ground lifts the soldier ~${jz.toFixed(0)} px`);
   void maxZ;
   check(onTop, 'a jump gets onto low sandbags');
   // a crate is not a wall: but a brick wall stops the jumper
   g.map.setTile(tx + 8, ty, 'B');
-  spawn(p, lo('assault', 'm416', ['defib', 'medkit']), (tx + 6.5) * TILE, (ty + 0.5) * TILE);
+  spawn(p, lo('assault', 'ar7', ['defib', 'medkit']), (tx + 6.5) * TILE, (ty + 0.5) * TILE);
   for (let i = 0; i < 90; i++) { g.applyCmd(p, KEY.UP | KEY.JUMP, 0, 0, 0); tick(); }
   check(p.x < (tx + 8) * TILE, 'a brick wall cannot be climbed');
 
@@ -101,8 +102,8 @@ console.log('vertical play: jumping, cover, headshots');
   const setup2 = () => {
     for (let dx = 0; dx <= 14; dx++) g.map.setTile(tx + dx, ty, '.');
     for (const [q, x] of [[shooter, (tx + 0.5) * TILE], [target, (tx + 0.5) * TILE + 200]]) {
-      if (!q.alive) { q.loadout = lo('assault', 'm416', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); }
-      q.x = x; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; q.cf = 0; q.vx = q.vy = 0; q.hp = 100; q.spawnProt = 0;
+      if (!q.alive) { q.loadout = lo('assault', 'ar7', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); }
+      q.x = x; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; q.cf = 0; q.vx = q.vy = 0; q.hp = 100; q.armor = 0; q.spawnProt = 0;
     }
     shooter.fireCd = 0; shooter.drawT = 0; shooter.burst = 0; shooter.reloadT = 0;
   };
@@ -160,7 +161,7 @@ console.log('destruction');
 {
   const { g, ps, tick, spawn } = setup();
   const b = open(g, 34 * 32, 40 * 32);
-  spawn(ps[0], lo('support', 'm249', ['ammo', 'c4']), b.x, b.y);
+  spawn(ps[0], lo('support', 'mg60', ['ammo', 'c4']), b.x, b.y);
   // find a destructible wall near the west outpost
   let wall = null;
   for (let y = 30; y < 60 && !wall; y++) for (let x = 20; x < 50 && !wall; x++) if (g.map.chars[y * g.map.w + x] === 'B') wall = { x, y };
@@ -190,12 +191,12 @@ console.log('revive');
   const { g, ps, tick, spawn, cmd, hold } = setup({}, 3);
   ps[2].team = T; g.onTeamChange(ps[2]);
   const at = open(g, 40 * 32, 45 * 32);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), at.x, at.y);
-  spawn(ps[2], lo('assault', 'm416', ['defib', 'medkit']), at.x + 60, at.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), at.x, at.y);
+  spawn(ps[2], lo('assault', 'ar7', ['defib', 'medkit']), at.x + 60, at.y);
   const victim = ps[2];
   victim.hp = 0.5;
   // shoot the victim with the enemy player
-  spawn(ps[1], lo('recon', 'sv98', ['beacon', 'sensor']), at.x + 300, at.y);
+  spawn(ps[1], lo('recon', 'sr50', ['beacon', 'sensor']), at.x + 300, at.y);
   ps[1].angle = Math.PI;
   ps[1].fireCd = 0;
   const wasAlive = victim.alive;
@@ -217,7 +218,7 @@ console.log('vehicles');
   const tank = g.vehicles.find((v) => v.type === 'tank' && v.team === T);
   const road = open(g, 60 * 32, 56 * 32);
   tank.x = road.x; tank.y = road.y; tank.a = 0; tank.ta = 0;
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), tank.x - 40, tank.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), tank.x - 40, tank.y);
   ps[0].usePrev = false;
   g.applyCmd(ps[0], KEY.USE, 0, 0, 0);
   check(ps[0].veh === tank.id && tank.seats[0] === ps[0].id, 'E boards the nearest vehicle');
@@ -235,7 +236,7 @@ console.log('vehicles');
   check(g.projectiles.length >= 0 && (g.map.changes.size >= n0), 'the cannon fires shells (they explode within 2 s)');
   // ram a soldier
   const victim = ps[1];
-  spawn(victim, lo('assault', 'm416', ['defib', 'medkit']), tank.x + 90, tank.y);
+  spawn(victim, lo('assault', 'ar7', ['defib', 'medkit']), tank.x + 90, tank.y);
   hold(ps[0], KEY.UP, 0, 90);
   check(!victim.alive, 'running over an enemy soldier kills them');
   g.applyCmd(ps[0], 0, 0, 0, 0);
@@ -243,7 +244,7 @@ console.log('vehicles');
   check(ps[0].veh === 0, 'E leaves the vehicle');
   // enemy steals an empty vehicle
   const jeep = g.vehicles.find((v) => v.type === 'jeep' && v.team === T);
-  spawn(ps[1], lo('assault', 'm416', ['defib', 'medkit']), jeep.x + 10, jeep.y + 30);
+  spawn(ps[1], lo('assault', 'ar7', ['defib', 'medkit']), jeep.x + 10, jeep.y + 30);
   ps[1].usePrev = false; g.applyCmd(ps[1], KEY.USE, 0, 0, 0);
   check(ps[1].veh === jeep.id && jeep.team === CT, 'an empty enemy vehicle can be stolen');
 }
@@ -253,7 +254,7 @@ console.log('rockets and C4 against vehicles');
   const { g, ps, tick, spawn } = setup();
   const tank = g.vehicles.find((v) => v.type === 'tank' && v.team === CT);
   const eng = ps[0];
-  spawn(eng, lo('engineer', 'mp7', ['repair', 'rpg']), tank.x - 260, tank.y);
+  spawn(eng, lo('engineer', 'vx9', ['repair', 'rpg']), tank.x - 260, tank.y);
   eng.sel = 'gadget1'; eng.angle = 0;
   const hp0 = tank.hp;
   let shots = 0;
@@ -270,8 +271,8 @@ console.log('rockets and C4 against vehicles');
   const field = open(g, 60 * 32, 60 * 32);
   jeep.x = field.x + 70; jeep.y = field.y;
   const sup = ps[0];
-  sup.loadout = lo('support', 'm249', ['ammo', 'c4']); sup.alive = false; sup.respawnAt = 0;
-  spawn(sup, lo('support', 'm249', ['ammo', 'c4']), field.x, field.y);
+  sup.loadout = lo('support', 'mg60', ['ammo', 'c4']); sup.alive = false; sup.respawnAt = 0;
+  spawn(sup, lo('support', 'mg60', ['ammo', 'c4']), field.x, field.y);
   sup.sel = 'gadget1'; sup.fireCd = 0; sup.prevFire = false; sup.prevScope = false;
   g.applyCmd(sup, KEY.FIRE, 0, 0, 70);
   const c4 = g.gadgets.find((q) => q.type === 'c4');
@@ -287,10 +288,10 @@ console.log('medic bag, ammo crate, beacon, spot');
   const { g, ps, tick, spawn } = setup({}, 3);
   ps[2].team = T; g.onTeamChange(ps[2]);
   const at = open(g, 40 * 32, 45 * 32);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), at.x, at.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), at.x, at.y);
   ps[0].sel = 'gadget1'; ps[0].fireCd = 0;
   ps[2].squad = ps[0].squad;
-  spawn(ps[2], lo('support', 'm249', ['ammo', 'c4']), at.x + 40, at.y);
+  spawn(ps[2], lo('support', 'mg60', ['ammo', 'c4']), at.x + 40, at.y);
   ps[2].hp = 40; ps[2].lastHurt = g.time; ps[2].am.primary.reserve = 0; ps[2].am.primary.clip = 3;
   g.applyCmd(ps[0], KEY.FIRE, 0, 0, 0);
   check(g.gadgets.some((q) => q.type === 'medkit'), 'a medic bag can be dropped');
@@ -303,7 +304,7 @@ console.log('medic bag, ammo crate, beacon, spot');
   // beacon
   const rec = ps[0];
   rec.alive = false; rec.respawnAt = 0;
-  spawn(rec, lo('recon', 'sv98', ['beacon', 'sensor']), at.x, at.y + 60);
+  spawn(rec, lo('recon', 'sr50', ['beacon', 'sensor']), at.x, at.y + 60);
   rec.sel = 'gadget0'; rec.fireCd = 0; rec.prevFire = false; rec.vx = rec.vy = 0;
   g.applyCmd(rec, KEY.FIRE, 0, 0, 0);
   check(g.gadgets.some((q) => q.type === 'beacon'), 'a spawn beacon can be deployed');
@@ -313,7 +314,7 @@ console.log('medic bag, ammo crate, beacon, spot');
   check(opts.some((o) => o.k === 'squad'), 'squadmates can spawn on each other');
   // spotting
   const enemy = ps[1];
-  spawn(enemy, lo('assault', 'm416', ['defib', 'medkit']), rec.x + 200, rec.y);
+  spawn(enemy, lo('assault', 'ar7', ['defib', 'medkit']), rec.x + 200, rec.y);
   check(g.spot(rec, enemy.x, enemy.y), 'an enemy in line of sight can be spotted');
   const snap = g.snapshotFor(ps[0]);
   void snap;
@@ -324,23 +325,32 @@ console.log('aircraft, attachments, alt fire');
 {
   const { g, ps, tick, spawn, hold } = setup();
   const heli = g.vehicles.find((v) => v.type === 'heli' && v.team === T);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), heli.x + 30, heli.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), heli.x + 30, heli.y);
   ps[0].usePrev = false; g.applyCmd(ps[0], KEY.USE, 0, 0, 0);
   check(ps[0].veh === heli.id, 'a helicopter can be boarded');
   // fly east straight over the base wall and the river: no collisions for aircraft
   hold(ps[0], KEY.RIGHT, 0, 60 * 6);
   check(heli.x > 5000 || heli.speed > 100, `helicopters fly over walls and water (x=${Math.round(heli.x)})`);
-  const sup = lo('assault', 'm416', ['defib', 'medkit'], { att: { barrel: 'supp', optic: 'acog', under: 'ugl', mag: 'ext' } });
+  const sup = lo('assault', 'ar7', ['defib', 'medkit'], { att: { barrel: 'supp', optic: 'acog', under: 'vgrip', mag: 'ext' } });
   spawn(ps[1], sup, 3000, 3000);
   const w = ps[1].primaryW;
-  check(w.suppressed && w.scope === 1 && w.alt === 'ugl' && w.mag === 42, `attachments change the weapon (suppressed ${w.suppressed}, scope ${w.scope}, alt ${w.alt}, mag ${w.mag})`);
-  check(w.dmg < WEAPONS.m416.dmg, 'a suppressor reduces damage');
-  const at = open(g, 3000, 3000);
-  ps[1].x = at.x; ps[1].y = at.y;
-  ps[1].altMode = true; ps[1].fireCd = 0; ps[1].prevFire = false; ps[1].clickBuf = 0;
-  g.applyCmd(ps[1], KEY.FIRE, 0, 0, 400);
-  check(g.projectiles.some((p) => p.type === 'ugl'), 'the underbarrel launcher fires a grenade');
+  check(w.suppressed && w.scope === 1 && w.mag === 42 && w.burst < WEAPONS.ar7.burst, `attachments change the weapon (suppressed ${w.suppressed}, scope ${w.scope}, mag ${w.mag}, burst ${w.burst})`);
+  check(w.dmg < WEAPONS.ar7.dmg, 'a suppressor reduces damage');
   void tick;
+}
+
+console.log('armor');
+{
+  const { g, ps, spawn } = setup();
+  const at = open(g, 3000, 3000);
+  spawn(ps[1], lo('support', 'mg60', ['ammo', 'c4']), at.x, at.y);
+  const v = ps[1];
+  v.spawnProt = 0;
+  check(v.armor === 75, `support spawns with 75 armor (${v.armor})`);
+  damagePlayer(g, v, ps[0], 40, 'ar7');
+  check(v.hp === 80 && v.armor === 55, `armor soaks half a hit (hp ${v.hp}, armor ${v.armor})`);
+  v.armor = 10; damagePlayer(g, v, ps[0], 60, 'ar7');
+  check(v.armor === 0 && v.hp === 30, `spent armor lets the rest through (hp ${v.hp}, armor ${v.armor})`);
 }
 
 console.log('rush');
@@ -348,11 +358,11 @@ console.log('rush');
   const { g, ps, tick, spawn } = setup({ mode: 'rush' });
   const m = g.mcoms.find((q) => q.stage === 0);
   const at = open(g, m.x, m.y);
-  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), at.x, at.y);
+  spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), at.x, at.y);
   ps[0].x = m.x + 10; ps[0].y = m.y; ps[0].usePrev = false;
   for (let i = 0; i < 60 * 4.3; i++) { g.applyCmd(ps[0], KEY.USE, 0, 0, 0); tick(); }
   check(m.state === 1, 'holding E arms the M-COM');
-  spawn(ps[1], lo('assault', 'm416', ['defib', 'medkit']), at.x, at.y);
+  spawn(ps[1], lo('assault', 'ar7', ['defib', 'medkit']), at.x, at.y);
   ps[1].x = m.x - 10; ps[1].y = m.y; ps[1].usePrev = false;
   for (let i = 0; i < 60 * 4.3; i++) { g.applyCmd(ps[1], KEY.USE, 0, 0, 0); tick(); }
   check(m.state === 0, 'holding E as a defender disarms it');

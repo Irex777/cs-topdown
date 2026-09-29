@@ -12,116 +12,195 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 // ------------------------------------------------------------------------------------------------ gun models
 // Model space: x forward, y right, z up (voxels). The sight line is z = 5..7; `meta` gives the muzzle, grip and fore-grip.
-const BODY = '#565d68', METAL = '#7b838e', LIGHT = '#a3abb6', WOOD = '#a06a3e', MAG = '#444a54', DARK = '#3b4049';
+const METAL = '#8b929c', LIGHT = '#b3bac4', DARK = '#23262c', BLK = '#2c2f36', BLK2 = '#3b3f47', STEEL = '#6f7680', GLASS = '#6fd0ff', RED = '#e23a2a';
 
-function rifleParts(o) {
+// Each weapon's look: receiver colours, furniture (handguard / grip / stock), magazine and shape parameters.
+const LOOK = {
+  ar7:   { rec: '#bf9f68', rec2: '#a58857', hand: BLK, hand2: BLK2, stock: BLK, mag: '#3c4048', mag2: '#4a4f57', hg: 15, bar: 8, stockS: 'std' },
+  br12:  { rec: '#59653f', rec2: '#48533a', hand: '#2a2d32', hand2: '#3a3e44', stock: '#2a2d32', mag: '#3c4048', mag2: '#4d525a', hg: 19, bar: 9, stockS: 'fixed', fat: 1 },
+  vx9:   { rec: BLK, rec2: '#3b3f47', hand: '#c1a26c', hand2: '#a58857', stock: '#c1a26c', mag: '#c1a26c', mag2: '#a58857', hg: 10, bar: 4, stockS: 'skel' },
+  sg4:   { rec: '#3a3d43', rec2: '#2c2f36', hand: '#b98f5a', hand2: '#8f6d40', stock: '#b98f5a', mag: '#3c4048', mag2: '#4a4f57', hg: 14, bar: 10, stockS: 'fixed', pump: 1 },
+  mg60:  { rec: '#55603f', rec2: '#434c31', hand: '#2c2f36', hand2: '#3b3f47', stock: '#3b4630', mag: '#5a6a40', mag2: '#4a5836', hg: 18, bar: 10, stockS: 'fixed', fat: 1, lmg: 1 },
+  dmr14: { rec: '#b39558', rec2: '#9a7f4a', hand: BLK, hand2: BLK2, stock: '#2c2f36', mag: '#3c4048', mag2: '#4a4f57', hg: 17, bar: 12, stockS: 'fixed' },
+  sr50:  { rec: '#4a5537', rec2: '#3b4530', hand: '#2a2d32', hand2: '#3a3e44', stock: '#3b4630', mag: '#3c4048', mag2: '#4a4f57', hg: 18, bar: 16, stockS: 'sniper', bolt: 1 },
+  p18:   { rec: BLK, rec2: '#3b3f47', hand: '#bd9d66', hand2: '#a58857', stock: BLK, mag: '#3b3f47', mag2: '#4a4f57', hg: 9, bar: 2, stockS: 'none' },
+};
+const LOOK_KIND = { rifle: 'ar7', smg: 'vx9', shotgun: 'sg4', lmg: 'mg60', dmr: 'dmr14', sniper: 'sr50', pistol: 'p18' };
+
+/** stamp a small model into another one at an offset */
+function stamp(dst, src, dx, dy, dz) { for (const [k, c] of src.vox) { const [x, y, z] = k.split(',').map(Number); dst.vox.set(`${x + dx},${y + dy},${z + dz}`, c); } return dst; }
+
+// ---- the attachments, each buildable on its own (loadout icons) or mounted on a gun ----------------------------------
+/** sights, base on z = 0, centred on x = 0: returns { m, ads (sight height above the base), sightX } */
+function opticModel(id) {
   const m = new VoxelModel(1);
-  const long = o.long || 0;
-  // stock (a separate model: hidden when aiming so it does not fill the view), receiver, rails
-  const stock = new VoxelModel(1);
-  stock.box(-17, -1, -1, -16, 2, 4, DARK).box(-16, -1, 0, -8, 2, 4, o.wood ? WOOD : BODY).box(-15, -1, 1, -8, 2, 3, o.wood ? '#8a6238' : '#525963');
-  m.box(-8, -1, 0, 4, 2, 4, '#4b515b').box(-8, -1, 4, 6, 2, 5, '#5b626d').box(-2, 1, 1, 0, 2, 3, DARK);
-  m.box(-6, -1, -4, -3, 2, 0, '#3a3f47').box(-3, 0, -1, 1, 1, 0, DARK);
-  // handguard and barrel
-  const hg = o.hg || 15;
-  m.box(4, -1, 0, hg, 2, 4, o.wood ? WOOD : '#59606b').box(4, -1, 4, hg, 2, 5, '#5b626d');
-  m.box(hg, 0, 1, hg + 8 + long, 1, 3, METAL).box(hg - 1, 0, 4, hg, 1, 7, METAL);
-  // rear sight: a low notch block
-  m.box(-7, -1, 5, -6, 2, 6, DARK);
-  return { m, stock, muzzle: hg + 8 + long, hg };
+  if (id === 'reddot') {
+    m.box(-4, -1, 0, 5, 2, 1, DARK).box(-3, -2, 1, 4, 3, 2, BLK2).box(-3, -2, 2, -2, 3, 5, BLK).box(3, -2, 2, 4, 3, 5, BLK).box(-3, -2, 5, 4, 3, 6, BLK).box(-2, 0, 2, 3, 1, 5, '#3a4552').box(0, 0, 3, 1, 1, 4, RED);
+    return { m, ads: 3.5, sightX: 0 };
+  }
+  if (id === 'holo') {
+    m.box(-5, -1, 0, 6, 2, 1, DARK).box(-4, -2, 1, 5, 3, 2, BLK2).box(-4, -2, 2, -3, 3, 6, BLK).box(4, -2, 2, 5, 3, 6, BLK).box(-4, -2, 6, 5, 3, 7, BLK).box(-3, 0, 2, 4, 1, 6, '#39566a').box(0, 0, 3, 1, 1, 4, '#ff6a3d');
+    return { m, ads: 4, sightX: 0 };
+  }
+  if (id === 'acog') {
+    m.box(-6, -1, 0, 7, 2, 1, DARK).box(-5, -2, 1, 6, 3, 2, BLK2).box(-5, -2, 2, 6, 3, 6, '#3d434c').box(-4, -2, 6, 5, 3, 7, BLK).box(6, -3, 2, 8, 4, 7, BLK).box(-7, -3, 2, -5, 4, 7, BLK).box(7, -2, 3, 8, 3, 6, '#7ad0ff').box(-6, -1, 3, -5, 2, 6, '#182028');
+    m.box(-3, 2, 3, 3, 3, 5, '#c1a26c');
+    return { m, ads: 5, sightX: 0 };
+  }
+  if (id === 'sniper') {
+    m.box(-9, -1, 0, -5, 2, 1, DARK).box(3, -1, 0, 7, 2, 1, DARK).box(-9, -1, 1, -6, 2, 3, BLK).box(4, -1, 1, 7, 2, 3, BLK);
+    m.box(-10, -2, 3, 10, 3, 7, '#25282d').box(-13, -3, 2, -10, 4, 8, BLK).box(10, -3, 2, 14, 4, 8, BLK).box(-2, -3, 6, 3, 4, 8, BLK2).box(-1, 3, 4, 2, 4, 6, BLK2).box(13, -2, 3, 14, 3, 7, '#7ad0ff');
+    m.box(-12, -1, 3, -10, 2, 7, '#182028');
+    return { m, ads: 5, sightX: -1 };
+  }
+  return { m, ads: 0, sightX: 0 };
 }
 
-function magFor(kind, ext) {
+/** muzzle devices: the barrel points to +x, centred on y = 0, z = 2 */
+function muzzleModel(id) {
   const m = new VoxelModel(1);
-  const n = ext ? 3 : 0;
-  if (kind === 'smg') m.box(0, -1, -8 - n, 3, 2, 0, MAG).box(0, -1, -8 - n, 3, 2, -7 - n, '#59606b');
-  else if (kind === 'lmg') m.box(-3, -2, -9, 6, 3, 0, '#3a4a2f').box(-3, -2, -9, 6, 3, -8, '#2c3a24');
-  else if (kind === 'pistol') m.box(-4, -1, -7, -1, 2, 0, MAG);
-  else if (kind === 'shotgun') return null;
-  else if (kind === 'sniper') m.box(-1, -1, -5 - n, 2, 2, 0, MAG);
-  else m.box(0, -1, -7 - n, 3, 2, 0, MAG).box(1, -1, -7 - n, 3, 2, -6 - n, '#525963');
+  if (id === 'supp') {
+    m.box(0, -2, 0, 14, 3, 4, '#2a2d33').box(0, -1, 4, 14, 2, 5, '#33373e').box(0, -1, -1, 14, 2, 0, '#33373e').box(14, -1, 1, 15, 2, 3, DARK);
+    for (const x of [3, 6, 9, 12]) m.box(x, -2, 1, x + 1, 3, 3, '#3c4048');
+    m.box(0, -2, 0, 2, 3, 4, '#3a3e46');
+  } else if (id === 'comp') {
+    m.box(0, -1, 0, 8, 2, 4, '#3a3e46').box(0, -2, 1, 8, 3, 3, '#454a52').box(8, -1, 0, 9, 2, 4, DARK);
+    for (const x of [2, 4, 6]) m.box(x, -2, 3, x + 1, 3, 4, DARK).box(x, -2, 0, x + 1, 3, 1, DARK);
+  }
   return m;
 }
 
-function build(kind, att, ext) {
-  let stock = null, body, muzzle = 23, grip = [-4.5, 0.5, -2], fore = [9, 0.5, -1.5], ads = 7.5, sightX = -6.5, mag = null, ejection = [-1, 1.5, 3];
+/** rail / grip attachments, hanging below (or beside) the handguard: origin at the front of the mount, z = 0 is the handguard's bottom */
+function underModel(id) {
+  const m = new VoxelModel(1);
+  if (id === 'vgrip') m.box(0, -1, -8, 3, 2, 0, '#2f3238').box(-1, -1, -1, 4, 2, 0, '#454a52').box(0, -1, -8, 3, 2, -7, '#23262b').box(1, 0, -6, 2, 1, -2, '#3d4148');
+  else if (id === 'agrip') m.box(0, -1, -3, 6, 2, 0, '#2f3238').box(3, -1, -6, 6, 2, -3, '#2f3238').box(-1, -1, -1, 7, 2, 0, '#454a52').box(3, -1, -6, 6, 2, -5, '#23262b');
+  else if (id === 'laser') {
+    m.box(0, -1, -1, 9, 2, 3, '#3e444c').box(9, -1, 0, 11, 2, 2, DARK).box(1, -1, 3, 8, 2, 4, '#595f69').box(9, 0, 1, 10, 1, 2, RED).box(2, -1, -2, 5, 2, -1, '#2a2e34');
+    m.box(0, -1, 0, 3, 2, 2, '#5b626c');
+  } else if (id === 'flash') {
+    m.box(0, -2, -4, 10, 3, 1, '#3a3f47').box(10, -2, -5, 12, 3, 2, '#20232a').box(11, -1, -4, 12, 2, 1, '#fff0a8').box(2, -2, -5, 8, 3, -4, '#4a5058').box(3, -1, 1, 8, 2, 2, '#595f69');
+  }
+  return m;
+}
+
+/** magazine below the receiver; origin at the top-front of the well */
+function magModel(kind, magType, look, id) {
+  const m = new VoxelModel(1);
+  const c1 = look.mag, c2 = look.mag2;
+  if (magType === 'drum' && (kind === 'rifle' || kind === 'smg' || kind === 'lmg')) {
+    m.box(-1, -1, -3, 3, 2, 0, c1).box(-4, -3, -12, 8, 4, -3, c1).box(-5, -2, -11, 9, 3, -4, c1).box(-3, -3, -11, 7, 4, -10, c2).box(-3, -3, -5, 7, 4, -4, c2);
+    m.box(-3, 4, -9, 7, 5, -6, '#c9a15a').box(-1, -3, -8, 5, -2, -7, '#7d8590');
+    return m;
+  }
+  const n = magType === 'ext' ? 3 : 0;
+  if (kind === 'smg') m.box(0, -1, -9 - n, 3, 2, 0, c1).box(0, -1, -9 - n, 3, 2, -8 - n, c2).box(-1, -1, -1, 4, 2, 0, c2);
+  else if (kind === 'lmg') m.box(-4, -3, -10, 7, 4, 0, c1).box(-4, -3, -10, 7, 4, -9, c2).box(-3, -2, -9, 6, 3, -8, c1).box(6, -2, -6, 8, 3, -2, c2);
+  else if (kind === 'pistol') m.box(-4, -1, -8 - n, -1, 2, 0, c1).box(-4, -1, -8 - n, -1, 2, -7 - n, c2);
+  else if (kind === 'shotgun') return null;
+  else if (kind === 'sniper') m.box(-1, -1, -6 - n, 3, 2, 0, c1).box(0, -1, -6 - n, 3, 2, -5 - n, c2);
+  else if (id === 'br12') m.box(0, -1, -8 - n, 4, 2, 0, c1).box(0, -1, -8 - n, 4, 2, -7 - n, c2).box(-1, -1, -1, 5, 2, 0, c2);
+  else m.box(0, -1, -8 - n, 3, 2, 0, c1).box(1, -1, -8 - n, 3, 2, -7 - n, c2).box(-1, -1, -1, 4, 2, 0, c2);
+  return m;
+}
+
+function gunBody(id, kind, look) {
+  const m = new VoxelModel(1), stock = new VoxelModel(1);
+  const { rec, rec2, hand, hand2 } = look, hg = look.hg, fat = look.fat ? 1 : 0;
+  // stock
+  if (look.stockS === 'std') stock.box(-17, -1, -1, -16, 2, 4, DARK).box(-16, -1, 0, -8, 2, 4, look.stock).box(-15, -1, 1, -8, 2, 3, BLK2);
+  else if (look.stockS === 'fixed') stock.box(-18, -1, -2, -17, 2, 4, DARK).box(-17, -1, -1, -8, 2, 4 + fat, look.stock).box(-16, -1, 0, -8, 2, 3, BLK2);
+  else if (look.stockS === 'skel') stock.box(-16, -1, 0, -8, 0, 1, look.stock).box(-16, 1, 0, -8, 2, 1, look.stock).box(-16, -1, 3, -8, 2, 4, look.stock).box(-17, -1, -1, -16, 2, 4, DARK);
+  else if (look.stockS === 'sniper') stock.box(-20, -1, -3, -19, 2, 4, DARK).box(-19, -1, -2, -8, 2, 3, look.stock).box(-18, -1, 3, -10, 2, 5, look.stock).box(-19, -1, -1, -9, 2, 2, BLK2);
+  // receiver
   if (kind === 'pistol') {
+    m.box(-6, -1, 1, 9, 2, 5, rec).box(-6, -1, 1, 9, 2, 2, rec2).box(-6, -1, -1, 6, 2, 1, rec2).box(-7, -1, -6, -2, 2, 1, hand).box(-7, 0, -6, -6, 1, 1, hand2).box(9, 0, 2, 11, 1, 4, METAL);
+    m.box(-6, -1, 5, -5, 0, 6, DARK).box(-6, 1, 5, -5, 2, 6, DARK).box(8, 0, 5, 9, 1, 6, DARK).box(-3, 0, -1, 1, 1, 0, DARK).box(0, -1, 2, 6, 2, 3, '#4b515a');
+    m.box(1, -1, -2, 6, 2, -1, hand2).box(2, 0, -2, 5, 1, 0, hand2);
+    return { m, stock: null, muzzle: 11, hgEnd: 5 };
+  }
+  m.box(-8, -1, 0, 4, 2, 4 + fat, rec2).box(-8, -1, 4 + fat, 6, 2, 5 + fat, rec).box(-2, 1, 1, 0, 2, 3, DARK).box(-3, -1, 1, 3, 2, 3, rec);
+  m.box(-6, -1, -4, -3, 2, 0, hand).box(-3, 0, -1, 1, 1, 0, DARK).box(-7, 0, -3, -6, 1, 0, hand2);
+  m.box(4, -1, 0, hg, 2, 4, hand).box(4, -1, 4, hg, 2, 5, rec).box(5, -2, 1, hg - 2, -1, 3, hand2).box(5, 2, 1, hg - 2, 3, 3, hand2);
+  m.box(hg, 0, 1, hg + look.bar, 1, 3, METAL).box(hg - 1, 0, 4, hg, 1, 7, METAL).box(hg + look.bar - 1, 0, 3, hg + look.bar, 1, 4, LIGHT);
+  m.box(-7, -1, 5, -6, 2, 6, DARK);                                        // rear sight
+  if (look.lmg) {
+    m.box(hg - 8, -2, -1, hg + 1, 3, 4, look.rec2).box(hg - 6, -2, 4, hg - 1, 3, 5, DARK).box(-7, -1, 5, 3, 2, 7, hand);   // shroud + carry handle
+    m.box(hg + 1, -1, -6, hg + 2, 0, 0, METAL).box(hg + 1, 1, -6, hg + 2, 2, 0, METAL);                          // folded bipod legs
+    m.box(hg - 3, -1, 0, hg + 1, 2, 1, METAL);
+  }
+  if (look.pump) {
+    m.box(4, -1, -2, 13, 2, 0, hand).box(5, -1, -3, 12, 2, -2, hand2).box(hg, 0, -1, hg + 9, 1, 0, METAL);     // pump and magazine tube
+    m.box(hg, 0, 3, hg + 8, 1, 4, METAL);
+  }
+  if (look.bolt) {
+    m.box(-4, 2, 3, -1, 3, 4, METAL).box(-1, 3, 3, 0, 4, 5, LIGHT);                                              // bolt handle
+    m.box(hg + 6, -2, -6, hg + 7, 0, 0, METAL).box(hg + 6, 1, -6, hg + 7, 3, 0, METAL);                             // bipod
+    m.box(hg, -1, 1, hg + 3, 2, 3, METAL);
+  }
+  return { m, stock, muzzle: hg + look.bar, hgEnd: hg };
+}
+
+function build(id, kind, att) {
+  let ads = 7.5, sightX = -6.5, grip = [-4.5, 0.5, -2], fore = [9, 0.5, -1.5], ejection = [-1, 1.5, 3], mag = null, stock = null, body, muzzle = 23;
+  if (kind === 'knife') {
     body = new VoxelModel(1);
-    body.box(-6, -1, 1, 9, 2, 5, '#59606b').box(-6, -1, 1, 9, 2, 2, '#3a3f47').box(-6, -1, -1, 6, 2, 1, '#4a505a').box(-7, -1, -6, -2, 2, 1, '#3a3f47').box(9, 0, 2, 11, 1, 4, METAL);
-    body.box(-6, -1, 5, -5, 0, 6, DARK).box(-6, 1, 5, -5, 2, 6, DARK).box(8, 0, 5, 9, 1, 6, DARK).box(-3, 0, -1, 1, 1, 0, DARK);
-    muzzle = 11; grip = [-4.5, 0.5, -3]; fore = [-3, 0.5, -3.5]; ads = 6; sightX = -5.5; ejection = [1, 1.5, 4];
-  } else if (kind === 'knife') {
-    body = new VoxelModel(1);
-    body.box(-7, -1, -1, 0, 1, 2, '#525963').box(0, -1, -2, 1, 1, 4, LIGHT).box(1, 0, -1, 15, 1, 3, '#cfd5dc').box(15, 0, 0, 18, 1, 2, '#cfd5dc').box(1, 0, 2, 12, 1, 3, '#e6ebf0');
-    muzzle = 18; grip = [-3, 0, 0.5]; fore = [-3, 0, 0.5]; ads = 4;
-  } else if (kind === 'grenade') {
+    body.box(-7, -1, -1, 0, 1, 2, '#3b3f47').box(0, -1, -2, 1, 1, 4, LIGHT).box(1, 0, -1, 15, 1, 3, '#cfd5dc').box(15, 0, 0, 18, 1, 2, '#cfd5dc').box(1, 0, 2, 12, 1, 3, '#e6ebf0');
+    return { body, mag, stock, meta: { muzzle: 18, grip: [-3, 0, 0.5], fore: [-3, 0, 0.5], ads: 4, sightX, ejection } };
+  }
+  if (kind === 'grenade') {
     body = new VoxelModel(1);
     body.box(-3, -2, -3, 3, 3, 4, '#4a6b3a').box(-2, -1, 4, 2, 2, 5, '#3a3d45').box(-1, 2, 1, 1, 3, 5, '#9aa0a8').box(-1, -1, 5, 0, 2, 6, '#c9cdd2');
-    grip = [0, 0.5, 0]; fore = [0, 0.5, 0]; muzzle = 0;
-  } else if (kind === 'launcher') {
+    return { body, mag, stock, meta: { muzzle: 0, grip: [0, 0.5, 0], fore: [0, 0.5, 0], ads: 4, sightX, ejection } };
+  }
+  if (kind === 'launcher') {
     body = new VoxelModel(1);
-    body.box(-16, -2, -1, 24, 3, 4, '#55603f').box(-16, -3, -2, -12, 4, 5, '#3a4230').box(20, -3, -2, 27, 4, 5, '#3a4230').box(-4, -1, 4, 6, 2, 6, DARK).box(-6, -1, -6, -2, 2, 0, '#3a3f47').box(6, -1, -5, 9, 2, -1, '#3a3f47');
-    muzzle = 27; grip = [-4, 0.5, -2]; fore = [7, 0.5, -1]; ads = 8;
-  } else if (kind === 'tool') {
+    body.box(-16, -2, -1, 24, 3, 4, '#5a6642').box(-16, -3, -2, -12, 4, 5, '#3a4230').box(20, -3, -2, 27, 4, 5, '#3a4230').box(-4, -1, 4, 6, 2, 6, DARK).box(-6, -1, -6, -2, 2, 0, '#3a3f47').box(6, -1, -5, 9, 2, -1, '#3a3f47');
+    body.box(-2, -2, 4, 5, 3, 5, '#3a3f47').box(12, -3, 4, 14, 4, 5, '#c9a15a').box(0, -3, 0, 20, -2, 3, '#4d5938');
+    return { body, mag, stock, meta: { muzzle: 27, grip: [-4, 0.5, -2], fore: [7, 0.5, -1], ads: 8, sightX, ejection } };
+  }
+  if (kind === 'tool') {
     body = new VoxelModel(1);
     body.box(-4, -3, -3, 8, 4, 3, '#e8ebee').box(-4, -3, 3, 8, 4, 4, '#c9cdd2').box(-1, -1, 4, 5, 2, 6, '#d0392b').box(8, -2, -2, 11, 3, 2, DARK).box(-6, -1, -8, -3, 2, -3, '#3a3f47');
-    muzzle = 11; grip = [-4, 0.5, -3]; fore = [3, 0.5, -2]; ads = 5;
-  } else {
-    const o = { hg: 15, long: 0, wood: false };
-    if (kind === 'smg') { o.hg = 10; o.long = -2; }
-    if (kind === 'lmg') { o.hg = 18; o.long = 2; }
-    if (kind === 'dmr') { o.hg = 17; o.long = 4; }
-    if (kind === 'sniper') { o.hg = 18; o.long = 10; o.wood = false; }
-    if (kind === 'shotgun') { o.hg = 14; o.long = 0; o.wood = true; }
-    if (att && att.barrel === 'long') o.long += 5;
-    const r = rifleParts(o);
-    body = r.m; stock = r.stock; muzzle = r.muzzle; fore = [r.hg - 4, 0.5, -1.5];
-    if (kind === 'lmg') {
-      body.box(r.hg - 6, -2, 0, r.hg - 1, 3, 1, '#3a4a2f');
-      body.box(r.hg + 1, -1, -6, r.hg + 2, 0, 0, METAL).box(r.hg + 1, 1, -6, r.hg + 2, 2, 0, METAL);    // bipod
-    }
-    if (kind === 'shotgun') {
-      body.box(4, -1, -2, 13, 2, 0, WOOD).box(5, -1, -3, 12, 2, -2, '#5b3d24');                          // pump
-      body.box(r.hg, 0, 3, r.hg + 8, 1, 4, METAL);                                                            // second tube
-    }
-    if (kind === 'sniper') body.box(-16, -1, 4, -8, 2, 6, '#59606b').box(r.hg + 4, -2, -6, r.hg + 5, 0, 0, METAL).box(r.hg + 4, 1, -6, r.hg + 5, 3, 0, METAL);
-    // optics
-    const opt = att ? att.optic : 'iron';
-    if (opt === 'reddot') { sightX = -3; body.box(-3, -1, 5, 3, 2, 6, DARK).box(-3, -1, 6, -2, 0, 9, DARK).box(-3, 1, 6, -2, 2, 9, DARK).box(-3, -1, 9, 3, 2, 10, DARK).box(-3, -1, 5, 3, 2, 6, DARK); ads = 7.5; }
-    else if (opt === 'holo') { sightX = -4; body.box(-4, -1, 5, 4, 2, 6, DARK).box(-4, -1, 6, -3, 2, 10, DARK).box(3, -1, 6, 4, 2, 10, DARK).box(-4, -1, 10, 4, 2, 11, DARK); ads = 8; }
-    else if (opt === 'acog') { sightX = -5; body.box(-4, -1, 5, 6, 2, 9, '#3a3f47').box(6, -2, 5, 8, 3, 10, DARK).box(-6, -2, 5, -4, 3, 10, DARK); ads = 7.5; }
-    else if (opt === 'scope8' || opt === 'scope12') {
-      const L = opt === 'scope12' ? 16 : 11;
-      sightX = -9;
-      body.box(-8, -1, 5, -6, 2, 6, DARK).box(-2, -1, 5, 0, 2, 6, DARK).box(-8, -2, 6, -8 + L, 3, 10, '#23262b').box(-10, -3, 5, -8, 4, 11, DARK).box(-8 + L, -3, 5, -6 + L, 4, 11, DARK);
-      ads = 7.5;
-    }
-    // muzzle devices
-    const br = att ? att.barrel : 'none';
-    if (br === 'supp') { body.box(muzzle - 1, -1, 1, muzzle + 9, 2, 4, '#2a2c31').box(muzzle + 9, 0, 2, muzzle + 10, 1, 3, DARK); muzzle += 10; }
-    else if (br === 'flash') { body.box(muzzle, -1, 1, muzzle + 3, 2, 4, DARK); muzzle += 3; }
-    else if (br === 'comp') { body.box(muzzle, -1, 1, muzzle + 3, 2, 4, DARK).box(muzzle + 1, -2, 2, muzzle + 2, 3, 3, DARK); muzzle += 3; }
-    else if (br === 'heavy') body.box(r.hg + 1, -1, 1, muzzle, 2, 4, METAL);
-    // underbarrel
-    const un = att ? att.under : 'none';
-    if (un === 'vgrip') body.box(r.hg - 6, -1, -6, r.hg - 3, 2, 0, '#3a3f47');
-    else if (un === 'agrip') body.box(r.hg - 7, -1, -3, r.hg - 3, 2, 0, '#3a3f47').box(r.hg - 4, -1, -5, r.hg - 2, 2, -3, '#3a3f47');
-    else if (un === 'laser') body.box(r.hg - 5, 2, 1, r.hg, 3, 3, '#525963').box(r.hg, 2, 2, r.hg + 1, 3, 3, '#ff2a2a');
-    else if (un === 'bipod') body.box(r.hg - 2, -1, -5, r.hg - 1, 0, 0, METAL).box(r.hg - 2, 1, -5, r.hg - 1, 2, 0, METAL);
-    else if (un === 'ugl') body.box(r.hg - 9, -1, -4, r.hg + 1, 2, 0, '#59606b').box(r.hg - 9, -1, -6, r.hg - 5, 2, -4, '#3a3f47');
-    else if (un === 'mk') body.box(r.hg - 8, -1, -3, r.hg + 2, 2, 0, '#525963');
-    mag = magFor(kind, att && att.mag === 'ext');
+    return { body, mag, stock, meta: { muzzle: 11, grip: [-4, 0.5, -3], fore: [3, 0.5, -2], ads: 5, sightX, ejection } };
   }
-  return { body, mag, stock, meta: { muzzle, grip, fore, ads, sightX, ejection } };
+  const look = LOOK[id] || LOOK[LOOK_KIND[kind] || 'ar7'];
+  const g = gunBody(id, kind, look);
+  body = g.m; stock = g.stock; muzzle = g.muzzle;
+  const hg = g.hgEnd;
+  if (kind === 'pistol') { grip = [-4.5, 0.5, -3]; fore = [-3, 0.5, -3.5]; ads = 6; sightX = -5.5; ejection = [1, 1.5, 4]; }
+  else fore = [hg - 4, 0.5, -1.5];
+  // optic (pistols get a low red dot on the slide)
+  const opt = att ? att.optic : 'iron';
+  if (opt !== 'iron') {
+    const o = opticModel(opt);
+    const base = kind === 'pistol' ? 5 : (look.fat ? 6 : 5);
+    const ox = kind === 'pistol' ? 1 : (opt === 'sniper' ? 1 : opt === 'acog' ? 0 : -1);
+    stamp(body, o.m, ox, 0, base);
+    sightX = ox + o.sightX; ads = base + o.ads;
+  } else if (kind !== 'pistol') ads = (look.fat ? 6 : 5) + 2.5;
+  // muzzle
+  const br = att ? att.barrel : 'none';
+  if (br !== 'none') { const mm = muzzleModel(br); stamp(body, mm, muzzle, 0, kind === 'pistol' ? 1 : 0); muzzle += br === 'supp' ? 15 : 9; }
+  // rail / grip
+  const un = att ? att.under : 'none';
+  if (un !== 'none') {
+    const um = underModel(un);
+    if (kind === 'pistol') stamp(body, un === 'laser' || un === 'flash' ? um : um, 3, 0, -2);
+    else stamp(body, um, un === 'laser' ? hg - 9 : hg - 6, un === 'laser' ? 1 : 0, un === 'laser' ? 1 : 0);
+  }
+  mag = magModel(kind, att ? att.mag : 'std', look, id);
+  if (mag && kind !== 'pistol') { const mm = new VoxelModel(1); stamp(mm, mag, 0, 0, 0); mag = mm; }
+  return { body, mag, stock, meta: { muzzle, grip, fore, ads, sightX, ejection, light: un === 'flash', laser: un === 'laser', hg } };
 }
 
 const geoCache = new Map();
-function modelFor(key, kind, att, ext) {
+const cvGeo = (vm) => { const m = new VoxelModel(U); for (const [k, c] of vm.vox) m.vox.set(k, c); const g = voxelGeometry(m); g.translate(0, 0, -0.5 * U); return g; };
+function modelFor(key, id, kind, att) {
   let e = geoCache.get(key);
   if (!e) {
-    const b = build(kind, att, ext);
-    const cv = (vm) => { const m = new VoxelModel(U); for (const [k, c] of vm.vox) m.vox.set(k, c); const g = voxelGeometry(m); g.translate(0, 0, -0.5 * U); return g; };
-    e = { body: cv(b.body), mag: b.mag ? cv(b.mag) : null, stock: b.stock ? cv(b.stock) : null, meta: b.meta };
+    const b = build(id, kind, att);
+    e = { body: cvGeo(b.body), mag: b.mag ? cvGeo(b.mag) : null, stock: b.stock ? cvGeo(b.stock) : null, meta: b.meta };
     geoCache.set(key, e);
   }
   return e;
@@ -168,8 +247,8 @@ export class Viewmodel {
     this.armMats.sleeve.color.set(pal.dark).multiplyScalar(0.9);
   }
 
-  rebuild(kind, att, ext, key) {
-    const m = modelFor(key, kind, att, ext);
+  rebuild(kind, att, id, key) {
+    const m = modelFor(key, id, kind, att);
     this.bodyMesh.geometry = m.body;
     this.magMesh.geometry = m.mag || new THREE.BufferGeometry();
     this.magMesh.visible = !!m.mag;
@@ -207,7 +286,7 @@ export class Viewmodel {
     const key = `${kind}|${weapon ? weapon.key || weapon.id : ''}`;
     if (key !== this.key) {
       this.key = key;
-      this.rebuild(kind, weapon && weapon.att ? weapon.att : null, !!(weapon && weapon.att && weapon.att.mag === 'ext'), key);
+      this.rebuild(kind, weapon && weapon.att ? weapon.att : null, weapon && weapon.id, key);
       this.draw = 1; this.reload = 0;
       this.setTeam(ctx.team);
     }
@@ -281,4 +360,70 @@ export class Viewmodel {
     gl.render(this.scene, this.camera);
     gl.autoClear = ac;
   }
+}
+
+// ------------------------------------------------------------------------------------------------ icons
+// Weapons and attachments drawn once by a small offscreen renderer, for the loadout cards, HUD panel and kill feed.
+let iconGL = null;
+function iconRenderer() {
+  if (iconGL !== null) return iconGL || null;
+  try {
+    const canvas = document.createElement('canvas');
+    const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(1);
+    renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x9098a4, 2.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.4); sun.position.set(-1.4, 2.2, 3); scene.add(sun);
+    const fill = new THREE.DirectionalLight(0xbfd0ff, 1.3); fill.position.set(1, -2, 2); scene.add(fill);
+    iconGL = { renderer, scene, canvas };
+  } catch { iconGL = false; }
+  return iconGL || null;
+}
+
+const iconCache = new Map();
+function drawIcon(key, geos, w = 480, h = 240, tilt = { x: 0.2, y: 0.32 }) {
+  if (iconCache.has(key)) return iconCache.get(key);
+  const gl = iconRenderer();
+  let url = '';
+  if (gl) {
+    const grp = new THREE.Group();
+    for (const g of geos) if (g) grp.add(new THREE.Mesh(g, VOXEL_MAT));
+    grp.rotation.set(tilt.x, tilt.y, 0, 'YXZ');
+    gl.scene.add(grp);
+    grp.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(grp), size = box.getSize(new THREE.Vector3()), c = box.getCenter(new THREE.Vector3());
+    const pad = 1.12, aspect = w / h;
+    const halfW = Math.max(size.x * pad, size.y * pad * aspect) / 2, halfH = halfW / aspect;
+    const cam = new THREE.OrthographicCamera(-halfW, halfW, halfH, -halfH, 0.01, 20);
+    cam.position.set(c.x, c.y, c.z + 4); cam.lookAt(c);
+    gl.renderer.setSize(w, h, false);
+    gl.renderer.render(gl.scene, cam);
+    try { url = gl.canvas.toDataURL('image/png'); } catch { url = ''; }
+    gl.scene.remove(grp);
+  }
+  iconCache.set(key, url);
+  return url;
+}
+
+/** PNG data URL of a weapon with attachments (side view). Empty string when WebGL is unavailable. */
+export function gunIcon(id, kind, att, w, h) {
+  const a = att || {};
+  const key = `${id}|${a.optic}|${a.barrel}|${a.under}|${a.mag}`;
+  const m = modelFor(key, id, kind, a);
+  return drawIcon('g' + key + (w || ''), [m.body, m.mag, m.stock], w, h);
+}
+
+/** PNG data URL of a single attachment on its own. */
+export function attachIcon(slot, id, w = 300, h = 200) {
+  const key = `a${slot}|${id}`;
+  if (iconCache.has(key)) return iconCache.get(key);
+  let vm;
+  if (slot === 'optic') vm = opticModel(id).m;
+  else if (slot === 'barrel') vm = muzzleModel(id);
+  else if (slot === 'under') vm = underModel(id);
+  else vm = magModel(id === 'drum' ? 'lmg' : 'rifle', id, LOOK.ar7, 'ar7');
+  if (!vm) return '';
+  const tmp = new VoxelModel(1); stamp(tmp, vm, 0, 0, 0);
+  return drawIcon(key, [cvGeo(tmp)], w, h, slot === 'mag' ? { x: 0.15, y: 0.5 } : { x: 0.25, y: 0.45 });
 }

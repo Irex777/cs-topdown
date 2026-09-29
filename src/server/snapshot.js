@@ -131,7 +131,7 @@ export function buildSnapshot(game, p) {
     snap.me = {
       id: t.id, own: t === p ? 1 : 0,
       x: r1(t.x), y: r1(t.y), vx: r1(t.vx), vy: r1(t.vy), a: r3(t.angle), z: r2(t.z), vz: r1(t.vz), cf: Math.round(t.cf * 1000) / 1000, pt: r3(t.pitch),
-      hp: Math.ceil(t.hp), cls: t.cls,
+      hp: Math.ceil(t.hp), ar: Math.ceil(t.armor || 0), cls: t.cls,
       pw: t.primaryW ? t.primaryW.idx : -1, sw: t.secondaryW ? t.secondaryW.idx : -1,
       gr: GREN_ORDER.map((k) => t.grenades[k]), sel: t.sel, gsel: GREN_ORDER.indexOf(t.gsel), held,
       g: t.gadgets.map((x) => (x ? [x.def.idx, x.charges, x.loaded ? 1 : 0] : null)),

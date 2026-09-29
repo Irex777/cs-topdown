@@ -276,7 +276,10 @@ export function damagePlayer(game, v, attacker, raw, wid, o = {}) {
   const self = !!attacker && attacker.id === v.id;
   const friendly = !!attacker && !self && attacker.team === v.team;
   if (friendly && !game.ff) return 0;
-  const hp = Math.min(raw, v.hp);
+  // armor soaks half of every hit until it is used up (explosions and falls included)
+  let dmg = raw;
+  if (v.armor > 0 && dmg > 0) { const soak = Math.min(v.armor, dmg * 0.5); v.armor -= soak; dmg -= soak; }
+  const hp = Math.min(dmg, v.hp);
   v.hp -= hp;
   v.lastHurt = game.time;
   if (attacker && !self) {

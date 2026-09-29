@@ -13,7 +13,7 @@ function randomLoadout() {
   const c = CLASSES[cls];
   const att = {};
   for (const slot of ATTACH_SLOTS) if (Math.random() < 0.7) att[slot] = pick(Object.keys(ATTACH[slot]));
-  const lo = { cls, primary: { id: pick(c.primaries), att }, secondary: { id: pick(['m9', 'deagle', 'g18', 'm1911', 'mp412']), att: {} }, gadgets: [pick(c.gadgets[0]), pick(c.gadgets[1])], gren: pick(['he', 'flash', 'smoke', 'molo']) };
+  const lo = { cls, primary: { id: pick(c.primaries), att }, secondary: { id: 'p18', att: {} }, gadgets: [pick(c.gadgets[0]), pick(c.gadgets[1])], gren: pick(['he', 'flash', 'smoke', 'molo']) };
   if (Math.random() < 0.1) lo.primary.id = 'bogus';
   if (Math.random() < 0.1) lo.cls = 'x';
   return lo;
@@ -62,7 +62,7 @@ function run(map, mode, humans, teamSize, seconds) {
         if (p.alive && (p.x < 0 || p.y < 0 || p.x > g.map.width || p.y > g.map.height)) fail(`out of map ${p.name} ${p.x},${p.y}`);
         if (p.alive && !p.veh && g.map.isBlockedAt(p.x, p.y)) fail(`${p.name} inside an obstacle at ${p.x.toFixed(1)},${p.y.toFixed(1)}`);
         if (p.hp > 100.01 || (p.alive && p.hp <= 0)) fail(`hp ${p.hp} alive=${p.alive}`);
-        for (const slot of ['primary', 'secondary', 'alt']) { const a = p.am[slot]; if (a.clip < 0 || a.reserve < 0 || a.clip > 200) fail(`ammo ${slot} ${a.clip}/${a.reserve}`); }
+        for (const slot of ['primary', 'secondary', 'alt']) { const a = p.am[slot]; if (a.clip < 0 || a.reserve < 0 || a.clip > 300) fail(`ammo ${slot} ${a.clip}/${a.reserve}`); }
         if (p.alive) for (const gd of p.gadgets) if (gd && (gd.charges < 0 || gd.charges > 10)) fail(`gadget charges ${gd.charges}`);
         if (p.alive && p.sel === 'grenade' && p.totalGrenades() <= 0) fail('holding a grenade with none left');
         if (p.veh) { const v = g.vehicleById(p.veh); if (!v || v.dead || v.seats[p.seat] !== p.id) fail(`${p.name} claims a seat it does not hold`); }
