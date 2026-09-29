@@ -134,7 +134,7 @@ class App {
     document.body.classList.add('ingame');
     $('hud').classList.remove('hidden');
     this.game.startMatch(m);
-    this.hud.minimap.setMap(this.game.map);
+    this.hud.minimap.setMap(this.game.map, this.game.art);
     this.hud.cache = {};
     this.hud.closeEnd(); this.hud.closePause();
     this.hud.el.killfeed.innerHTML = ''; this.hud.el.chatlog.innerHTML = '';

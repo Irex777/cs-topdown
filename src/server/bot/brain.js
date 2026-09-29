@@ -17,6 +17,7 @@ const DIFF = {
   expert: { react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  nades: 1.0,  aggr: 0.75, hold: 1.0 },
 };
 
+const NO_BIAS = [1, 1];
 const rnd = Math.random;
 const pick = (a) => a[Math.floor(rnd() * a.length)];
 const gauss = () => (rnd() + rnd() + rnd() - 1.5) * 1.15;
@@ -33,6 +34,32 @@ export class TeamMind {
     this.eco = [false, false];
     this.style = 'default';
     this.mainSite = 0;
+    this.execute = [false, false];      // attackers push a site once enough of them are staged (or time is up)
+    this.executeAt = [0, 0];
+    this.checkT = 0;
+  }
+
+  /** Called every tick by the game; cheap. */
+  update(dt) {
+    this.checkT -= dt;
+    if (this.checkT > 0) return;
+    this.checkT = 0.5;
+    const g = this.g;
+    if (g.phase !== PHASE.LIVE || g.mode === 'dm') return;
+    const since = g.time - g.roundStartedAt;
+    for (let s = 0; s < 2; s++) {
+      if (this.execute[s]) continue;
+      let n = 0, staged = 0;
+      for (const p of g.teamPlayers(T)) {
+        if (!p.alive || !p.bot || p.bot.role !== 'attack' || p.bot.site !== s) continue;
+        n++; if (p.bot.staged) staged++;
+      }
+      if (n === 0) continue;
+      if (staged >= Math.ceil(n * 0.8) || since > this.executeAt[s]) this.execute[s] = true;
+    }
+    // a fight at a staging point or a dead teammate forces the issue: nobody waits around to be picked off
+    const c = this.contact[T];
+    if (c && g.time - c.t < 2 && c.site >= 0) this.execute[c.site] = true;
   }
 
   report(team, x, y) {
@@ -55,6 +82,8 @@ export class TeamMind {
   newRound() {
     const g = this.g, nav = g.nav;
     this.contact = [null, null]; this.defuser = 0; this.awper = [false, false];
+    this.execute = [false, false];
+    this.executeAt = [16 + rnd() * 14, 16 + rnd() * 14];
     const bots = (team) => g.teamPlayers(team).filter((p) => p.bot && p.alive);
     // ----- economy read (T and CT)
     for (const team of [T, CT]) {
@@ -84,8 +113,9 @@ export class TeamMind {
       if (i < per) site = 0; else if (i < per * 2) site = 1; else { role = 'roam'; site = rnd() < 0.5 ? 0 : 1; }
       if (role === 'roam') spot = nav.midSpots.length ? pick(nav.midSpots) : nav.siteCentre[site];
       else {
-        const opts = nav.siteSpots[site].concat(nav.lanes[site]);
-        spot = opts.length ? opts[(i * 3 + (rnd() < 0.5 ? 0 : 1)) % opts.length] : nav.siteCentre[site];
+        const good = nav.holdSpots[site];
+        const opts = good.length ? good : nav.siteSpots[site].concat(nav.lanes[site]);
+        spot = opts.length ? opts[(i + Math.floor(rnd() * 2)) % opts.length] : nav.siteCentre[site];
       }
       p.bot.assign({ role, site, spot, delay: 0 });
     });
@@ -110,7 +140,7 @@ export class BotBrain {
     this.role = 'hold'; this.site = 0; this.spot = null; this.delay = 0; this.postSpot = null; this.watch = undefined;
     this.strafeDir = rnd() < 0.5 ? -1 : 1; this.strafeT = 0; this.strafeMove = false;
     this.errA = 0; this.errT = 0;
-    this.stuckT = 0; this.lastX = p.x; this.lastY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
+    this.noFireT = 0; this.stuckT = 0; this.travel = 0; this.moveWant = 0; this.lastTX = p.x; this.lastTY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
     this.buyAt = 0; this.bought = false;
     this.nadeJob = null; this.nadeCd = 3 + rnd() * 3; this.smokedThisRound = false; this.floodedThisRound = false;
     this.burstLeft = 4; this.burstPause = 0; this.pulse = false; this.lastClip = 99;
@@ -129,7 +159,14 @@ export class BotBrain {
   onRoundStart() { /* the team plan assigns roles afterwards */ }
   assign(o) {
     this.role = o.role; this.site = o.site; this.spot = o.spot; this.delay = o.delay || 0;
-    this.watch = undefined; this.postSpot = null;
+    this.watch = undefined; this.postSpot = null; this.staged = false; this.stagePos = null;
+    if (o.role === 'attack') {
+      const e = this.g.nav.entries[o.site];
+      if (e) {
+        const near = this.g.nav.spotWithLos(e.x, e.y, 20, 110);
+        this.stagePos = near || e;
+      }
+    }
     if (this.spot) {
       const enemy = this.g.map.spawnCenter[this.p.team === T ? CT : T];
       this.watch = this.g.nav.watchAngle(this.spot.x, this.spot.y, enemy.x, enemy.y);
@@ -175,7 +212,13 @@ export class BotBrain {
       if (r) aimAt = r.aimAt;
     } else if (engaged) {
       const res = this.fight(tq, w, dt, live);
-      mv = res.mv; fire = res.fire; aimAt = res.aimAt; scope = res.scope;
+      fire = res.fire; aimAt = res.aimAt; scope = res.scope;
+      if (res.mv) mv = res.mv;
+      else {
+        // enemy is visible but out of range: keep doing the objective (advance / hold) while tracking them
+        const obj = this.objective(dt);
+        if (obj) { mv = obj.goal ? { mode: 'path', goal: obj.goal } : { mode: 'stop' }; use = !!obj.use; }
+      }
       this.nadeCd -= dt;
       if (this.nadeCd <= 0 && live) { this.nadeCd = 2 + rnd() * 3; this.considerCombatNade(tq, Math.hypot(tq.x - p.x, tq.y - p.y)); }
     } else {
@@ -201,9 +244,12 @@ export class BotBrain {
     else this.path = null;
     // stuck handling
     this.stuckT += dt;
+    if (mx || my) this.moveWant += dt;
+    this.travel += Math.hypot(p.x - this.lastTX, p.y - this.lastTY);   // distance actually covered (net displacement would flag strafing)
+    this.lastTX = p.x; this.lastTY = p.y;
     if (this.stuckT > 0.5) {
-      if ((mx || my) && Math.hypot(p.x - this.lastX, p.y - this.lastY) < 5) { this.path = null; this.nudgeT = 0.5; this.nudgeDir = rnd() < 0.5 ? -1 : 1; this.pathT = 0; }
-      this.lastX = p.x; this.lastY = p.y; this.stuckT = 0;
+      if (this.moveWant > 0.4 && this.travel < 6) { this.path = null; this.nudgeT = 0.5; this.nudgeDir = rnd() < 0.5 ? -1 : 1; this.pathT = 0; }
+      this.stuckT = 0; this.travel = 0; this.moveWant = 0;
     }
     if (this.nudgeT > 0) {
       this.nudgeT -= dt;
@@ -218,7 +264,7 @@ export class BotBrain {
       desired = Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
       if (engaged) {
         this.errT -= dt;
-        if (this.errT <= 0) { this.errT = 0.18 + rnd() * 0.2; this.errA = gauss() * this.d.sigma * (1 + Math.min(1, Math.hypot(aimAt.x - p.x, aimAt.y - p.y) / 900)); }
+        if (this.errT <= 0) { this.errT = 0.18 + rnd() * 0.2; this.errA = gauss() * this.d.sigma * this.bias()[1] * (1 + Math.min(1, Math.hypot(aimAt.x - p.x, aimAt.y - p.y) / 900)); }
         desired += this.errA;
       }
     } else if (look !== undefined && look !== null && !(mx || my)) desired = look;
@@ -250,8 +296,13 @@ export class BotBrain {
     const dist = Math.hypot(dx, dy);
     const toEnemy = Math.atan2(dy, dx);
     const kind = w ? w.kind : 'knife';
-    const maxEff = kind === 'shotgun' ? 430 : kind === 'smg' ? 850 : kind === 'pistol' ? 800 : kind === 'sniper' ? 3000 : kind === 'knife' ? 60 : 1150;
-    const reacted = now - this.targetSince >= this.d.react;
+    // sensible engagement ranges: nobody wins a lottery spraying at a sprinting target from across the map
+    const maxEff = kind === 'shotgun' ? 430 : kind === 'smg' ? 620 : kind === 'pistol' ? 560 : kind === 'sniper' ? 3000 : kind === 'knife' ? 60 : (scopeOk(w, p) ? 900 : 720);
+    const tooFarForMoving = kind !== 'sniper' && dist > 480 && tq.speed > 90;
+    const outOfRange = dist >= maxEff;
+    // per-map tuning so bot-vs-bot rounds come out roughly even (see botBias in the map files)
+    const bias = this.bias();
+    const reacted = now - this.targetSince >= this.d.react * bias[0];
     const ammo = w ? p.ammoOf(w) : { clip: 0, reserve: 0 };
     const scope = !!(w && w.scope && dist > 380 && this.d.hold > 0.6);
 
@@ -268,7 +319,7 @@ export class BotBrain {
     let fire = false;
     if (reacted && live && w && angErr < tol && p.drawT <= 0 && p.reloadT <= 0 && p.spawnProt <= 0) {
       if (kind === 'knife') fire = dist < 56;
-      else if (ammo.clip > 0 && dist < maxEff) fire = !(w.auto && dist > 340 && this.burstPause > 0);
+      else if (ammo.clip > 0 && dist < maxEff && !tooFarForMoving) fire = !(w.auto && dist > 340 && this.burstPause > 0);
     }
     // dry magazine handling
     if (w && kind !== 'knife' && ammo.clip <= 0) {
@@ -283,7 +334,12 @@ export class BotBrain {
       if (rnd() < 0.55) this.strafeDir = -this.strafeDir;
       this.strafeMove = rnd() > this.d.hold * 0.85;
     }
-    const perp = toEnemy + Math.PI / 2 * this.strafeDir;
+    // never strafe into a wall: flip direction if the side is blocked
+    let perp = toEnemy + Math.PI / 2 * this.strafeDir;
+    if (!g.map.clearLineR(p.x, p.y, p.x + Math.cos(perp) * 38, p.y + Math.sin(perp) * 38, 11)) {
+      this.strafeDir = -this.strafeDir;
+      perp = toEnemy + Math.PI / 2 * this.strafeDir;
+    }
     let mv;
     if (kind === 'knife' || (kind === 'shotgun' && dist > 90)) mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
     else if (kind === 'sniper' || dist > 480) mv = this.strafeMove ? { mode: 'manual', ax: Math.cos(perp) * 0.8, ay: Math.sin(perp) * 0.8 } : { mode: 'stop' };
@@ -292,7 +348,16 @@ export class BotBrain {
       else mv = { mode: 'manual', ax: Math.cos(perp) * 0.9 + Math.cos(toEnemy) * 0.15, ay: Math.sin(perp) * 0.9 + Math.sin(toEnemy) * 0.15 };
     } else mv = { mode: 'manual', ax: Math.cos(perp), ay: Math.sin(perp) };
     if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > 300 && p.hp > 45 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
-    return { mv, fire, aimAt: { x: tq.x, y: tq.y }, scope };
+    // never freeze in a stand-off: if we haven't been able to shoot for a while, carry on with the objective
+    this.noFireT = fire ? 0 : this.noFireT + dt;
+    return { mv: outOfRange || (this.noFireT > 1.4 && dist > 300) ? null : mv, fire, aimAt: { x: tq.x, y: tq.y }, scope };
+  }
+
+  /** [reaction x, aim error x] for this bot's side on this map: [react, sigma, minTeamSize?] from the map's botBias */
+  bias() {
+    const b = (this.g.map.def.botBias || {})[this.p.team === CT ? 'CT' : 'T'];
+    if (!b || (b[2] && this.g.settings.teamSize < b[2])) return NO_BIAS;
+    return b;
   }
 
   // ---------------------------------------------------------------- perception
@@ -360,6 +425,14 @@ export class BotBrain {
   objectiveT() {
     const g = this.g, p = this.p, nav = g.nav, b = g.bomb;
     if (this.roundT < this.delay && !p.hasBomb) return { look: this.watch };
+    if (b.state !== 'planted' && b.state !== 'dropped' && this.stagePos && !g.mind.execute[this.site]) {
+      // gather at the staging point until the team is ready to push
+      const near = Math.hypot(p.x - this.stagePos.x, p.y - this.stagePos.y) < 46;
+      if (near) this.staged = true;
+      if (!this.staged) return { goal: this.stagePos, walk: this.roundT < 16 && !p.hasBomb };   // creep in quietly early on
+      const site = nav.siteCentre[this.site];
+      return { look: site ? Math.atan2(site.y - p.y, site.x - p.x) : this.watch };
+    }
     if (b.state === 'planted') {
       // post-plant: hold a spot with sight of the bomb
       if (!this.postSpot) this.postSpot = nav.spotWithLos(b.x, b.y, 90, 300);
@@ -407,7 +480,7 @@ export class BotBrain {
     // rotate on intel from the rest of the team
     const hot = mind.hotSite(CT);
     if (hot >= 0 && hot !== this.site && (this.role === 'roam' || (this.d.aggr > 0.3 && rnd() < 0.012))) {
-      const opts = nav.siteSpots[hot];
+      const opts = nav.holdSpots[hot].length ? nav.holdSpots[hot] : nav.siteSpots[hot];
       if (opts && opts.length) {
         this.site = hot; this.spot = opts[p.id % opts.length]; this.role = 'defend';
         const enemy = g.map.spawnCenter[T];
@@ -545,3 +618,5 @@ export class BotBrain {
     selectSlot(g, p, 'primary');
   }
 }
+
+function scopeOk(w, p) { return !!(w && w.scope && p.scoped); }

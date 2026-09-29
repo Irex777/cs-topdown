@@ -122,6 +122,8 @@ export class ClientGame {
     if (!this.haveOffset) { this.offset = sample; this.haveOffset = true; }
     else this.offset = sample > this.offset ? this.offset + (sample - this.offset) * 0.5 : this.offset + (sample - this.offset) * 0.02;
     this.phase = s.ph;
+    this.respawnIn = s.rs !== undefined ? s.rs : -1;
+    if (s.sc) this.score = s.sc;
     this.timer = s.rt; this.timerRecv = now;
     const players = new Map();
     for (const t of s.p) players.set(t[0], t);
@@ -272,7 +274,8 @@ export class ClientGame {
     if (!this.map) return null;
     let x, y, angle, scoped = false, scopeLvl = 0;
     if (this.alive && this.me && this.me.own) {
-      x = this.pred.x + this.errX; y = this.pred.y + this.errY; angle = this.angle;
+      // predicted position, advanced by the fraction of a tick that has elapsed so 144 Hz displays stay smooth
+      x = this.pred.x + this.errX + (this.ext ? this.ext.x : 0); y = this.pred.y + this.errY + (this.ext ? this.ext.y : 0); angle = this.angle;
       const w = this.me.held < HELD_GREN_BASE ? WEAPON_LIST[this.me.held] : null;
       scopeLvl = w ? w.scope : 0;
       scoped = !!(this.input.right && scopeLvl);
@@ -402,6 +405,10 @@ export class ClientGame {
       this.predictFire(keys, w, seq);
     }
     if (batch.length) this.net.send({ t: 'in', c: batch });
+    if (this.alive && this.predValid && this.map && (this.pred.vx || this.pred.vy) && !(this.phase === PHASE.FREEZE && this.mode === 'defuse')) {
+      const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11);
+      this.ext = { x: r.x - this.pred.x, y: r.y - this.pred.y };
+    } else this.ext = null;
     // decay the visual smoothing offset
     const k = Math.exp(-14 * dt);
     this.errX *= k; this.errY *= k;

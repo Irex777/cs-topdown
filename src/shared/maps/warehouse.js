@@ -50,6 +50,7 @@ function build() {
 export default {
   id: 'warehouse', name: 'Warehouse', desc: 'Symmetric industrial map with a big central hall and two flank corridors.',
   size: 'medium', best: '3v3 - 5v5',
+  botBias: { CT: [0.9, 0.92] },
   theme: { floor: '#7d838c', floor2: '#737982', wall: '#454b55', wallTop: '#606773', crate: '#7a5c34', accent: '#f0c419', ambient: '#dfe8ff', fog: [8, 10, 16] },
   rows: build(),
 };

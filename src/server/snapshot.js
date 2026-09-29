@@ -98,7 +98,9 @@ export function buildSnapshot(game, p) {
     if (t === p) { snap.me.money = p.money; snap.me.buy = game.canBuy(p) ? 1 : 0; }
     else if (t.team === p.team || pureSpec) snap.me.money = t.money;
   }
+  if (game.mode === 'dm') snap.sc = game.score;
   snap.al = p.alive ? 1 : 0;
+  if (!p.alive && game.mode === 'dm' && p.respawnAt) snap.rs = Math.max(0, Math.round((p.respawnAt - game.time) * 10) / 10);
   snap.spec = target ? target.id : 0;
 
   // world entities

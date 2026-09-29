@@ -308,3 +308,8 @@ kbd { display: inline-block; min-width: 22px; padding: 1px 6px; border-radius: 5
   .stat { font-size: 28px; }
   #ammoRow { font-size: 36px; }
 }
+
+/* big map overlay (M) */
+#radar-wrap.radar-big { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 20; padding: 6px; box-shadow: 0 20px 80px rgba(0, 0, 0, 0.7); background: rgba(8, 11, 17, 0.9); }
+button:focus { outline: none; }
+button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 2px; }

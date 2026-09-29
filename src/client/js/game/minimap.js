@@ -16,8 +16,9 @@ export class Minimap {
     this.w = 0; this.h = 0;
   }
 
-  setMap(map) {
+  setMap(map, art) {
     this.map = map;
+    this.art = art;
     this.base = null;
     this.layout(false);
   }
@@ -30,10 +31,19 @@ export class Minimap {
     const maxH = big ? window.innerHeight * 0.72 : 210;
     const k = Math.min(maxW / this.map.w, maxH / this.map.h);
     this.w = Math.round(this.map.w * k); this.h = Math.round(this.map.h * k);
+    this.canvas.parentElement.classList.toggle('radar-big', big);
     this.canvas.style.width = this.w + 'px'; this.canvas.style.height = this.h + 'px';
     this.canvas.width = this.w * dpr; this.canvas.height = this.h * dpr;
     this.dpr = dpr;
-    this.base = renderThumb(this.map, this.w * dpr, this.h * dpr);
+    if (big && this.art) {
+      // the big map shows the real painted map, scaled down
+      const c = document.createElement('canvas');
+      c.width = this.w * dpr; c.height = this.h * dpr;
+      const cx = c.getContext('2d');
+      cx.imageSmoothingQuality = 'high';
+      cx.drawImage(this.art, 0, 0, c.width, c.height);
+      this.base = c;
+    } else this.base = renderThumb(this.map, this.w * dpr, this.h * dpr);
   }
 
   draw(game) {

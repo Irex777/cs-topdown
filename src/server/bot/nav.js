@@ -187,6 +187,48 @@ export class NavGrid {
         this.routeToSite[s] = route;
       }
     }
+    // defender spots: cells near each site that see as much of the attackers' approach routes as possible
+    this.holdSpots = [[], []];
+    for (let s = 0; s < 2; s++) {
+      const centre = this.siteCentre[s];
+      if (!centre) continue;
+      const approach = [];
+      const tryRoute = (fx, fy) => {
+        const r = this.findPath(fx, fy, centre.x, centre.y, false);
+        if (!r) return;
+        for (let i = Math.max(0, r.length - 26); i < r.length; i++) approach.push(r[i]);
+      };
+      tryRoute(T.x, T.y);
+      for (const off of [[-6, 0], [6, 0], [0, 6], [0, -6]]) tryRoute(T.x + off[0] * TILE * 2, T.y + off[1] * TILE * 2);
+      // also approach from the far side of the map (whatever lies between the spawns)
+      for (const p of this.midSpots) tryRoute(p.x, p.y);
+      const cx = Math.floor(centre.x / TILE), cy = Math.floor(centre.y / TILE);
+      const cands = [];
+      for (let y = cy - 9; y <= cy + 9; y++) for (let x = cx - 9; x <= cx + 9; x++) {
+        if (map.isSolidTile(x, y)) continue;
+        let clear = true;
+        for (let dy = -1; dy <= 1 && clear; dy++) for (let dx = -1; dx <= 1; dx++) if (map.isSolidTile(x + dx, y + dy)) { clear = false; break; }
+        if (!clear) continue;
+        const px = (x + 0.5) * TILE, py = (y + 0.5) * TILE;
+        let score = 0;
+        for (const a of approach) {
+          const d = Math.hypot(a.x - px, a.y - py);
+          if (d < 220 || d > 950) continue;
+          if (map.los(px, py, a.x, a.y)) score += d > 500 ? 1.3 : 1;
+        }
+        // stay close to the site so the bomb is still covered
+        const dc = Math.hypot(px - centre.x, py - centre.y);
+        if (dc > 380) score *= 0.4;
+        if (score > 0) cands.push({ x: px, y: py, score });
+      }
+      cands.sort((a, b) => b.score - a.score);
+      const picked = [];
+      for (const c of cands) {
+        if (picked.length >= 6) break;
+        if (picked.every((p) => Math.hypot(p.x - c.x, p.y - c.y) > TILE * 3.5)) picked.push(c);
+      }
+      this.holdSpots[s] = picked;
+    }
     // mid: halfway along the T -> CT route
     const mid = this.findPath(T.x, T.y, CT.x, CT.y, false);
     if (mid) {

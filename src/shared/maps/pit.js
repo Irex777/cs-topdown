@@ -43,6 +43,7 @@ function build() {
 export default {
   id: 'pit', name: 'Pit', desc: 'Small close-quarters arena. Great for 1v1 to 3v3.',
   size: 'small', best: '1v1 - 3v3',
+  botBias: { T: [0.8, 0.85, 4] },   // [reaction x, aim error x, only with this many players per team or more]
   theme: { floor: '#4a5566', floor2: '#425060', wall: '#252c38', wallTop: '#3a4556', crate: '#5b6b7d', accent: '#38d0e0', ambient: '#bfe6ff', fog: [6, 8, 14] },
   rows: build(),
 };

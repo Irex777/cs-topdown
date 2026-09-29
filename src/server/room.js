@@ -42,7 +42,6 @@ export class Room {
     this.emptySince = 0;
     this.rosterDirty = false;
     this.createdAt = Date.now();
-    this.chatLog = [];
   }
 
   // ------------------------------------------------------------------ messaging

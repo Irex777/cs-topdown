@@ -20,7 +20,7 @@ function build() {
   // ---------------- Mid
   m.rect(31, 31, 10, 14);                // T ramp up to mid
   m.rect(24, 21, 24, 11);                // mid plaza
-  m.rect(32, 13, 8, 9);                  // mid doors -> CT
+  m.rect(42, 13, 5, 9);                  // mid doors -> CT (offset to the east so there is no straight T-to-CT sightline)
   // ---------------- B site (top-left) and B window corridor
   m.rect(3, 4, 18, 22);
   m.rect(21, 25, 4, 4);                  // window nook next to mid
@@ -62,8 +62,8 @@ function build() {
   m.rect(30, 24, 2, 2, '#').rect(40, 24, 2, 2, '#');
   m.rect(35, 26, 2, 2, 'X');
   m.rect(26, 29, 3, 1, 'L').rect(43, 29, 3, 1, 'L');
-  m.rect(34, 17, 1, 3, 'L');
-  m.rect(37, 17, 1, 3, 'L');
+  m.rect(43, 17, 2, 1, "L");
+  m.rect(46, 21, 1, 1, "X");
   // ---------------- cover: T base + ramps
   m.rect(33, 49, 2, 2, 'X').rect(38, 47, 1, 2, 'X');
   m.rect(35, 38, 2, 2, 'X');
@@ -84,6 +84,7 @@ function build() {
 export default {
   id: 'dust', name: 'Dust', desc: 'Long A, mid doors and the B tunnels. The classic 5v5 layout.',
   size: 'large', best: '4v4 - 5v5',
+  botBias: { CT: [0.8, 0.85, 4] },   // [reaction time x, aim error x, min players per team] — evens out bot-vs-bot rounds
   theme: { floor: '#c8b07c', floor2: '#bda36c', wall: '#8a7650', wallTop: '#a89060', crate: '#9a6b35', accent: '#e8a13a', ambient: '#ffe9b0', fog: [16, 12, 8] },
   rows: build(),
 };

@@ -196,7 +196,7 @@ export class HUD {
     this.el.chatTag.textContent = this.chatTeam ? 'TEAM' : 'ALL';
     this.el.chatbox.classList.remove('hidden');
     this.el.chatInput.value = '';
-    setTimeout(() => this.el.chatInput.focus(), 0);
+    this.el.chatInput.focus();
   }
 
   closeChat() {
@@ -364,6 +364,7 @@ export class HUD {
 
   onBuyClick(e) {
     const b = e.target.closest('[data-item]');
+    if (b && b.blur) setTimeout(() => b.blur(), 0);
     if (!b || b.disabled) return;
     this.net.send({ t: 'a', a: 'buy', item: b.dataset.item });
     audio.click();
@@ -467,11 +468,16 @@ export class HUD {
 
     // ---- spectate bar
     const spec = !g.alive && me;
+    const rs = g.respawnIn >= 0 && !g.alive ? Math.ceil(g.respawnIn) : -1;
+    this.set('rs', rs, () => { this.cache.specName = null; this.cache.spec = -1; });
     this.set('spec', spec ? me.id : 0, () => {
       el.specbar.classList.toggle('hidden', !spec);
-      if (spec) el.specbar.innerHTML = `<small>SPECTATING</small><b>${esc(g.nameOf(me.id))}</b><small>Click or <kbd>Space</kbd> for next player${g.myTeam() === SPEC ? ' · <kbd>F</kbd> free camera' : ''}</small>`;
     });
-    if (spec && this.cache.specName !== g.nameOf(me.id)) { this.cache.specName = g.nameOf(me.id); el.specbar.innerHTML = `<small>SPECTATING</small><b>${esc(g.nameOf(me.id))}</b><small>Click or <kbd>Space</kbd> for next player${g.myTeam() === SPEC ? ' · <kbd>F</kbd> free camera' : ''}</small>`; }
+    if (spec && this.cache.specName !== g.nameOf(me.id) + rs) {
+      this.cache.specName = g.nameOf(me.id) + rs;
+      const extra = rs >= 0 ? `<b style="color:var(--accent2)">Respawning in ${rs}…</b>` : '';
+      el.specbar.innerHTML = `${extra}<small>SPECTATING</small><b>${esc(g.nameOf(me.id))}</b><small>Click or <kbd>Space</kbd> for next player${g.myTeam() === SPEC ? ' · <kbd>F</kbd> free camera' : ''}</small>`;
+    }
   }
 
   renderMates(g, ros) {

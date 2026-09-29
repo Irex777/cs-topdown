@@ -1,6 +1,14 @@
 // Runs many bot-vs-bot rounds and prints win rates / plant rates.  node tools/balance.js [map] [matches] [teamSize] [difficulty]
 import { Room } from '../src/server/room.js';
 import { SPEC } from '../src/shared/constants.js';
+import { BotBrain } from '../src/server/bot/brain.js';
+import { WEAPONS } from '../src/shared/weapons.js';
+if (process.env.SYM) {
+  for (const id of ['m4a4', 'm4a1s']) Object.assign(WEAPONS[id], { dmg: WEAPONS.ak47.dmg, ap: WEAPONS.ak47.ap, rpm: WEAPONS.ak47.rpm, cd: WEAPONS.ak47.cd, mag: 30, spread: WEAPONS.ak47.spread, moveSpread: WEAPONS.ak47.moveSpread, burst: WEAPONS.ak47.burst, price: 2700, speedPx: WEAPONS.ak47.speedPx });
+  Object.assign(WEAPONS.usp, { dmg: WEAPONS.glock.dmg, ap: WEAPONS.glock.ap, rpm: WEAPONS.glock.rpm, cd: WEAPONS.glock.cd, mag: 20 });
+}
+if (process.env.NO_OBJ_NADES) BotBrain.prototype.considerObjectiveNade = () => {};
+if (process.env.NO_COMBAT_NADES) BotBrain.prototype.considerCombatNade = () => {};
 
 const map = process.argv[2] || 'dust';
 const matches = Number(process.argv[3]) || 6;

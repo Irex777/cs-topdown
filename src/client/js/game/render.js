@@ -423,7 +423,7 @@ export class Renderer {
     const th = this.map.theme.fog || [8, 10, 16];
     f.globalCompositeOperation = 'source-over';
     f.clearRect(0, 0, fw, fh);
-    f.fillStyle = `rgba(${th[0]},${th[1]},${th[2]},0.80)`;
+    f.fillStyle = `rgba(${th[0]},${th[1]},${th[2]},0.76)`;
     f.fillRect(0, 0, fw, fh);
     f.globalCompositeOperation = 'destination-out';
     const s = this.scale * this.dpr * 0.5;

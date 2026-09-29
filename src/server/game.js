@@ -259,6 +259,7 @@ export class Game {
     updateFires(this, dt);
     updateSmokes(this, dt);
     this.updateBomb(dt);
+    if (this.mode === 'defuse') this.mind.update(dt);
     this.updateDrops(dt);
     if (this.mode === 'defuse') this.checkRoundEnd();
     for (const p of this.players.values()) p.record(this.tick);
