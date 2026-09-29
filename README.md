@@ -45,6 +45,16 @@ The game is a single Node process serving both the page and the WebSocket, so an
 | Docker | `docker build -t cs-topdown . && docker run -p 3000:3000 cs-topdown` |
 | PaaS (Fly.io, Render, Railway…) | Deploy the Dockerfile (a `render.yaml` blueprint and `fly.toml` are included); the app listens on `$PORT` and has a `/healthz` endpoint |
 
+#### Coolify
+
+1. **New Resource → Public/Private Repository**, pick this repo, branch `main`.
+2. **Build Pack: Dockerfile** (the repo root `Dockerfile`). Ports Exposed: `3000`.
+3. Add your domain (e.g. `https://cs.example.com`). WebSockets work through Coolify's proxy with no extra settings.
+4. Health check (optional, the image already has one): path `/healthz`, port `3000`.
+5. Keep it at **one instance / replica**: all rooms live in that process's memory. Enable *Auto Deploy* to redeploy on every push (rooms in progress are dropped on redeploy).
+
+Friends then just open `https://cs.example.com`, create a room and share the invite link.
+
 Environment variables: `PORT` (default 3000), `HOST` (default `0.0.0.0`).
 The server keeps everything in memory; rooms disappear shortly after the last player leaves.
 
