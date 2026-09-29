@@ -35,14 +35,14 @@ function stamp(dst, src, dx, dy, dz) { for (const [k, c] of src.vox) { const [x,
 function opticModel(id) {
   const m = new VoxelModel(1);
   if (id === 'reddot') {
-    // open frame: base, two side posts and a hood, so the sight picture shows through the window
-    m.box(-4, -1, 0, 5, 2, 1, DARK).box(-3, -3, 1, 4, 4, 2, BLK2).box(-3, -3, 2, 4, -2, 6, BLK).box(-3, 3, 2, 4, 4, 6, BLK).box(-3, -3, 6, 4, 4, 7, BLK);
-    m.box(3, 0, 3, 4, 1, 4, RED);
+    // minimal open sight: rail clamp, two slim posts, no hood — the whole window stays clear
+    m.box(-3, -1, 0, 4, 2, 1, DARK).box(-2, -3, 1, 3, 4, 2, BLK2).box(-2, -3, 2, 3, -2, 4, BLK).box(-2, 3, 2, 3, 4, 4, BLK);
+    m.box(2, 0, 3, 3, 1, 4, RED);
     return { m, ads: 1.4, sightX: 0 };
   }
   if (id === 'holo') {
-    m.box(-5, -1, 0, 6, 2, 1, DARK).box(-4, -4, 1, 5, 5, 2, BLK2).box(-4, -4, 2, 5, -3, 6, BLK).box(-4, 4, 2, 5, 5, 6, BLK).box(-4, -4, 6, 5, 5, 7, BLK);
-    m.box(4, 0, 3, 5, 1, 4, '#ff6a3d').box(4, -1, 2, 5, 0, 3, '#39566a').box(4, 1, 4, 5, 2, 5, '#39566a');
+    m.box(-4, -1, 0, 5, 2, 1, DARK).box(-3, -4, 1, 4, 5, 2, BLK2).box(-3, -4, 2, 4, -3, 5, BLK).box(-3, 4, 2, 4, 5, 5, BLK).box(-3, -4, 5, 4, 5, 6, BLK);
+    m.box(3, 0, 3, 4, 1, 4, '#ff6a3d');
     return { m, ads: 1.4, sightX: 0 };
   }
   if (id === 'acog') {
@@ -314,14 +314,14 @@ export class Viewmodel {
     // ---- mouse sway: the gun lags behind quick turns
     const sk = 1 - Math.exp(-11 * dt);
     const swayK = 1 - this.ads * 0.7;
-    this.sway.x += (clamp(-g.lookRate.y * 5, -0.07, 0.07) * swayK - this.sway.x) * sk;
-    this.sway.y += (clamp(-g.lookRate.p * 5, -0.05, 0.05) * swayK - this.sway.y) * sk;
+    this.sway.x += (clamp(-g.lookRate.y * 1.2, -0.012, 0.012) * swayK - this.sway.x) * sk;
+    this.sway.y += (clamp(-g.lookRate.p * 1.2, -0.01, 0.01) * swayK - this.sway.y) * sk;
     this.roll += (clamp(ctx.strafe * 0.05, -0.05, 0.05) - this.roll) * sk;
 
     // ---- pose
     const hip = HIP[kind] || HIP.rifle;
     const sightH = ((this.meta ? this.meta.ads : 7.5) + 1.8) * U;
-    const adsPos = [0, -sightH, -0.245 + (this.meta ? this.meta.sightX : -6.5) * U];
+    const adsPos = [0, -sightH, -0.29 + (this.meta ? this.meta.sightX : -6.5) * U];
     let px = lerp(hip[0], adsPos[0], this.ads), py = lerp(hip[1], adsPos[1], this.ads), pz = lerp(hip[2], adsPos[2], this.ads);
     let rx = 0, ry = 0, rz = 0;                                     // rotation: pitch, yaw, roll
     // sprint: weapon lowered and turned in
@@ -347,7 +347,7 @@ export class Viewmodel {
     py += 0.02 * this.air;
     px += bx + this.sway.x; py += by + this.sway.y * 0.6;
     this.rig.position.set(px, py, pz);
-    this.rig.rotation.set(rx + this.sway.y * 0.6, ry + this.sway.x * 1.4, rz + this.roll, 'YXZ');
+    this.rig.rotation.set(rx + this.sway.y * 0.6, ry + this.sway.x * 0.8, rz + this.roll, 'YXZ');
     // muzzle flash at the barrel tip
     this.flash.visible = this.flashT > 0 && this.meta && this.meta.muzzle > 0;
     if (this.flash.visible) {

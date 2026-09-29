@@ -644,7 +644,7 @@ export class ClientGame {
     const rc = this.recoil;
     // recoil settles quickly once the trigger is released
     if (rc.hot > 0) rc.hot -= dt;
-    const decay = Math.exp(-(rc.hot > 0 ? 1.7 : 7.5) * dt);
+    const decay = Math.exp(-(rc.hot > 0 ? 2.6 : 9) * dt);
     rc.p *= decay; rc.y *= decay;
     this.lookRate.y = 0; this.lookRate.p = 0;
     if (!inp.lookEnabled) return;
@@ -789,7 +789,7 @@ export class ClientGame {
         const pv = this.predVeh;
         if (pv.vx || pv.vy) { const def = this.vehDef(); const r = this.map.moveCircle(pv.x, pv.y, pv.vx * this.acc, pv.vy * this.acc, def.r, def.kind === 'air' ? null : def.kind === 'boat' ? this.map.blockBoat : this.map.blockInf); this.ext = { x: r.x - pv.x, y: r.y - pv.y }; }
       } else if (!this.me.veh && (this.pred.vx || this.pred.vy)) {
-        const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11, this.map.blockInf, this.pred.z);
+        const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11, this.map.blockFoot, this.pred.z);
         this.ext = { x: r.x - this.pred.x, y: r.y - this.pred.y };
       }
     }
@@ -818,7 +818,7 @@ export class ClientGame {
     const rw = this.heldWeapon(me) || w;
     const ads = (keys & KEY.SCOPE) !== 0;
     const kd = (0.16 + rw.kick * 0.22) * (ads ? 0.62 : 1) * Math.PI / 180;
-    this.recoil.p = Math.min(0.1, this.recoil.p + kd * 0.6);   // vertical kick only: a random sideways swing made the aim feel loose
+    this.recoil.p = Math.min(0.045, this.recoil.p + kd * 0.45);   // vertical kick only: a random sideways swing made the aim feel loose
     this.recoil.hot = 0.16;
     this.shotKick = 1;
     const v = this.viewer();

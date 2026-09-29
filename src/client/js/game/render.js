@@ -317,6 +317,10 @@ export class Renderer {
     const bobA = moving * (sprintK ? 1.5 : viewer.cf > 0.5 ? 0.5 : 1) * (1 - ads * 0.85);
     g.landDip *= Math.exp(-9 * dt);
     let eye = viewer.eye + Math.abs(Math.cos(this.bobT)) * -0.22 * bobA - g.landDip * 2.2;
+    // swimming: the eye drops to the waterline
+    const wet = this.map && this.map.waterAt(viewer.x, viewer.y) === 2 ? 1 : 0;
+    this.wetK = (this.wetK || 0) + (wet - (this.wetK || 0)) * (1 - Math.exp(-6 * dt));
+    eye -= 9 * this.wetK;
     const sink = dead ? Math.min(1, this.deadT / 0.55) : 0;
     eye = eye + (5 - eye) * sink * sink;
     if (this.eyeSmooth === null || Math.abs(eye - this.eyeSmooth) > 30) this.eyeSmooth = eye;

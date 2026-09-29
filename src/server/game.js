@@ -198,20 +198,31 @@ export class Game {
     p.alive = true; p.hp = 100; p.veh = 0; p.seat = 0;
     p.armor = opt.revived ? 0 : ((CLASSES[p.cls] && CLASSES[p.cls].armor) || 0);
     let x = opt.x, y = opt.y;
+    const face = this.map.spawnCenter[otherTeam(p.team)] || { x: this.map.width / 2, y: this.map.height / 2 };
+    // pick a spot with room to walk in the direction we will face (never spawn staring at a crate or wall)
+    const pickSpot = (px, py, minR, maxR, tries = 10) => {
+      let best = null;
+      for (let i = 0; i < tries; i++) {
+        const fr = this.map.freeSpotNear(px, py, minR, maxR, Math.random, 1);
+        const a = Math.atan2(face.y - fr.y, face.x - fr.x);
+        best = fr;
+        if (this.map.clearLineR(fr.x, fr.y, fr.x + Math.cos(a) * 110, fr.y + Math.sin(a) * 110, 13)) return fr;
+      }
+      return best;
+    };
     if (opt.k === 'base') {
       const sp = this.map.spawns[p.team];
       const pt = sp[Math.floor(Math.random() * sp.length)];
-      const fr = this.map.freeSpotNear(pt.x, pt.y, 0, 60, Math.random, 1);
+      const fr = pickSpot(pt.x, pt.y, 0, 60);
       x = fr.x; y = fr.y;
     } else if (opt.k === 'flag' || opt.k === 'area') {
-      const fr = this.map.freeSpotNear(opt.x, opt.y, 30, opt.r || 110, Math.random, 1);
+      const fr = pickSpot(opt.x, opt.y, 30, opt.r || 110);
       x = fr.x; y = fr.y;
     } else if (opt.k === 'squad' || opt.k === 'beacon') {
-      const fr = this.map.freeSpotNear(opt.x, opt.y, 24, 70, Math.random, 1);
+      const fr = pickSpot(opt.x, opt.y, 24, 70);
       x = fr.x; y = fr.y;
     } else { const fr = this.map.nearestFree(x, y); x = fr.x; y = fr.y; }
     p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.z = 0; p.vz = 0; p.cf = 0; p.pitch = 0;
-    const face = this.map.spawnCenter[otherTeam(p.team)] || { x: this.map.width / 2, y: this.map.height / 2 };
     p.angle = Math.atan2(face.y - p.y, face.x - p.x);
     p.fireCd = 0; p.reloadT = 0; p.drawT = 0.3; p.burst = 0; p.scoped = false;
     p.useT = 0; p.reviveProg = 0; p.flashUntil = 0; p.flashFullUntil = 0;

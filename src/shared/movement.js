@@ -34,7 +34,9 @@ export function stepMovement(map, s, keys, maxSpeed, frozen, ax, ay) {
   maxSpeed *= 1 - (1 - CROUCH_SPEED) * s.cf;
   const floor0 = map.groundAt(s.x, s.y, PLAYER_R, s.z);
   const grounded = s.z <= floor0 + 0.01 && s.vz <= 0;
-  if (grounded && !frozen && (keys & KEY.JUMP) && s.cf < 0.35) s.vz = JUMP_V;
+  const swim = map.waterAt(s.x, s.y) === 2;      // deep water: wading pace, no jumping or sprinting
+  if (swim) maxSpeed = Math.min(maxSpeed, 58 * (1 - 0.35 * s.cf));
+  if (grounded && !frozen && !swim && (keys & KEY.JUMP) && s.cf < 0.35) s.vz = JUMP_V;
   const len = Math.hypot(ix, iy);
   if (len > 1) { ix /= len; iy /= len; }
   let k = 1 - Math.exp(-(len > 0 ? ACCEL : FRICTION) * DT);
@@ -45,7 +47,7 @@ export function stepMovement(map, s, keys, maxSpeed, frozen, ax, ay) {
   if (Math.abs(s.vx) < 0.05) s.vx = 0;
   if (Math.abs(s.vy) < 0.05) s.vy = 0;
   const ox = s.x, oy = s.y;
-  const r = map.moveCircle(s.x, s.y, s.vx * DT, s.vy * DT, PLAYER_R, map.blockInf, s.z);
+  const r = map.moveCircle(s.x, s.y, s.vx * DT, s.vy * DT, PLAYER_R, map.blockFoot, s.z);
   s.x = r.x; s.y = r.y;
   // velocity follows what actually happened, so sliding along walls doesn't build up phantom speed
   s.vx = (s.x - ox) / DT;

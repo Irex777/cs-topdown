@@ -148,6 +148,7 @@ export class BotBrain {
     this.noFireT = 0; this.stuckT = 0; this.travel = 0; this.moveWant = 0; this.lastTX = p.x; this.lastTY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
     this.burstLeft = 4; this.burstPause = 0; this.pulse = false; this.lastClip = 99;
     this.flashedUntil = 0; this.hitBy = null; this.danger = null;
+    this.retreat = null; this.retreatCd = 0; this.peek = null; this.peekCd = 0; this.nade = null; this.nadeCd = 4 + rnd() * 6; this.coverCache = null;
     this.percT = 0; this.holdPos = null; this.holdT = 0;
     this.job = null; this.jobCd = 4 + rnd() * 6;
     this.wantVeh = 0; this.vehWait = 0; this.vehStuck = 0; this.vehRev = 0;
@@ -382,7 +383,12 @@ export class BotBrain {
     let mv = { mode: 'stop' };
     let fire = false, aimAt = null, use = false, walk = false, scope = false, crouch = false, look, sprint = false, altUse = false;
 
-    if (this.job && !engaged) {
+    let forceSprint = false;
+    const surv = !p.veh ? this.survive(tq, w, now, dt) : null;
+    if (surv) {
+      mv = surv.mv || mv; fire = !!surv.fire; aimAt = surv.aimAt || null; scope = !!surv.scope; crouch = !!surv.crouch; forceSprint = !!surv.sprint;
+      if (this.job) this.job = null;
+    } else if (this.job && !engaged) {
       const r = this.runJob(dt);
       if (r) { mv = r.mv || mv; aimAt = r.aimAt || null; use = !!r.use; if (r.fire) fire = true; }
     } else if (engaged) {
@@ -470,12 +476,13 @@ export class BotBrain {
     if (scope) keys |= KEY.SCOPE;
     if (crouch) keys |= KEY.CROUCH;
     if (sprint && !fire && (mx || my) && !engaged) keys |= KEY.SPRINT;
+    if (forceSprint && !fire && (mx || my)) keys |= KEY.SPRINT;
     if (this.wantVeh) keys |= this.boardKeys();
     if (this.job && this.job.rmb) keys |= KEY.SCOPE;
     cmd.keys = keys;
     cmd.angle = this.aim;
     cmd.pitch = this.pitch;
-    cmd.aimDist = this.job && this.job.dist ? this.job.dist : 300;
+    cmd.aimDist = this.nade ? this.nade.dist : (this.job && this.job.dist ? this.job.dist : 300);
     void altUse;
     return cmd;
   }
@@ -670,7 +677,7 @@ export class BotBrain {
       if (fire && this.d.hold > 0.5) mv = { mode: 'stop' };
       else mv = { mode: 'manual', ax: Math.cos(perp) * 0.9 + Math.cos(toEnemy) * 0.15, ay: Math.sin(perp) * 0.9 + Math.sin(toEnemy) * 0.15 };
     } else mv = { mode: 'manual', ax: Math.cos(perp), ay: Math.sin(perp) };
-    if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > 300 && p.hp > 45 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
+    if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > maxEff * 0.95 && p.hp > 60 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
     if (fire && !tq.veh && !this.clearShot(tq, toEnemy, dist)) { fire = false; this.why = 'blocked'; }
     if (tq.veh) this.aimZ = tq.z + tq.h * 0.5;
     this.noFireT = fire ? 0 : this.noFireT + dt;
@@ -690,6 +697,107 @@ export class BotBrain {
     }
     this.aimZ = tq.z + tq.h * 0.6;
     return false;
+  }
+
+
+  // ---------------------------------------------------------------- survival: cover, retreat, peeking, grenades
+  /** a nearby spot that hides a crouched soldier from `from` (bullet-proof against the 3D shot test), scored by distance */
+  findCover(from, maxR = 230) {
+    const g = this.g, p = this.p, map = g.map;
+    const cc = this.coverCache;
+    if (cc && g.time - cc.t < 0.7 && Math.hypot(cc.fx - from.x, cc.fy - from.y) < 60) return cc.spot;
+    const curD = Math.hypot(p.x - from.x, p.y - from.y);
+    let best = null, bs = 1e9;
+    const eye = 26, zt = 12;
+    for (const r of [45, 80, 120, 165, 210]) {
+      if (r > maxR) break;
+      const a0 = rnd() * 0.4;
+      for (let k = 0; k < 16; k++) {
+        const a = a0 + k * Math.PI / 8;
+        const x = p.x + Math.cos(a) * r, y = p.y + Math.sin(a) * r;
+        if (map.isBlockedTile(Math.floor(x / TILE), Math.floor(y / TILE))) continue;
+        if (!map.clearLineR(p.x, p.y, x, y, 10)) continue;
+        const dth = Math.hypot(x - from.x, y - from.y);
+        if (dth < 60) continue;
+        const c = Math.cos(Math.atan2(y - from.y, x - from.x)), sn = Math.sin(Math.atan2(y - from.y, x - from.x));
+        const hit = map.castBullet(from.x, from.y, eye, c, sn, (zt - eye) / Math.max(1, dth), dth);
+        if (hit.d >= dth - 12) continue;                       // the enemy can still see this spot
+        const sc = r + Math.max(0, curD - dth) * 0.9 + (this.wantSpot ? Math.hypot(x - this.wantSpot.x, y - this.wantSpot.y) * 0.05 : 0);
+        if (sc < bs) { bs = sc; best = { x, y }; }
+      }
+      if (best && bs < r * 1.15) break;
+    }
+    this.coverCache = { t: g.time, fx: from.x, fy: from.y, spot: best };
+    return best;
+  }
+
+  survive(tq, w, now, dt) {
+    const g = this.g, p = this.p;
+    if (this.retreatCd > 0) this.retreatCd -= dt;
+    if (this.peekCd > 0) this.peekCd -= dt;
+    if (this.nadeCd > 0) this.nadeCd -= dt;
+    const kind = w ? w.kind : 'knife';
+    const attacker = this.hitBy && now - this.hitBy.t < 5 ? g.players.get(this.hitBy.id) : null;
+    const threat = tq ? { x: tq.x, y: tq.y } : (attacker && attacker.alive ? { x: attacker.x, y: attacker.y } : (this.lastSeen && now - this.lastSeen.t < 4 ? { x: this.lastSeen.x, y: this.lastSeen.y } : null));
+
+    // ---- a grenade in flight of thought: pick it, throw it once, go back to the gun
+    if (this.nade) {
+      const n = this.nade; n.t += dt;
+      if (n.t > 2.2 || p.grenades.he + p.grenades.flash + p.grenades.smoke + p.grenades.molo <= 0) { this.nade = null; selectSlot(g, p, 'primary'); return null; }
+      if (p.sel !== 'grenade') { if (((g.tick + p.id) & 7) === 0) selectSlot(g, p, 'grenade'); return { mv: { mode: 'stop' }, aimAt: n.at }; }
+      if (p.drawT > 0) return { mv: { mode: 'stop' }, aimAt: n.at };
+      if (!n.thrown) { n.thrown = n.t; return { mv: { mode: 'stop' }, aimAt: n.at, fire: true }; }
+      if (n.t > n.thrown + 0.45) { this.nade = null; selectSlot(g, p, 'primary'); }
+      return { mv: { mode: 'stop' }, aimAt: n.at };
+    }
+
+    // ---- start a retreat: badly hurt, or shot by somebody we cannot see
+    const lowHp = p.hp < 45, hurtRecent = now - p.lastHurt < 1.6;
+    if (!this.retreat && this.retreatCd <= 0 && threat && (lowHp || (hurtRecent && !tq && p.hp < 80))) {
+      const c = this.findCover(threat);
+      if (c) { this.retreat = { x: c.x, y: c.y, from: threat, until: now + 4.5 + rnd() * 3, arrived: false }; this.peek = null; }
+      else this.retreatCd = 1.5;
+    }
+    if (this.retreat) {
+      const r = this.retreat;
+      if (!p.alive || p.hp >= 92 || (now > r.until && p.hp >= 60) || now > r.until + 8) { this.retreat = null; this.retreatCd = 4; return null; }
+      const d = Math.hypot(r.x - p.x, r.y - p.y);
+      if (d > 28 && !r.arrived) return { mv: { mode: 'path', goal: { x: r.x, y: r.y } }, aimAt: r.from, sprint: !tq || d > 90, crouch: false };
+      r.arrived = true;
+      if (tq) { const f = this.fight(tq, w, dt); return { ...f, mv: { mode: 'stop' }, crouch: true, sprint: false }; }
+      return { mv: { mode: 'stop' }, aimAt: r.from, crouch: true, fire: false, scope: false };
+    }
+
+    // ---- peek and hide: never trade fire in the open when cover is at hand
+    if (this.peek && this.peek.phase === 'hide') {
+      const pk = this.peek;
+      if (now > pk.until) { pk.phase = 'expose'; pk.until = now + 1.3 + rnd() * 1.4; }
+      else {
+        const d = Math.hypot(pk.cover.x - p.x, pk.cover.y - p.y);
+        if (d > 22) return { mv: { mode: 'path', goal: pk.cover }, aimAt: pk.from2, sprint: false, crouch: false };
+        return { mv: { mode: 'stop' }, aimAt: pk.from2, crouch: true, fire: false };
+      }
+    }
+    if (tq && !tq.veh) {
+      const dist = Math.hypot(tq.x - p.x, tq.y - p.y);
+      // throw a grenade at somebody sitting behind cover
+      const ng = p.grenades.he + p.grenades.molo;
+      if (ng > 0 && this.nadeCd <= 0 && dist > 200 && dist < 520 && p.spawnProt <= 0 && this.why === 'blocked' && p.sel !== 'gadget0' && p.sel !== 'gadget1') {
+        this.nadeCd = 10 + rnd() * 8;
+        this.nade = { t: 0, dist: dist, at: { x: tq.x, y: tq.y } };
+        if (p.grenades.he <= 0) p.gsel = 'molo'; else p.gsel = 'he';
+        return { mv: { mode: 'stop' }, aimAt: { x: tq.x, y: tq.y } };
+      }
+      if (this.d.hold > 0.5 && dist > 230 && kind !== 'shotgun' && kind !== 'knife' && kind !== 'sniper') {
+        if (!this.peek) { if (this.peekCd <= 0) this.peek = { phase: 'expose', until: now + 1.6 + rnd() * 1.6, from2: null, cover: null }; }
+        else if (this.peek.phase === 'expose' && now > this.peek.until) {
+          const c = this.findCover({ x: tq.x, y: tq.y }, 140);
+          if (c) { this.peek = { phase: 'hide', until: now + 1.0 + rnd() * 1.3, from2: { x: tq.x, y: tq.y }, cover: c }; return { mv: { mode: 'path', goal: c }, aimAt: { x: tq.x, y: tq.y } }; }
+          this.peek.until = now + 1.2;
+        }
+      }
+    } else if (this.peek && this.peek.phase === 'expose' && !tq && now > this.peek.until + 2) { this.peek = null; this.peekCd = 1.5; }
+    return null;
   }
 
   // ---------------------------------------------------------------- perception

@@ -339,6 +339,30 @@ console.log('aircraft, attachments, alt fire');
   void tick;
 }
 
+console.log('swimming');
+{
+  const { g, ps, tick, spawn } = setup();
+  const m = g.map;
+  // a deep-water tile next to open land on its west side
+  let spotTile = null;
+  for (let ty = 5; ty < m.h - 5 && !spotTile; ty++) for (let tx = 6; tx < m.w - 8; tx++) {
+    if (m.water[ty * m.w + tx] === 2 && m.water[ty * m.w + tx + 1] === 2 && m.water[ty * m.w + tx + 2] === 2 && m.water[ty * m.w + tx - 1] !== 2 && !m.isSolidTile(tx - 1, ty) && !m.isSolidTile(tx - 2, ty) && m.water[ty * m.w + tx - 2] !== 2) { spotTile = [tx, ty]; break; }
+  }
+  check(!!spotTile, 'the map has a shore to swim from');
+  if (spotTile) {
+    const [tx, ty] = spotTile;
+    spawn(ps[0], lo('assault', 'ar7', ['defib', 'medkit']), (tx - 2 + 0.5) * TILE, (ty + 0.5) * TILE);
+    const p = ps[0];
+    p.spawnProt = 0;
+    let maxV = 0;
+    for (let i = 0; i < 60 * 3; i++) { g.applyCmd(p, KEY.UP, 0, 0, 0); tick(); maxV = Math.max(maxV, Math.hypot(p.vx, p.vy)); }
+    check(p.x > (tx + 0.5) * TILE, `a soldier can wade into deep water (x=${Math.round(p.x)}, water starts at ${tx * TILE})`);
+    check(m.waterAt(p.x, p.y) === 2 && maxV > 20, 'and swims at a slower pace');
+    let swimMax = 0; for (let i = 0; i < 60; i++) { g.applyCmd(p, KEY.UP | KEY.SPRINT | KEY.JUMP, 0, 0, 0); tick(); swimMax = Math.max(swimMax, Math.hypot(p.vx, p.vy)); }
+    check(swimMax <= 62 && p.z < 1, `no sprinting or jumping in deep water (speed ${swimMax.toFixed(0)}, z ${p.z.toFixed(1)})`);
+  }
+}
+
 console.log('armor');
 {
   const { g, ps, spawn } = setup();

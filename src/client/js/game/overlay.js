@@ -29,8 +29,9 @@ export class Overlay {
     this.screenFx(ctx, viewer, dt);
     if (g.alive && g.me && g.me.own && !(g.ui.isOverlayOpen && g.ui.isOverlayOpen())) this.crosshair(ctx, viewer, performance.now());
     if (g.playing() && !g.input.locked && !g.input.lockDenied) {
-      ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(r.W / 2 - 170, 148, 340, 34);
-      this.text(ctx, 'CLICK TO CAPTURE THE MOUSE', r.W / 2, 170, '#ffd95a', 13, 800);
+      ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(r.W / 2 - 230, r.H * 0.62 - 30, 460, 60);
+      this.text(ctx, 'CLICK TO CAPTURE THE MOUSE', r.W / 2, r.H * 0.62 - 2, '#ffb23a', 20, 800);
+      this.text(ctx, 'then look around with the mouse — Esc releases it', r.W / 2, r.H * 0.62 + 20, '#d8dee8', 12, 600);
     }
   }
 

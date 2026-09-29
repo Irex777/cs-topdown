@@ -57,7 +57,13 @@ export class Input {
 
   requestLock() {
     if (this.locked || this.lockDenied || !this.canvas.requestPointerLock) return;
-    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { this.lockErrors = (this.lockErrors || 0) + 1; if (this.lockErrors >= 4) this.lockDenied = true; }); } catch { this.lockDenied = true; }
+    const fail = () => { this.lockErrors = (this.lockErrors || 0) + 1; if (this.lockErrors >= 4) this.lockDenied = true; };
+    const plain = () => { try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(fail); } catch { this.lockDenied = true; } };
+    try {
+      // raw mouse data: no operating-system pointer acceleration / "enhance pointer precision" (the usual cause of a wild-feeling mouse)
+      const p = this.canvas.requestPointerLock({ unadjustedMovement: true });
+      if (p && p.catch) p.catch((e) => { if (e && e.name === 'NotSupportedError') plain(); else fail(); });
+    } catch { plain(); }
   }
 
   releaseLock() {

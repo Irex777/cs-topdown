@@ -49,7 +49,8 @@ export class GameMap {
     this.solid = new Uint8Array(n);       // walls, crates, trees...
     this.opaque = new Uint8Array(n);      // blocks sight and bullets
     this.water = new Uint8Array(n);       // 0 land, 1 shallow, 2 deep
-    this.blockInf = new Uint8Array(n);    // soldiers and ground vehicles cannot enter
+    this.blockInf = new Uint8Array(n);    // ground vehicles cannot enter (walls, deep water)
+    this.blockFoot = new Uint8Array(n);   // soldiers cannot enter (walls only: they can wade and swim)
     this.blockBoat = new Uint8Array(n);   // boats cannot enter
     this.top = new Float32Array(n);       // height of a solid tile above the ground (px); 0 for open ground and water
     this.bstop = new Uint8Array(n);       // stops bullets that are lower than the tile's top (fences and trees let them through)
@@ -82,6 +83,7 @@ export class GameMap {
     this.water[i] = t.water || 0;
     this.hp[i] = t.hp || 0;
     this.blockInf[i] = (t.solid || t.water === 2) ? 1 : 0;
+    this.blockFoot[i] = t.solid ? 1 : 0;
     this.blockBoat[i] = (t.solid || !t.water) ? 1 : 0;
     this.top[i] = t.solid ? t.h3 : 0;
     this.bstop[i] = t.solid && !t.pass ? 1 : 0;
@@ -92,6 +94,8 @@ export class GameMap {
   /** wall-like solid (blocks bullets that are not see-through, grenades, explosions' reach) */
   isSolidTile(tx, ty) { return tx < 0 || ty < 0 || tx >= this.w || ty >= this.h || this.solid[ty * this.w + tx] === 1; }
   /** soldiers / ground vehicles cannot stand here (walls or deep water) */
+  /** 0 land, 1 shallows, 2 deep water at a world position */
+  waterAt(x, y) { const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE); return tx < 0 || ty < 0 || tx >= this.w || ty >= this.h ? 0 : this.water[ty * this.w + tx]; }
   isBlockedTile(tx, ty) { return tx < 0 || ty < 0 || tx >= this.w || ty >= this.h || this.blockInf[ty * this.w + tx] === 1; }
   isOpaqueTile(tx, ty) { return tx < 0 || ty < 0 || tx >= this.w || ty >= this.h || this.opaque[ty * this.w + tx] === 1; }
   isSolidAt(x, y) { return this.isSolidTile(Math.floor(x / TILE), Math.floor(y / TILE)); }

@@ -14,6 +14,7 @@ const g = room.game;
 const st = new Map();
 const S = (p) => { let s = st.get(p.id); if (!s) { s = { shots: 0, clip: -1, alive: 0, moving: 0, stillNoTarget: 0, stillTarget: 0, target: 0, targetNoFire: 0, fireWithTarget: 0, stuck: 0, lastPos: null, still: 0, dmg0: 0 }; st.set(p.id, s); } return s; };
 const WHY = {};
+const MODE = { retreat: 0, hold: 0, hide: 0, nade: 0, crouch: 0 };
 const ev = { shot: 0, hitm: 0, head: 0 };
 const emit0 = g.emit.bind(g);
 g.emit = (p2, ...r) => { if (p2[0] === 'shot') ev.shot++; else if (p2[0] === 'hitm') { ev.hitm++; if (p2[p2.length - 1]) ev.head++; } return emit0(p2, ...r); };
@@ -30,6 +31,10 @@ for (let i = 0; i < seconds * 60; i++) {
     s.alive++;
     const spd = Math.hypot(p.vx, p.vy);
     const tgt = p.bot.visible;
+    if (p.bot.retreat) { MODE.retreat++; if (p.bot.retreat.arrived) MODE.hold++; }
+    if (p.bot.peek && p.bot.peek.phase === 'hide') MODE.hide++;
+    if (p.bot.nade) MODE.nade++;
+    if (p.lastKeys & 2048) MODE.crouch++;
     if (spd > 25) { s.moving++; s.still = 0; } else { s.still++; if (tgt) s.stillTarget++; else s.stillNoTarget++; if (s.still === 360) s.stuck++; }
     if (tgt) { WHY[p.bot.why] = (WHY[p.bot.why] || 0) + 1; s.target++; if (p.lastKeys & 1 << 4) s.fireWithTarget++; else s.targetNoFire++; }
   }
@@ -42,6 +47,7 @@ const pct = (x, y) => (y ? (100 * x / y).toFixed(1) + '%' : '-');
 console.log(`${map} ${teamSize}v${teamSize} ${difficulty} ${seconds}s: kills ${kills} deaths ${deaths} shots ${shots} damage ${Math.round(dmg)} (${(dmg / Math.max(1, shots)).toFixed(1)} dmg/shot)`);
 console.log(`events: shots ${ev.shot}, hit markers ${ev.hitm} (${pct(ev.hitm, ev.shot)}), headshots ${ev.head}`);
 console.log(`bot time: moving ${pct(M, A)}, standing w/o target ${pct(SN, A)}, standing with target ${pct(ST, A)}, has target ${pct(T, A)}; while target visible: firing ${pct(F, T)}; stuck >6s events ${stuck}`);
+console.log('survival ticks (of', A, 'alive ticks):', JSON.stringify(MODE));
 console.log('why not firing:', JSON.stringify(WHY));
 const per = ps.filter((p) => st.get(p.id)).map((p) => `${p.name}:${p.stats.kills}/${p.stats.deaths}`);
 console.log(per.join('  '));
