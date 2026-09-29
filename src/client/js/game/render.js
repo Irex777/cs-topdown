@@ -1,9 +1,9 @@
 // Draws the world in 2.5D: baked voxel ground, y-sorted extruded blocks, stacked-voxel units, fog of war and overlays.
-import { PLAYER_R, SPEC, GREN_ORDER, TILE, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST } from '../../../shared/constants.js';
-import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, ALT } from '../../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST } from '../../../shared/vehicles.js';
-import { TILES } from '../../../shared/gamemap.js';
-import { canSee } from '../../../shared/vision.js';
+import { PLAYER_R, SPEC, GREN_ORDER, TILE, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST } from '../../shared/constants.js';
+import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, ALT } from '../../shared/weapons.js';
+import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
+import { TILES } from '../../shared/gamemap.js';
+import { canSee } from '../../shared/vision.js';
 import { computeVision } from './vision.js';
 import { soldierModel, vehicleModel, drawSprite, box25, TEAM_PAL, TAU } from './voxel.js';
 

@@ -14,9 +14,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 await new Promise((res) => server.stdout.on('data', (d) => { if (String(d).includes('ready')) res(); }));
 
 class Client {
-  constructor(name) {
+  constructor(name, game = 'bf') {
     this.name = name; this.msgs = []; this.snaps = 0; this.last = null; this.waiters = [];
-    this.ws = new WebSocket(`ws://localhost:${port}/ws`);
+    this.ws = new WebSocket(`ws://localhost:${port}/${game}/ws`);
     this.ready = new Promise((r) => this.ws.on('open', r));
     this.ws.on('message', (d) => {
       const m = JSON.parse(d);
@@ -35,11 +35,15 @@ class Client {
 }
 
 try {
-  const http = await fetch(`http://localhost:${port}/`);
+  const land = await fetch(`http://localhost:${port}/`);
+  const landHtml = await land.text();
+  check(land.status === 200 && landHtml.includes('Frontline') && landHtml.includes('href="/cs/"'), 'landing page offers both games');
+  const http = await fetch(`http://localhost:${port}/bf/`);
   check(http.status === 200 && (await http.text()).includes('Frontline'), 'serves the client page');
-  for (const f of ['/js/main.js', '/shared/constants.js', '/css/style.css']) check((await fetch(`http://localhost:${port}${f}`)).status === 200, `serves ${f}`);
-  check((await fetch(`http://localhost:${port}/../package.json`)).status !== 200, 'blocks path traversal');
-  check((await fetch(`http://localhost:${port}/%2e%2e/package.json`)).status !== 200, 'blocks encoded path traversal');
+  for (const f of ['/bf/js/main.js', '/bf/shared/constants.js', '/bf/css/style.css', '/cs/', '/cs/js/main.js', '/cs/shared/constants.js', '/cs/css/style.css']) check((await fetch(`http://localhost:${port}${f}`)).status === 200, `serves ${f}`);
+  check((await fetch(`http://localhost:${port}/cs`, { redirect: 'manual' })).status === 301, '/cs redirects to /cs/');
+  check((await fetch(`http://localhost:${port}/bf/../../package.json`)).status !== 200, 'blocks path traversal');
+  check((await fetch(`http://localhost:${port}/bf/%2e%2e/%2e%2e/package.json`)).status !== 200, 'blocks encoded path traversal');
 
   const a = new Client('Alice'); await a.ready;
   a.send({ t: 'hello', name: 'Alice' });
@@ -157,8 +161,25 @@ try {
   check(Math.abs(d.last.me.x - 1) > 10, 'debug commands are disabled by default');
   d.send({ t: 'leave' });
   await sleep(200);
-  const list = await fetch(`http://localhost:${port}/api/rooms`).then((r) => r.json());
+  const list = await fetch(`http://localhost:${port}/bf/api/rooms`).then((r) => r.json());
   check(Array.isArray(list), 'public room list endpoint works');
+
+  // ---- the original CS game lives next to it on /cs
+  const cs1 = new Client('Carl', 'cs'); await cs1.ready;
+  cs1.send({ t: 'hello', name: 'Carl' });
+  const csWelcome = await cs1.wait((m) => m.t === 'welcome');
+  check(csWelcome.maps.some((mp) => mp.id === 'dust'), 'CS server offers its own maps');
+  cs1.send({ t: 'create', name: 'Carl', autostart: true, settings: { map: 'dust', mode: 'defuse', teamSize: 2, bots: true } });
+  await cs1.wait((m) => m.t === 'room');
+  await sleep(1500);
+  check(cs1.snaps > 10, `CS match streams snapshots (${cs1.snaps})`);
+  const bfOnly = new Client('Bea'); await bfOnly.ready;
+  bfOnly.send({ t: 'hello', name: 'Bea' });
+  const bfW = await bfOnly.wait((m) => m.t === 'welcome');
+  check(bfW.maps.some((mp) => mp.id === 'riverside') && !csWelcome.maps.some((mp) => mp.id === 'riverside'), 'the two games keep separate map lists');
+  const csList = await fetch(`http://localhost:${port}/cs/api/rooms`).then((r) => r.json());
+  check(Array.isArray(csList), 'CS public room list endpoint works');
+  cs1.send({ t: 'leave' }); bfOnly.ws.close();
 } catch (e) {
   failures++; console.log('  FAIL exception:', e.message);
 }

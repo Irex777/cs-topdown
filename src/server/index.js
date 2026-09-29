@@ -7,13 +7,20 @@ import zlib from 'node:zlib';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
-import { Room, sanitizeSettings, DEFAULT_SETTINGS } from './room.js';
-import { mapList } from '../shared/maps/index.js';
+import * as bfRoom from './room.js';
+import { mapList as bfMaps } from '../shared/maps/index.js';
+import * as csRoom from '../cs/server/room.js';
+import { mapList as csMaps } from '../cs/shared/maps/index.js';
 import { NAME_MAX, TICK } from '../shared/constants.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLIENT_DIR = path.join(__dirname, '..', 'client');
-const SHARED_DIR = path.join(__dirname, '..', 'shared');
+const SRC = path.join(__dirname, '..');
+const LANDING_DIR = path.join(SRC, 'landing');
+// One process hosts several games. Each has its own client bundle, shared rules, room manager and WebSocket path.
+const GAMES = {
+  bf: { name: 'Frontline: Voxel Warfare', client: path.join(SRC, 'client'), shared: path.join(SRC, 'shared'), Room: bfRoom.Room, sanitizeSettings: bfRoom.sanitizeSettings, defaults: bfRoom.DEFAULT_SETTINGS, mapList: bfMaps },
+  cs: { name: 'CS Top-Down', client: path.join(SRC, 'cs', 'client'), shared: path.join(SRC, 'cs', 'shared'), Room: csRoom.Room, sanitizeSettings: csRoom.sanitizeSettings, defaults: csRoom.DEFAULT_SETTINGS, mapList: csMaps },
+};
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';
 const MAX_ROOMS = 60;
@@ -59,16 +66,29 @@ function safeJoin(root, rel) {
 const server = http.createServer((req, res) => {
   let url;
   try { url = new URL(req.url, 'http://x'); } catch { res.writeHead(400); res.end(); return; }
-  const pathname = decodeURIComponent(url.pathname);
-  if (pathname === '/api/rooms') {
+  let pathname;
+  try { pathname = decodeURIComponent(url.pathname); } catch { res.writeHead(400); res.end(); return; }
+  if (pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
+  if (pathname === '/api/rooms') {   // both games, for the landing page
     res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(manager.publicRooms()));
+    res.end(JSON.stringify(Object.fromEntries(Object.entries(managers).map(([k, m]) => [k, m.publicRooms().length]))));
     return;
   }
-  if (pathname === '/healthz') { res.writeHead(200, { 'Content-Type': 'text/plain' }); res.end('ok'); return; }
-  let file;
-  if (pathname.startsWith('/shared/')) file = safeJoin(SHARED_DIR, pathname.slice('/shared/'.length));
-  else file = safeJoin(CLIENT_DIR, pathname === '/' ? 'index.html' : pathname.slice(1));
+  const m = /^\/(bf|cs)(\/.*)?$/.exec(pathname);
+  if (m) {
+    const g = m[1], rest = m[2];
+    if (!rest) { res.writeHead(301, { Location: `/${g}/${url.search}` }); res.end(); return; }
+    if (rest === '/api/rooms') {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
+      res.end(JSON.stringify(managers[g].publicRooms()));
+      return;
+    }
+    const file = rest.startsWith('/shared/') ? safeJoin(GAMES[g].shared, rest.slice('/shared/'.length)) : safeJoin(GAMES[g].client, rest === '/' ? 'index.html' : rest.slice(1));
+    if (!file) { res.writeHead(403); res.end(); return; }
+    serveFile(req, res, file);
+    return;
+  }
+  const file = safeJoin(LANDING_DIR, pathname === '/' ? 'index.html' : pathname.slice(1));
   if (!file) { res.writeHead(403); res.end(); return; }
   serveFile(req, res, file);
 });
@@ -92,7 +112,8 @@ class Conn {
 }
 
 class Manager {
-  constructor() {
+  constructor(game) {
+    this.game = game;
     this.rooms = new Map();
     this.conns = new Set();
     this.sessions = new Map();   // token -> {code, pid}
@@ -173,12 +194,12 @@ class Manager {
         this.sessions.delete(m.token);
         c.token = m.token;
         c.name = p.name;
-        c.send({ t: 'welcome', token: c.token, name: c.name, maps: mapList(), resumed: 1 });
+        c.send({ t: 'welcome', token: c.token, name: c.name, maps: this.game.mapList(), resumed: 1 });
         room.attach(c, p);
         return;
       }
     }
-    c.send({ t: 'welcome', token: c.token, name: c.name, maps: mapList(), defaults: DEFAULT_SETTINGS });
+    c.send({ t: 'welcome', token: c.token, name: c.name, maps: this.game.mapList(), defaults: this.game.defaults });
   }
 
   create(c, m) {
@@ -186,11 +207,11 @@ class Manager {
     if (this.rooms.size >= MAX_ROOMS) { c.send({ t: 'error', text: 'Server is full, try again later.' }); return; }
     if (typeof m.name === 'string') c.name = this.cleanName(m.name);
     const code = this.newCode();
-    const room = new Room(code, sanitizeSettings(m.settings), this);
+    const room = new this.game.Room(code, this.game.sanitizeSettings(m.settings), this);
     this.rooms.set(code, room);
     room.addHuman(c, this.uniqueName(room, c.name));
     if (m.autostart) room.start();
-    console.log(`[room ${code}] created by ${c.name}`);
+    console.log(`[${this.game.id} room ${code}] created by ${c.name}`);
   }
 
   join(c, m) {
@@ -214,7 +235,7 @@ class Manager {
       if (!room.emptySince) room.emptySince = now;
       if (now - room.emptySince > (room.state === 'playing' ? 60000 : 20000)) {
         this.rooms.delete(code);
-        console.log(`[room ${code}] closed (empty)`);
+        console.log(`[${this.game.id} room ${code}] closed (empty)`);
       }
     }
     for (const [tok, s] of this.sessions) if (!this.rooms.has(s.code)) this.sessions.delete(tok);
@@ -226,9 +247,16 @@ class Manager {
   }
 }
 
-const manager = new Manager();
-const wss = new WebSocketServer({ server, perMessageDeflate: false, maxPayload: 16 * 1024 });
-wss.on('connection', (ws) => manager.onConnect(ws));
+for (const [id, g] of Object.entries(GAMES)) g.id = id;
+const managers = Object.fromEntries(Object.entries(GAMES).map(([id, g]) => [id, new Manager(g)]));
+const wss = new WebSocketServer({ noServer: true, perMessageDeflate: false, maxPayload: 16 * 1024 });
+server.on('upgrade', (req, socket, head) => {
+  let pathname = '';
+  try { pathname = new URL(req.url, 'http://x').pathname; } catch { /* ignore */ }
+  const m = /^\/(bf|cs)\/ws$/.exec(pathname);
+  if (!m) { socket.destroy(); return; }
+  wss.handleUpgrade(req, socket, head, (ws) => managers[m[1]].onConnect(ws));
+});
 
 // ---- fixed-step game loop shared by all rooms
 const STEP = 1000 / TICK;
@@ -239,14 +267,14 @@ setInterval(() => {
   last = now;
   let n = 0;
   while (acc >= STEP && n < 6) {
-    for (const room of manager.rooms.values()) {
-      try { room.tick(); } catch (e) { console.error(`[room ${room.code}] tick error`, e); }
+    for (const mg of Object.values(managers)) for (const room of mg.rooms.values()) {
+      try { room.tick(); } catch (e) { console.error(`[${mg.game.id} room ${room.code}] tick error`, e); }
     }
     acc -= STEP; n++;
   }
   if (n === 6) acc = 0;
 }, 4);
-setInterval(() => manager.sweep(), 10000);
+setInterval(() => { for (const mg of Object.values(managers)) mg.sweep(); }, 10000);
 
 server.listen(PORT, HOST, () => {
   console.log(`\n  Frontline: Voxel Warfare server ready on port ${PORT}\n`);
@@ -257,4 +285,4 @@ server.listen(PORT, HOST, () => {
   console.log('');
 });
 
-export { manager };
+export { managers };

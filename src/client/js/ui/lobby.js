@@ -1,7 +1,7 @@
 // Room lobby: settings (host), team columns, chat, invite link.
-import { getMap } from '../../../shared/maps/index.js';
+import { getMap } from '../../shared/maps/index.js';
 import { mapThumb } from '../game/terrain.js';
-import { T, CT, SPEC, MODES, RULES } from '../../../shared/constants.js';
+import { T, CT, SPEC, MODES, RULES } from '../../shared/constants.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -19,7 +19,7 @@ export class Lobby {
   show() { this.el.classList.remove('hidden'); this.build(); this.update(); }
   hide() { this.el.classList.add('hidden'); }
 
-  inviteLink() { return `${location.origin}/?room=${this.app.room.code}`; }
+  inviteLink() { return `${location.origin}${location.pathname}?room=${this.app.room.code}`; }
 
   build() {
     const app = this.app;

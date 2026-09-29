@@ -1,6 +1,6 @@
 // Visibility polygon for the local (or spectated) player: exact against tile walls, circles for smokes.
-import { VISION } from '../../../shared/constants.js';
-import { rayCircle } from '../../../shared/gamemap.js';
+import { VISION } from '../../shared/constants.js';
+import { rayCircle } from '../../shared/gamemap.js';
 
 const TAU = Math.PI * 2;
 const norm = (a) => { while (a > Math.PI) a -= TAU; while (a <= -Math.PI) a += TAU; return a; };

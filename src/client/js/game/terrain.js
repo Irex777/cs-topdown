@@ -1,7 +1,7 @@
 // Voxel terrain. The ground is baked into 256 px chunks (re-baked when something is destroyed); solid tiles are drawn every
 // frame as extruded blocks, y-sorted together with the units so walls hide whatever stands behind them (2.5D).
-import { TILE } from '../../../shared/constants.js';
-import { TILES } from '../../../shared/gamemap.js';
+import { TILE } from '../../shared/constants.js';
+import { TILES } from '../../shared/gamemap.js';
 
 export const CHUNK = 8;                 // tiles per chunk side
 const CPX = CHUNK * TILE;

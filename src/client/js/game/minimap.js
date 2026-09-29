@@ -1,7 +1,7 @@
 // Radar (local zoomed view around the player) and the big tactical map (M): terrain thumbnail plus live markers.
-import { SPEC, T, CT } from '../../../shared/constants.js';
-import { GADGET_LIST } from '../../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST } from '../../../shared/vehicles.js';
+import { SPEC, T, CT } from '../../shared/constants.js';
+import { GADGET_LIST } from '../../shared/weapons.js';
+import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
 import { TEAM_COL } from './render.js';
 
 const RADAR_SPAN = 2400;      // world px across the radar

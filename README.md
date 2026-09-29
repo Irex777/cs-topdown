@@ -1,3 +1,16 @@
+# Two games, one server
+
+The main page asks what you want to play:
+
+| | URL | What it is |
+| --- | --- | --- |
+| **Frontline: Voxel Warfare** | `/bf/` | 2.5D voxel combined-arms shooter — described below |
+| **CS Top-Down** | `/cs/` | The original top-down tactical shooter: bomb defusal, buy menu and economy, fog of war, 25 weapons, grenades, 4 maps (code in `src/cs/`, tools in `tools/cs/`) |
+
+Each game has its own rooms, room codes, invite links and public room list; one Node process serves both
+(`src/server/index.js` routes `/bf/*`, `/cs/*` and their WebSockets `/bf/ws`, `/cs/ws`). Both home screens have a
+"Switch game" link back to the picker.
+
 # Frontline: Voxel Warfare
 
 A 2.5D **voxel combined-arms shooter** for the browser — big destructible maps, Conquest / Rush / Team Deathmatch,
@@ -39,7 +52,7 @@ npm install
 npm start
 ```
 
-The server prints the addresses it is reachable on (Local / Network). Open it, pick a nickname and hit
+The server prints the addresses it is reachable on (Local / Network). Open it, pick **Frontline** on the game picker, enter a nickname and hit
 **Quick play** for an instant Conquest match vs bots, or **Create room**, copy the invite link and send it to friends.
 The host tunes map, mode, team size (up to 16v16), bots, difficulty, tickets and vehicles, then starts the match.
 
@@ -83,7 +96,9 @@ Keep it at a single instance — all rooms live in that process's memory. Env va
 
 ```
 src/
-  shared/      rules used by BOTH server and browser
+  landing/     the game picker page
+  cs/          the original CS Top-Down game (client/ server/ shared/), same layout as below
+  shared/      Frontline rules used by BOTH server and browser
     constants.js weapons.js vehicles.js gamemap.js movement.js vision.js maps/…
   server/      authoritative simulation (Node, `ws`)
     index.js     HTTP static files + WebSocket + rooms manager + 60 Hz loop
@@ -103,7 +118,8 @@ tools/         validation, simulation, fuzz, integration and browser (Playwright
 
 ```bash
 npm run dev                               # restart on change
-npm test                                  # maps, mechanics, bot sims, fuzz, WebSocket integration
+npm test                                  # both games: maps, mechanics, bot sims, fuzz, lag comp, WebSocket integration
+node tools/cs/sim.js dust 300 5 hard      # same tools for CS Top-Down live in tools/cs/
 npm run maps                              # validate maps (reachability, vehicle spawns); `node tools/preview-maps.js harbor` prints ASCII
 node tools/sim.js riverside 300 8 hard conquest   # headless bot match: map, seconds, team size, difficulty, mode
 node tools/mechanics.js                   # scripted checks: revive, vehicles, C4, destruction, M-COM…

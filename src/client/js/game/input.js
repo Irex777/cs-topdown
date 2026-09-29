@@ -1,5 +1,5 @@
 // Keyboard + mouse state for the local player.
-import { KEY } from '../../../shared/constants.js';
+import { KEY } from '../../shared/constants.js';
 
 export class Input {
   constructor(canvas) {

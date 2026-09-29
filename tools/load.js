@@ -17,7 +17,7 @@ let bytes = 0, snaps = 0;
 const clients = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 for (let i = 0; i < N; i++) {
-  const ws = new WebSocket(`ws://localhost:${port}/ws`);
+  const ws = new WebSocket(`ws://localhost:${port}/bf/ws`);
   const c = { ws, code: null, id: 0, seq: 0, alive: false };
   ws.on('message', (d) => {
     bytes += d.length;

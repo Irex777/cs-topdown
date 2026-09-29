@@ -1,7 +1,7 @@
 {
   "name": "frontline-voxel-warfare",
   "version": "3.0.0",
-  "description": "Frontline: Voxel Warfare \u2014 a 2.5D voxel combined-arms shooter for the browser: big destructible maps, Conquest / Rush / Team Deathmatch, classes, weapon attachments, vehicles, bots.",
+  "description": "Two browser shooters on one server: Frontline: Voxel Warfare (2.5D voxel combined arms with destruction and vehicles) and the original CS Top-Down (bomb defusal, fog of war). Bots, rooms, invite links.",
   "type": "commonjs",
   "main": "src/server/index.js",
   "scripts": {
@@ -12,7 +12,8 @@
     "maps": "node tools/preview-maps.js",
     "sim": "node tools/sim.js",
     "mechanics": "node tools/mechanics.js",
-    "botstats": "node tools/botstats.js"
+    "botstats": "node tools/botstats.js",
+    "sim:cs": "node tools/cs/sim.js"
   },
   "engines": {
     "node": ">=18"

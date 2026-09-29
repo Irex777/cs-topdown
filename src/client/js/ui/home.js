@@ -21,6 +21,7 @@ export class Home {
     const savedName = (() => { try { return localStorage.getItem('cs.name') || ''; } catch { return ''; } })();
     const invite = app.inviteCode;
     this.el.innerHTML = `
+    <a class="switch-game" href="/">◀ Switch game</a>
     <div class="home-wrap">
       <div class="hero">
         <div class="logo"><small>Combined arms warfare</small><span>Frontline</span><span>Voxel Warfare</span></div>

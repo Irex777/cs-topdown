@@ -1,10 +1,10 @@
 // Client-side game controller: snapshot buffer, interpolation, prediction (soldier and vehicle driver), events, per-frame loop.
-import { DT, PHASE, KEY, SPEC, TILE, T, CT } from '../../../shared/constants.js';
-import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, maxSpeedFor, resolveWeapon } from '../../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST, stepVehicle } from '../../../shared/vehicles.js';
-import { createMap } from '../../../shared/maps/index.js';
-import { stepMovement } from '../../../shared/movement.js';
-import { canSee, viewParams } from '../../../shared/vision.js';
+import { DT, PHASE, KEY, SPEC, TILE, T, CT } from '../../shared/constants.js';
+import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, maxSpeedFor, resolveWeapon } from '../../shared/weapons.js';
+import { VEHICLES, VEHICLE_LIST, stepVehicle } from '../../shared/vehicles.js';
+import { createMap } from '../../shared/maps/index.js';
+import { stepMovement } from '../../shared/movement.js';
+import { canSee, viewParams } from '../../shared/vision.js';
 import { audio } from '../audio.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';

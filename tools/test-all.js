@@ -12,6 +12,10 @@ const steps = [
   ['bot simulation (pit deathmatch, 3v3)', ['tools/sim.js', 'pit', '120', '3', 'normal', 'tdm']],
   ['fuzz / invariants', ['tools/fuzz.js']],
   ['lag compensation', ['tools/lagcomp.js']],
+  ['CS: map validation', ['tools/cs/preview-maps.js']],
+  ['CS: bot simulation (dust, 5v5)', ['tools/cs/sim.js', 'dust', '300', '5']],
+  ['CS: fuzz / invariants', ['tools/cs/fuzz.js']],
+  ['CS: lag compensation', ['tools/cs/lagcomp.js']],
   ['integration (real server)', ['tools/integration.js']],
 ];
 let failed = 0;

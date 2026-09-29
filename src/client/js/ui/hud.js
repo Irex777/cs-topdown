@@ -1,7 +1,7 @@
 // In-game DOM UI: ticket bar, flags, health/ammo, squad, kill feed, chat, scoreboard, pause menu, banners, deploy screen.
-import { PHASE, T, CT, SPEC, GREN_ORDER, GRENADE, TEAM_NAMES, RULES } from '../../../shared/constants.js';
-import { WEAPONS, WEAPON_LIST, GADGET_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, CLASSES, ATTACH, resolveWeapon, ALT } from '../../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST } from '../../../shared/vehicles.js';
+import { PHASE, T, CT, SPEC, GREN_ORDER, GRENADE, TEAM_NAMES, RULES } from '../../shared/constants.js';
+import { WEAPONS, WEAPON_LIST, GADGET_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, CLASSES, ATTACH, resolveWeapon, ALT } from '../../shared/weapons.js';
+import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
 import { audio } from '../audio.js';
 import { Minimap } from '../game/minimap.js';
 import { DeployScreen } from './deploy.js';

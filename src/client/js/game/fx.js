@@ -1,6 +1,6 @@
 // Particles, tracers, decals and screen shake. Everything is made of little cubes to match the voxel look;
 // particles carry a height z so they rise, fall and cast a ground shadow in the 2.5D view.
-import { TILE } from '../../../shared/constants.js';
+import { TILE } from '../../shared/constants.js';
 
 const rnd = Math.random;
 const TAU = Math.PI * 2;
