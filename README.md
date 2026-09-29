@@ -4,21 +4,21 @@ The main page asks what you want to play:
 
 | | URL | What it is |
 | --- | --- | --- |
-| **Frontline: Voxel Warfare** | `/bf/` | First-person 3D voxel combined-arms shooter — described below |
+| **Voxel Frontline** | `/bf/` | First-person 3D voxel combined-arms shooter — described below |
 | **CS Top-Down** | `/cs/` | The original top-down tactical shooter: bomb defusal, buy menu and economy, fog of war, 25 weapons, grenades, 4 maps (code in `src/cs/`, tools in `tools/cs/`) |
 
 Each game has its own rooms, room codes, invite links and public room list; one Node process serves both
 (`src/server/index.js` routes `/bf/*`, `/cs/*` and their WebSockets `/bf/ws`, `/cs/ws`). Both home screens have a
 "Switch game" link back to the picker.
 
-# Frontline: Voxel Warfare
+# Voxel Frontline
 
 A first-person **3D voxel combined-arms shooter** for the browser — big destructible maps, Conquest / Rush / Team Deathmatch,
 four classes with deep weapon attachments, gadgets, revives, squads and drivable ground, water and air vehicles.
 Bots fill every empty slot, so a match is always possible; friends join with a 4-letter room code or an invite link.
 No accounts, no build step, all audio synthesised (nothing to download).
 
-> "Frontline: Voxel Warfare" is a placeholder title — change it in `src/client/index.html` and `src/server/index.js`.
+> "Voxel Frontline" is a placeholder title — change it in `src/client/index.html` and `src/server/index.js`.
 
 ## Features
 

@@ -12,16 +12,16 @@ const lerp = (a, b, t) => a + (b - a) * t;
 
 // ------------------------------------------------------------------------------------------------ gun models
 // Model space: x forward, y right, z up (voxels). The sight line is z = 5..7; `meta` gives the muzzle, grip and fore-grip.
-const METAL = '#8b929c', LIGHT = '#b3bac4', DARK = '#23262c', BLK = '#2c2f36', BLK2 = '#3b3f47', STEEL = '#6f7680', GLASS = '#6fd0ff', RED = '#e23a2a';
+const METAL = '#8b929c', LIGHT = '#b3bac4', DARK = '#23262c', BLK = '#2c2f36', BLK2 = '#3b3f47', RED = '#e23a2a';
 
 // Each weapon's look: receiver colours, furniture (handguard / grip / stock), magazine and shape parameters.
 const LOOK = {
-  ar7:   { rec: '#bf9f68', rec2: '#a58857', hand: BLK, hand2: BLK2, stock: BLK, mag: '#3c4048', mag2: '#4a4f57', hg: 15, bar: 8, stockS: 'std' },
+  ar7:   { rec: '#b39257', rec2: '#977a4b', hand: BLK, hand2: BLK2, stock: BLK, mag: '#3c4048', mag2: '#4a4f57', hg: 15, bar: 8, stockS: 'std' },
   br12:  { rec: '#59653f', rec2: '#48533a', hand: '#2a2d32', hand2: '#3a3e44', stock: '#2a2d32', mag: '#3c4048', mag2: '#4d525a', hg: 19, bar: 9, stockS: 'fixed', fat: 1 },
-  vx9:   { rec: BLK, rec2: '#3b3f47', hand: '#c1a26c', hand2: '#a58857', stock: '#c1a26c', mag: '#c1a26c', mag2: '#a58857', hg: 10, bar: 4, stockS: 'skel' },
+  vx9:   { rec: BLK, rec2: '#3b3f47', hand: '#b39257', hand2: '#977a4b', stock: '#b39257', mag: '#b39257', mag2: '#977a4b', hg: 10, bar: 4, stockS: 'skel' },
   sg4:   { rec: '#3a3d43', rec2: '#2c2f36', hand: '#b98f5a', hand2: '#8f6d40', stock: '#b98f5a', mag: '#3c4048', mag2: '#4a4f57', hg: 14, bar: 10, stockS: 'fixed', pump: 1 },
   mg60:  { rec: '#55603f', rec2: '#434c31', hand: '#2c2f36', hand2: '#3b3f47', stock: '#3b4630', mag: '#5a6a40', mag2: '#4a5836', hg: 18, bar: 10, stockS: 'fixed', fat: 1, lmg: 1 },
-  dmr14: { rec: '#b39558', rec2: '#9a7f4a', hand: BLK, hand2: BLK2, stock: '#2c2f36', mag: '#3c4048', mag2: '#4a4f57', hg: 17, bar: 12, stockS: 'fixed' },
+  dmr14: { rec: '#a68a52', rec2: '#8e7444', hand: BLK, hand2: BLK2, stock: '#2c2f36', mag: '#3c4048', mag2: '#4a4f57', hg: 17, bar: 12, stockS: 'fixed' },
   sr50:  { rec: '#4a5537', rec2: '#3b4530', hand: '#2a2d32', hand2: '#3a3e44', stock: '#3b4630', mag: '#3c4048', mag2: '#4a4f57', hg: 18, bar: 16, stockS: 'sniper', bolt: 1 },
   p18:   { rec: BLK, rec2: '#3b3f47', hand: '#bd9d66', hand2: '#a58857', stock: BLK, mag: '#3b3f47', mag2: '#4a4f57', hg: 9, bar: 2, stockS: 'none' },
 };
@@ -214,8 +214,8 @@ export class Viewmodel {
     this.r = renderer;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.02, 10);
-    this.scene.add(new THREE.HemisphereLight(0xeaf3ff, 0x9a9584, 7.5));
-    const sun = new THREE.DirectionalLight(0xfff0d8, 5.5); sun.position.set(-0.5, 1, 0.6); this.scene.add(sun);
+    this.scene.add(new THREE.HemisphereLight(0xeaf3ff, 0x9a9584, 4.4));
+    const sun = new THREE.DirectionalLight(0xffe6c4, 2.8); sun.position.set(-0.5, 1, 0.6); this.scene.add(sun);
     this.rig = new THREE.Group();                   // moves the whole weapon (position + rotation animation)
     this.scene.add(this.rig);
     this.model = new THREE.Group();                 // the gun; voxel model space (x forward) turned so forward = -z

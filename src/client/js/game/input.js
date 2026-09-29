@@ -20,10 +20,10 @@ export class Input {
     this.enabled = false;        // false while a menu / chat box is capturing input
     this.handlers = {};          // name -> fn (edge-triggered actions)
     this.bindings = {
-      KeyR: 'reload', KeyE: 'use', KeyF: 'alt', KeyQ: 'spot', KeyX: 'last', KeyL: 'deploy',
+      KeyR: 'reload', KeyE: 'use', KeyF: 'alt', KeyQ: 'spot', KeyX: 'slot6', KeyB: 'last', KeyL: 'deploy',
       Digit1: 'slot1', Digit2: 'slot2', Digit3: 'slot3', Digit4: 'slot4', Digit5: 'slot5', Digit6: 'slot6',
       Tab: 'score', Enter: 'chatTeam', KeyY: 'chatAll', KeyU: 'chatTeam', KeyV: 'ping', KeyM: 'bigmap', Escape: 'menu',
-      Space: 'next', KeyG: 'freecam', KeyN: 'togglefog',
+      Space: 'next', KeyG: 'slot5', KeyH: 'freecam', KeyN: 'togglefog',
     };
     window.addEventListener('keydown', (e) => this.onKey(e, true));
     window.addEventListener('keyup', (e) => this.onKey(e, false));

@@ -10,6 +10,7 @@ import { BlockField, Ground, tileHeight } from './world3d.js';
 import { FX3D } from './fx3d.js';
 import { Overlay } from './overlay.js';
 import { Viewmodel } from './viewmodel.js';
+import { Sky, moodFor } from './sky.js';
 
 export { TEAM_COL } from './overlay.js';
 
@@ -84,6 +85,7 @@ export class Renderer {
     this.scene = new THREE.Scene();
     this.scene.background = SKY;
     this.scene.fog = new THREE.Fog(SKY, 650, 2300);
+    this.sky = new Sky(this.scene);
     this.camera = new THREE.PerspectiveCamera(FOV, 1, 3, 4200);
     this.scene.add(this.camera);
 
@@ -179,6 +181,18 @@ export class Renderer {
     const th = terrain.th.c;
     this.void.material.color.setRGB(th.rock[0] / 700, th.rock[1] / 700, th.rock[2] / 700, THREE.SRGBColorSpace);
     this.camT = 1;
+    this.applyMood(moodFor(map.id));
+  }
+
+  /** sky, haze and sun colour for the map's time of day */
+  applyMood(m) {
+    this.mood = m;
+    this.sky.set(m);
+    const fog = new THREE.Color(m.fog);
+    this.scene.background = fog; this.scene.fog.color.copy(fog); this.scene.fog.near = m.fogNear; this.scene.fog.far = m.fogFar;
+    this.hemi.color.setHex(m.hemiSky); this.hemi.groundColor.setHex(m.hemiGround); this.hemi.intensity = m.hemi;
+    this.sun.color.setHex(m.sun); this.sun.intensity = m.sunI;
+    this.sunDir.set(m.sunDir[0], m.sunDir[1], m.sunDir[2]).normalize();
   }
 
   resize() {
@@ -377,6 +391,7 @@ export class Renderer {
     this.updateEntities(viewer, nowMs);
     this.fx3d.update();
     this.renderer.autoClear = true;
+    this.sky.follow(this.camera.position);
     if (this.debugVm) { this.renderer.setClearColor(0x6d8fb3); this.renderer.clear(); } else this.renderer.render(this.scene, this.camera);
     this.drawViewmodel(dt, viewer);
     this.overlay.draw(this.ctx, viewer, dt);
@@ -395,7 +410,7 @@ export class Renderer {
     this._prevLeft = own && g.input.left;
     const zoomed = !!(viewer.scoped && (viewer.scopeLvl || 0) >= 1 && this.scopeK > 0.55);
     vm.render(dt, {
-      fps: true, me, viewer, kind, weapon, team: g.myTeam() >= 0 && own ? g.myTeam() : (g.teamOf(me.id) >= 0 ? g.teamOf(me.id) : 2),
+      fps: true, me, viewer, kind, weapon, team: g.pt(g.teamOf(me.id)),
       speed: fc.speed || 0, air: !!fc.air, strafe: fc.strafe || 0,
       ads: !!(viewer.scoped && g.alive) || (!own && !!me.sc), sprint: !!me.spr, crouch: viewer.cf > 0.5,
       reload: me.rel || 0, swing: edge && (kind === 'knife' || kind === 'grenade' || kind === 'tool'), scopedView: zoomed,
@@ -423,7 +438,7 @@ export class Renderer {
     for (const p of g.soldiers()) {
       if (!this.near(p.x, p.y)) continue;
       const e = P.soldiers.get(p.id);
-      const team = p.team >= 0 ? p.team : 2;
+      const team = g.pt(p.team);
       const kind = weaponKindOf(p.held);
       const speed = p.speed || 0;
       const frame = speed > 35 ? (Math.floor(t * (speed > 240 ? 12 : 9) + p.id) % 2 === 0 ? 1 : 2) : 0;
@@ -440,7 +455,7 @@ export class Renderer {
     for (const c of g.corpses) {
       if (!this.near(c.x, c.y)) continue;
       const e = P.corpses.get(c.id);
-      const geo = soldierGeo(c.team >= 0 ? c.team : 2, c.cls || 'assault', 'rifle', 0, true);
+      const geo = soldierGeo(g.pt(c.team), c.cls || 'assault', 'rifle', 0, true);
       if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
       e.obj.position.set(c.x, 0, c.y); e.obj.rotation.y = -(c.a + 0.5);
     }
@@ -543,7 +558,7 @@ export class Renderer {
     for (const v of g.vehiclesDrawn()) {
       const def = VEHICLES[VEHICLE_LIST[v.ty]];
       if (!def || !this.near(v.x, v.y)) continue;
-      const team = v.team >= 0 ? v.team : 2;
+      const team = g.pt(v.team);
       const e = P.vehicles.get(v.id);
       if (e.key !== `${def.id}${team}`) this.buildVehicle(e, def, team);
       const pr = e.parts;
@@ -585,18 +600,19 @@ export class Renderer {
       const e = P.flags.get(f.id);
       e.obj.position.set(f.x, 0, f.y);
       const prog = f.owner >= 0 ? 1 : Math.abs(f.cap);
-      const col = f.owner >= 0 ? COL[f.owner] : (prog > 0.05 ? (f.cap < 0 ? COL[0] : COL[1]) : COL['-1']);
+      const capCol = COL[g.pt(f.cap < 0 ? 0 : 1)];
+      const col = f.owner >= 0 ? COL[g.pt(f.owner)] : (prog > 0.05 ? capCol : COL['-1']);
       e.banner.material.color.setHex(col);
       e.banner.position.set(15, 14 + prog * 34, 0);
       e.banner.rotation.y = Math.sin(t * 3 + f.id) * 0.25;
-      const zc = f.owner >= 0 ? COL[f.owner] : COL['-1'];
+      const zc = f.owner >= 0 ? COL[g.pt(f.owner)] : COL['-1'];
       e.zone.position.set(f.x, 1.2, f.y); e.zone.scale.set(f.r, 1, f.r); e.zone.material.color.setHex(zc);
       e.rim.position.set(f.x, 1.4, f.y); e.rim.scale.set(f.r, 1, f.r); e.rim.material.color.setHex(zc);
       const key = Math.round(prog * 50) + (f.cap < 0 ? 100 : 0);
       if (prog > 0.01 && prog < 0.999) {
         if (e.arcKey !== key) {
           if (e.arc) { this.world.remove(e.arc); e.arc.geometry.dispose(); }
-          e.arc = new THREE.Mesh(flatRing(0.9, 0.96, 64, -Math.PI / 2, -Math.PI * 2 * prog), new THREE.MeshBasicMaterial({ color: f.cap < 0 ? COL[0] : COL[1], transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
+          e.arc = new THREE.Mesh(flatRing(0.9, 0.96, 64, -Math.PI / 2, -Math.PI * 2 * prog), new THREE.MeshBasicMaterial({ color: capCol, transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide }));
           e.arc.renderOrder = 2; this.world.add(e.arc); e.arcKey = key;
         }
         e.arc.position.set(f.x, 1.8, f.y); e.arc.scale.set(f.r, 1, f.r); e.arc.visible = true;
@@ -626,9 +642,9 @@ export class Renderer {
       const e = P.gadgets.get(id);
       if (e.id !== def.id) {
         e.id = def.id; e.m.geometry = propGeo(['medkit', 'ammo', 'mine', 'claymore', 'c4', 'beacon', 'sensor'].includes(def.id) ? def.id : 'gadget');
-        const ringCol = def.id === 'medkit' ? 0x5aff96 : def.id === 'ammo' ? 0xffdc6e : def.id === 'sensor' ? (team === 0 ? 0xff7864 : 0x78aaff) : 0;
+        const ringCol = def.id === 'medkit' ? 0x5aff96 : def.id === 'ammo' ? 0xffdc6e : def.id === 'sensor' ? (g.pt(team) === 0 ? 0xff7864 : 0x78aaff) : 0;
         e.ring.visible = !!ringCol; if (ringCol) e.ring.material.color.setHex(ringCol);
-        e.cone.visible = def.id === 'claymore'; e.cone.material.color.setHex(team === 0 ? 0xff7864 : 0x78aaff);
+        e.cone.visible = def.id === 'claymore'; e.cone.material.color.setHex(g.pt(team) === 0 ? 0xff7864 : 0x78aaff);
       }
       e.obj.position.set(x, 0, y); e.obj.rotation.y = -a;
       e.ring.position.x = x; e.ring.position.z = y;

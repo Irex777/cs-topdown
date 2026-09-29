@@ -20,12 +20,12 @@ export const BODY_H = 29;           // hit box height, standing
 export const BODY_H_CROUCH = 19;
 export const HEAD_FRAC = 0.8;       // top 20% of the body is the head
 
-export const T = 0;                 // team 0: Crimson (red)
-export const CT = 1;                // team 1: Azure (blue)
+export const T = 0;                 // team 0: Vanguard (attackers in Rush)
+export const CT = 1;                // team 1: Bulwark (defenders in Rush)
 export const SPEC = 2;
 export const RED = T, BLUE = CT;
-export const TEAM_NAMES = ['Crimson Army', 'Azure Legion', 'Spectators'];
-export const TEAM_SHORT = ['CRM', 'AZR', 'SPEC'];
+export const TEAM_NAMES = ['Vanguard', 'Bulwark', 'Spectators'];
+export const TEAM_SHORT = ['VAN', 'BUL', 'SPEC'];
 export const otherTeam = (t) => (t === T ? CT : T);
 
 // Bits of the per-tick input command

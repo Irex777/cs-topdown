@@ -146,7 +146,7 @@ function build() {
 
 const built = build();
 export default {
-  id: 'riverside', name: 'Riverside', size: 'large', best: '8v8 - 16v16', modes: ['conquest', 'rush', 'tdm'],
+  id: 'riverside', name: 'River Basin', size: 'large', best: '8v8 - 16v16', modes: ['conquest', 'rush', 'tdm'],
   desc: 'A valley split by a river. Farms, mills, a fortified bridge and fords for tanks. Jeeps, tanks, APCs, helis and boats.',
   theme: {
     grass: '#6f9d4e', grass2: '#679347', road: '#5b6068', concrete: '#a39d92', sand: '#cdb98a', deep: '#2f6fb5', shallow: '#5fb0d8',

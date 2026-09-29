@@ -1,4 +1,4 @@
-// Rush: the Crimson attackers arm and destroy M-COM stations stage by stage while Azure defends. Attackers have limited
+// Rush: the Vanguard attackers arm and destroy M-COM stations stage by stage while Bulwark defends. Attackers have limited
 // reinforcements; defenders respawn without limit until the last station falls.
 import { T, CT, SPEC, RULES, TILE } from '../../shared/constants.js';
 import { explode } from '../world.js';

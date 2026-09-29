@@ -32,7 +32,7 @@ export class Minimap {
       const maxW = Math.min(window.innerWidth * 0.78, 1240), maxH = window.innerHeight * 0.78;
       const k = Math.min(maxW / this.map.w, maxH / this.map.h);
       this.w = Math.round(this.map.w * k); this.h = Math.round(this.map.h * k);
-    } else { this.w = 224; this.h = 224; }
+    } else { this.w = 200; this.h = 200; }
     this.canvas.parentElement.classList.toggle('radar-big', big);
     this.canvas.style.width = this.w + 'px'; this.canvas.style.height = this.h + 'px';
     this.canvas.width = this.w * dpr; this.canvas.height = this.h * dpr;
@@ -73,7 +73,7 @@ export class Minimap {
     // flags
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     for (const f of game.flagList()) {
-      const col = f.owner === 0 ? '#e0523a' : f.owner === 1 ? '#3f86e8' : '#d8dce0';
+      const po = game.pt(f.owner), col = po === 0 ? '#e0523a' : po === 1 ? '#3f86e8' : '#d8dce0';
       const r = 8 * k;
       ctx.fillStyle = 'rgba(0,0,0,0.65)'; ctx.fillRect(X(f.x) - r, Y(f.y) - r, r * 2, r * 2);
       ctx.fillStyle = col; ctx.fillRect(X(f.x) - r + 2, Y(f.y) - r + 2, r * 2 - 4, r * 2 - 4);
@@ -105,7 +105,7 @@ export class Minimap {
       const def = VEHICLES[VEHICLE_LIST[veh.ty]];
       if (!def) continue;
       const mate = veh.team === myTeam;
-      const col = veh.team < 0 ? '#c8ccd2' : mate ? (veh.team === 0 ? '#ff8a72' : '#7fb0ff') : '#ff453a';
+      const col = veh.team < 0 ? '#c8ccd2' : mate ? (game.pt(veh.team) === 0 ? '#ff8a72' : '#7fb0ff') : '#ff453a';
       ctx.save(); ctx.translate(X(veh.x), Y(veh.y)); ctx.rotate(veh.a);
       ctx.fillStyle = col; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = d;
       const L = (def.kind === 'air' ? 7 : 6) * k, Wd = (def.kind === 'air' ? 5 : 3.5) * k;
@@ -117,7 +117,7 @@ export class Minimap {
     for (const p of game.soldiers()) {
       if (p.own) continue;
       const mate = p.team === myTeam && myTeam !== SPEC;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
+      const col = TEAM_COL[game.pt(p.team)];
       const x = X(p.x), y = Y(p.y);
       const r = (mate ? 3.6 : 4) * k;
       const sq = mate && game.mySquad() >= 0 && (game.roster.get(p.id) || {}).sq === game.mySquad();
@@ -142,7 +142,7 @@ export class Minimap {
     for (const p of game.pings) {
       const age = (now - p.t) / 1000;
       if (age > 4.5) continue;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
+      const col = TEAM_COL[game.pt(p.team)];
       ctx.strokeStyle = col.text; ctx.lineWidth = 2 * d; ctx.globalAlpha = 1 - (age % 1);
       const r = (4 + (age % 1) * 12) * d; ctx.strokeRect(X(p.x) - r, Y(p.y) - r, r * 2, r * 2); ctx.globalAlpha = 1;
     }
@@ -161,6 +161,16 @@ export class Minimap {
       ctx.restore();
     }
     ctx.restore();
+    if (!this.big) {
+      // cardinal points on the rim turn with the view
+      const R = W / 2 - 9 * d;
+      ctx.font = `800 ${Math.round(11 * d)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      for (const [lbl, ang] of [['N', -Math.PI / 2], ['E', 0], ['S', Math.PI / 2], ['W', Math.PI]]) {
+        const a = ang + rot, x = W / 2 + Math.cos(a) * R, y = H / 2 + Math.sin(a) * R;
+        ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x - 6 * d, y - 6 * d, 12 * d, 12 * d);
+        ctx.fillStyle = lbl === 'N' ? '#ffb23a' : 'rgba(255,255,255,0.8)'; ctx.fillText(lbl, x, y + 0.5);
+      }
+    }
     ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = d; ctx.strokeRect(0.5, 0.5, W - 1, H - 1);
     void T; void CT;
   }

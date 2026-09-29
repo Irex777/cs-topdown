@@ -131,6 +131,13 @@ export class ClientGame {
 
   teamOf(id) { const r = this.roster.get(id); return r ? r.tm : -1; }
   myTeam() { return this.teamOf(this.you); }
+  /** Visual team index: 1 = friendly (blue), 0 = enemy (red), 2 = neutral. Spectators see the raw teams (T red, CT blue). */
+  pt(team) {
+    if (team === undefined || team < 0 || team > 1) return 2;
+    const m = this.myTeam();
+    if (m !== T && m !== CT) return team;
+    return team === m ? 1 : 0;
+  }
   mySquad() { const r = this.roster.get(this.you); return r ? r.sq : -1; }
   nameOf(id) { const r = this.roster.get(id); return r ? r.n : '?'; }
   clsOf(id) { const r = this.roster.get(id); return r ? r.cl : 'assault'; }

@@ -52,7 +52,7 @@ export class Overlay {
     for (const f of g.flagList()) {
       const p = r.project(f.x, f.y, 92);
       if (!p || p.dist > 2600) continue;
-      const col = f.owner === 0 ? '#ff8a72' : f.owner === 1 ? '#7fb0ff' : '#e6e9ec';
+      const po = g.pt(f.owner), col = po === 0 ? '#ff8a72' : po === 1 ? '#7fb0ff' : '#e6e9ec';
       const near = p.dist < 1300;
       // big lettered badge
       ctx.save(); ctx.translate(p.x, p.y);
@@ -63,6 +63,7 @@ export class Overlay {
       ctx.fillText(f.letter, 0, 1);
       ctx.restore(); ctx.textBaseline = 'alphabetic';
       if (near) this.text(ctx, f.name, p.x, p.y - 22 * s, col, 12, 800);
+      this.text(ctx, `${Math.round(p.dist / 16)} M`, p.x, p.y + 27 * s, '#f2f5fa', 11, 800);
       if (f.contested) { ctx.strokeStyle = `rgba(255,220,80,${0.5 + 0.4 * Math.sin(r.t * 8)})`; ctx.lineWidth = 3; ctx.strokeRect(p.x - 17 * s, p.y - 17 * s, 34 * s, 34 * s); }
     }
     for (const m of g.mcomList()) {
@@ -76,6 +77,7 @@ export class Overlay {
       ctx.fillStyle = '#0b0e14'; ctx.font = `800 ${Math.round(12 * s)}px ${FONT}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(dead ? 'X' : armed ? String(Math.ceil(m.timer)) : 'M', p.x, p.y + 1);
       ctx.textBaseline = 'alphabetic';
+      this.text(ctx, `${Math.round(p.dist / 16)} M`, p.x, p.y + 25 * s, '#f2f5fa', 11, 800);
     }
   }
 
@@ -88,13 +90,14 @@ export class Overlay {
       if (!mate && g.myTeam() !== SPEC) continue;
       const s = r.project(p.x, p.y, 40);
       if (!s || s.dist > LABEL_RANGE) continue;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
+      const col = TEAM_COL[g.pt(p.team)];
       const rec = g.roster.get(p.id);
       const sq = mate && rec && g.mySquad() >= 0 && rec.sq === g.mySquad();
       const name = g.nameOf(p.id);
       ctx.globalAlpha = clamp((LABEL_RANGE - s.dist) / 500, 0.35, 1);
       this.text(ctx, name, s.x, s.y, sq ? '#7dff9a' : col.text, 11);
-      if (sq) { ctx.fillStyle = '#7dff9a'; ctx.beginPath(); ctx.moveTo(s.x, s.y - 11); ctx.lineTo(s.x - 5, s.y - 18); ctx.lineTo(s.x + 5, s.y - 18); ctx.closePath(); ctx.fill(); }
+      ctx.fillStyle = sq ? '#7dff9a' : '#6fb0ff'; ctx.beginPath(); ctx.moveTo(s.x, s.y - 11); ctx.lineTo(s.x - 5, s.y - 18); ctx.lineTo(s.x + 5, s.y - 18); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
       if (p.hp > 0) this.bar(ctx, s.x, s.y + 3, 30, p.hp / 100);
       ctx.globalAlpha = 1;
     }
@@ -105,7 +108,7 @@ export class Overlay {
       if (!mate && v.team >= 0) continue;
       const s = r.project(v.x, v.y, def.kind === 'air' ? 96 : def.r + 34);
       if (!s || s.dist > 1800) continue;
-      const col = v.team >= 0 ? TEAM_COL[v.team] : TEAM_COL[2];
+      const col = TEAM_COL[g.pt(v.team)];
       this.text(ctx, def.name, s.x, s.y, col.text, 11);
       this.bar(ctx, s.x, s.y + 3, 40, v.hp / 100);
     }
@@ -114,10 +117,11 @@ export class Overlay {
       const [, x, y, kind] = sp;
       const s = r.project(x, y, 60);
       if (!s) continue;
-      const bob = Math.sin(r.t * 5) * 3;
-      ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.beginPath(); ctx.moveTo(s.x, s.y + bob + 2); ctx.lineTo(s.x - 9, s.y - 14 + bob); ctx.lineTo(s.x + 9, s.y - 14 + bob); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#ff3b3b'; ctx.beginPath(); ctx.moveTo(s.x, s.y + bob); ctx.lineTo(s.x - 7, s.y - 12 + bob); ctx.lineTo(s.x + 7, s.y - 12 + bob); ctx.closePath(); ctx.fill();
-      if (kind) { ctx.fillStyle = '#fff'; ctx.fillRect(s.x - 2, s.y - 10 + bob, 4, 4); }
+      const bob = Math.sin(r.t * 5) * 3, k = clamp(1400 / s.dist, 0.7, 1.2), y0 = s.y - 10 + bob;
+      ctx.fillStyle = '#ff3b3b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(s.x, y0 - 10 * k); ctx.lineTo(s.x + 8 * k, y0); ctx.lineTo(s.x, y0 + 10 * k); ctx.lineTo(s.x - 8 * k, y0); ctx.closePath(); ctx.fill(); ctx.stroke();
+      if (kind) { ctx.fillStyle = '#fff'; ctx.fillRect(s.x - 2, y0 - 2, 4, 4); }
+      this.text(ctx, `${Math.round(s.dist / 16)} M`, s.x, y0 + 22 * k, '#ffb0a8', 10, 800);
     }
     void viewer;
   }
@@ -129,7 +133,7 @@ export class Overlay {
       const age = (now - p.t) / 1000;
       const s = r.project(p.x, p.y, 34);
       if (!s) continue;
-      const col = TEAM_COL[p.team] || TEAM_COL[2];
+      const col = TEAM_COL[g.pt(p.team)];
       const fade = clamp((4.5 - age) / 1, 0, 1);
       const k = (age * 1.4) % 1;
       ctx.globalAlpha = (1 - k) * fade; ctx.strokeStyle = col.text; ctx.lineWidth = 2;
@@ -157,7 +161,7 @@ export class Overlay {
   offscreen(ctx) {
     const r = this.r, g = r.game;
     const marks = [];
-    for (const f of g.flagList()) marks.push({ x: f.x, y: f.y, label: f.letter, col: f.owner === 0 ? '#ff6a52' : f.owner === 1 ? '#5a9cff' : '#d8dce0', pulse: f.contested });
+    for (const f of g.flagList()) marks.push({ x: f.x, y: f.y, label: f.letter, col: g.pt(f.owner) === 0 ? '#ff6a52' : g.pt(f.owner) === 1 ? '#5a9cff' : '#d8dce0', pulse: f.contested });
     for (const m of g.mcomList()) if (m.state !== 2) marks.push({ x: m.x, y: m.y, label: 'M', col: m.state === 1 ? '#ff3b2f' : '#ffb84a', pulse: m.state === 1 });
     const W = r.W, H = r.H, pad = 44;
     for (const m of marks) {

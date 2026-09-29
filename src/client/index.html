@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="theme-color" content="#0b0e14">
-<title>Frontline: Voxel Warfare</title>
+<title>Voxel Frontline</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%230b0e14'/%3E%3Crect x='8' y='8' width='20' height='20' fill='%23c4472f'/%3E%3Crect x='36' y='8' width='20' height='20' fill='%233f7fd8'/%3E%3Crect x='8' y='36' width='20' height='20' fill='%233f7fd8'/%3E%3Crect x='36' y='36' width='20' height='20' fill='%23ffd95a'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -14,16 +14,13 @@
 <!-- ================= HUD ================= -->
 <div id="hud" class="hidden">
   <div id="topbar">
-    <div class="tb-team t"><div class="tb-score" id="scoreT">0</div><div class="tb-bar"><i id="barT"></i></div><div class="tb-name" id="nameT">CRIMSON</div></div>
-    <div class="tb-center"><div class="tb-time" id="roundTime">0:00</div><div id="flagRow"></div><div class="tb-round" id="roundLabel">Conquest</div></div>
-    <div class="tb-team ct"><div class="tb-score" id="scoreCT">0</div><div class="tb-bar"><i id="barCT"></i></div><div class="tb-name" id="nameCT">AZURE</div></div>
+    <div class="tk friend"><div class="tk-num" id="scoreF">0</div><div class="tk-bar"><i id="barF"></i></div><div class="tk-name" id="nameF">FRIENDLY</div></div>
+    <div class="tk-mid"><div class="tb-time" id="roundTime">0:00</div><div id="flagRow"></div></div>
+    <div class="tk enemy"><div class="tk-num" id="scoreE">0</div><div class="tk-bar"><i id="barE"></i></div><div class="tk-name" id="nameE">ENEMY</div></div>
   </div>
+  <div class="tb-round" id="roundLabel">Conquest</div>
+  <canvas id="compass" width="520" height="34"></canvas>
   <div id="objective" class="hidden"></div>
-
-  <div id="left-col">
-    <div id="radar-wrap"><canvas id="radar"></canvas></div>
-    <div id="mates"></div>
-  </div>
 
   <div id="killfeed"></div>
   <div id="scorefeed"></div>
@@ -31,14 +28,25 @@
   <div id="prompt"></div>
   <div id="progress" class="hidden"><div id="progressLabel"></div><div class="bar"><i id="progressFill"></i></div></div>
 
+  <div id="left-col">
+    <div id="radar-wrap"><canvas id="radar"></canvas></div>
+    <div id="squadbox"><div id="mates"></div></div>
+  </div>
+
   <div id="statusbox">
-    <div class="hpwrap"><div class="hp-top"><span id="clsName">ASSAULT</span><span id="hpNum">100</span></div><div id="hpBar"></div></div>
+    <div class="vitals">
+      <div class="vrow hp"><span class="vic">+</span><div class="vbar"><i id="hpFill"></i></div><b id="hpNum">100</b></div>
+      <div class="vrow ar"><span class="vic"><svg viewBox="0 0 16 16" width="14" height="14"><path d="M8 1l6 2v5c0 3.5-2.6 5.8-6 7-3.4-1.2-6-3.5-6-7V3z" fill="currentColor"/></svg></span><div class="vbar"><i id="arFill"></i></div><b id="arNum">0</b></div>
+    </div>
+    <div id="clsName" class="clsname">ASSAULT</div>
   </div>
   <div id="vehbox" class="hidden"></div>
   <div id="weaponbox">
-    <div id="ammoRow"><span id="clip">30</span><span id="reserve">/ 90</span></div>
-    <div id="weaponName">M416</div>
-    <div id="weaponAtt"></div>
+    <div class="wpanel">
+      <div class="wtop"><span id="weaponName">AR-7</span><span id="fireMode">AUTO</span></div>
+      <div class="wmid"><img id="weaponImg" alt=""><div id="ammoRow"><span id="clip">30</span><span id="reserve">/ 90</span></div></div>
+      <div id="weaponAtt"></div>
+    </div>
     <div id="slots"></div>
   </div>
 

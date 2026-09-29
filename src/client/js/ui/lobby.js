@@ -123,7 +123,7 @@ export class Lobby {
     const specs = byTeam(SPEC);
     const playing = r.state === 'playing';
     const p = $('teamsPanel');
-    p.innerHTML = `<h3>Teams</h3><div class="teams">${col(T, 't', 'Crimson Army')}${col(CT, 'ct', 'Azure Legion')}</div>
+    p.innerHTML = `<h3>Teams</h3><div class="teams">${col(T, 't', 'Vanguard')}${col(CT, 'ct', 'Bulwark')}</div>
       <div class="spec-row"><button class="btn small" data-team="2">Spectate</button><div class="members">${specs.map((m) => `<span class="member" style="padding:4px 10px">${esc(m.n)}</span>`).join('') || '<span style="color:var(--dim);font-size:12px">No spectators</span>'}</div></div>
       <div class="lobby-actions">${host ? `<button class="btn green big" id="startBtn">${playing ? 'Back to match' : '▶ Start match'}</button><button class="btn" id="shuffleBtn" title="Randomly split the players into two even teams">Shuffle teams</button>` : '<span class="hint">Waiting for the host to start the match…</span>'}<span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span></div>`;
     p.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => app.net.send({ t: 'team', team: Number(b.dataset.team) }); });

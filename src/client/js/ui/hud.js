@@ -1,29 +1,31 @@
 // In-game DOM UI: ticket bar, flags, health/ammo, squad, kill feed, chat, scoreboard, pause menu, banners, deploy screen.
-import { PHASE, T, CT, SPEC, GREN_ORDER, GRENADE, TEAM_NAMES, RULES } from '../../shared/constants.js';
+import { PHASE, T, CT, SPEC, GREN_ORDER, GRENADE, TEAM_NAMES, RULES, SQUAD_NAMES } from '../../shared/constants.js';
 import { WEAPONS, WEAPON_LIST, GADGET_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, CLASSES, ATTACH, resolveWeapon, ALT } from '../../shared/weapons.js';
 import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
 import { audio } from '../audio.js';
 import { Minimap } from '../game/minimap.js';
+import { gunIcon } from '../game/viewmodel.js';
 import { DeployScreen } from './deploy.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const TEAM_CLS = ['t', 'ct', 's'];
 const GREN_HEX = { he: '#5b8a45', flash: '#eeeeee', smoke: '#9aa4ae', molo: '#e0622f' };
 const KILL_NAMES = {
-  he: 'FRAG', molo: 'FIRE', knife: 'KNIFE', vehicle: 'VEHICLE', barrel: 'BARREL', c4: 'C4', mine: 'MINE', claymore: 'CLAYMORE', rpg: 'RPG-7', smaw: 'SMAW', stinger: 'STINGER',
+  he: 'FRAG', molo: 'FIRE', knife: 'KNIFE', vehicle: 'VEHICLE', barrel: 'BARREL', c4: 'C4', mine: 'MINE', claymore: 'CLAYMORE', rpg: 'RL-80', smaw: 'RL-80', stinger: 'AA',
   cannon: 'TANK', apcgun: 'AUTOCANNON', hrocket: 'ROCKETS', ugl: '40MM', mk: 'MASTERKEY', world: 'X', ram: 'RAM', crash: 'CRASH',
 };
 const CLS_LETTER = { assault: 'A', engineer: 'E', support: 'S', recon: 'R' };
+const CLS_NAME = { assault: 'Assault', engineer: 'Engineer', support: 'Support', recon: 'Recon' };
+const PT_CLS = ['e', 'f', 's'];     // visual team (0 enemy, 1 friendly, 2 neutral) -> css class
 const CLS_COL = { assault: '#e0703a', engineer: '#e0b93a', support: '#4aa8e0', recon: '#7fd35a' };
 
 export class HUD {
   constructor(game, net, app) {
     this.game = game; this.net = net; this.app = app;
     this.el = {};
-    for (const id of ['hud', 'scoreT', 'scoreCT', 'barT', 'barCT', 'nameT', 'nameCT', 'roundTime', 'roundLabel', 'flagRow', 'objective', 'mates',
-      'killfeed', 'scorefeed', 'banner', 'prompt', 'progress', 'progressLabel', 'progressFill', 'hpNum', 'hpBar', 'clsName', 'vehbox', 'clip', 'reserve', 'weaponName', 'weaponAtt',
-      'slots', 'chatlog', 'chatbox', 'chatInput', 'chatTag', 'specbar', 'deathcard', 'netstat', 'score', 'pause', 'endgame', 'radar', 'left-col']) this.el[id] = $(id);
+    for (const id of ['hud', 'scoreF', 'scoreE', 'barF', 'barE', 'nameF', 'nameE', 'roundTime', 'roundLabel', 'flagRow', 'objective', 'mates', 'compass',
+      'killfeed', 'scorefeed', 'banner', 'prompt', 'progress', 'progressLabel', 'progressFill', 'hpNum', 'hpFill', 'arNum', 'arFill', 'clsName', 'vehbox', 'clip', 'reserve', 'weaponName', 'weaponAtt',
+      'weaponImg', 'fireMode', 'slots', 'chatlog', 'chatbox', 'chatInput', 'chatTag', 'specbar', 'deathcard', 'netstat', 'score', 'pause', 'endgame', 'radar', 'left-col']) this.el[id] = $(id);
     this.minimap = new Minimap(this.el.radar);
     this.deploy = new DeployScreen(app, game, net);
     this.scoreOpen = false; this.pauseOpen = false; this.chatOpen = false; this.chatTeam = true;
@@ -36,9 +38,10 @@ export class HUD {
     game.ui = this;
     this.bindNet();
     this.bindChat();
-    // build the 10 health segments once
-    this.el.hpBar.innerHTML = '<i></i>'.repeat(10);
+    this.compassCtx = this.el.compass.getContext('2d');
   }
+
+  tcls(team) { return PT_CLS[this.game.pt(team)]; }
 
   // ------------------------------------------------------------------ hooks called by ClientGame
   inputBlocked() { return this.pauseOpen || this.chatOpen || this.endOpen || this.deploy.open; }
@@ -87,7 +90,7 @@ export class HUD {
       this.el.killfeed.innerHTML = '';
       this.closeEnd();
       const name = { conquest: 'Conquest', rush: 'Rush', tdm: 'Team Deathmatch' }[m.mode];
-      const sub = { conquest: 'Capture and hold the flags. Bleed the enemy tickets dry.', rush: 'Crimson attacks: arm and destroy the M-COM stations. Azure defends.', tdm: 'First team to the kill target wins.' }[m.mode];
+      const sub = { conquest: 'Capture and hold the flags. Bleed the enemy tickets dry.', rush: 'Vanguard attacks: arm and destroy the M-COM stations. Bulwark defends.', tdm: 'First team to the kill target wins.' }[m.mode];
       this.banner(name, sub, 'g', 3600);
       this.maybeShowHints();
       audio.roundStart();
@@ -95,7 +98,7 @@ export class HUD {
     n.on('match_over', (m) => this.onMatchOver(m));
     n.on('flag', (m) => this.onFlag(m));
     n.on('mcom', (m) => this.onMcom(m));
-    n.on('stage', (m) => this.banner('Stage cleared', `Stage ${m.stage + 1} of ${m.of} — the fight moves on`, m.stage ? 't' : 'g', 3200));
+    n.on('stage', (m) => this.banner('Stage cleared', `Stage ${m.stage + 1} of ${m.of} — the fight moves on`, 'g', 3200));
     n.on('kill', (m) => this.onKill(m));
     n.on('chat', (m) => this.onChat(m));
     n.on('roster', (m) => { g.roster.clear(); for (const p of m.players) g.roster.set(p.id, p); g.hostId = m.host; this.rosterDirty = true; });
@@ -113,9 +116,19 @@ export class HUD {
     try { localStorage.setItem('bf.hints', '1'); } catch { /* ignore */ }
     const div = document.createElement('div');
     div.className = 'hintbar';
-    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>LMB</kbd> fire</span><span><kbd>RMB</kbd> aim</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span><kbd>R</kbd> reload</span><span><kbd>E</kbd> use / vehicle</span><span><kbd>Q</kbd> spot</span><span><kbd>L</kbd> loadout</span>';
+    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>LMB</kbd> fire</span><span><kbd>RMB</kbd> aim</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span><kbd>R</kbd> reload</span><span><kbd>E</kbd> use / vehicle</span><span><kbd>G</kbd> grenade</span><span><kbd>Q</kbd> spot</span><span><kbd>L</kbd> loadout</span>';
     this.el.hud.appendChild(div);
     setTimeout(() => div.remove(), 18000);
+  }
+
+  /** kill-feed / death-card glyph for a damage source: the gun silhouette, or a short label */
+  weaponGlyph(id) {
+    const w = WEAPONS[id];
+    if (w && w.kind !== 'knife') {
+      const url = gunIcon(w.id, w.kind, null, 220, 90);
+      if (url) return `<img class="kw" src="${url}" alt="${esc(w.name)}" title="${esc(w.name)}">`;
+    }
+    return `<span class="w">${esc(KILL_NAMES[id] || (w ? w.name : 'X'))}</span>`;
   }
 
   onKill(m) {
@@ -123,18 +136,17 @@ export class HUD {
     if (m.v === g.you) this.lastKillOnMe = m;
     const div = document.createElement('div');
     if (m.vt) {
-      const kn = g.nameOf(m.k), kt = TEAM_CLS[g.teamOf(m.k)];
+      const kn = g.nameOf(m.k), kt = this.tcls(g.teamOf(m.k));
       div.className = 'kf' + (m.k === g.you ? ' me' : '');
-      div.innerHTML = `<span class="${kt}">${esc(kn)}</span><span class="w">${esc(KILL_NAMES[m.w] || (WEAPONS[m.w] ? WEAPONS[m.w].name : 'X'))}</span><span class="${TEAM_CLS[m.vtm] || 's'}">${esc(VEHICLES[m.vt] ? VEHICLES[m.vt].name : 'Vehicle')}</span>`;
+      div.innerHTML = `<span class="${kt}">${esc(kn)}</span>${this.weaponGlyph(m.w)}<span class="${PT_CLS[g.pt(m.vtm)]}">${esc(VEHICLES[m.vt] ? VEHICLES[m.vt].name : 'Vehicle')}</span>`;
     } else {
       const kn = m.k ? g.nameOf(m.k) : '', vn = g.nameOf(m.v);
-      const kt = m.k ? TEAM_CLS[g.teamOf(m.k)] : '', vt = TEAM_CLS[g.teamOf(m.v)];
-      const w = KILL_NAMES[m.w] || (WEAPONS[m.w] ? WEAPONS[m.w].name : '');
+      const kt = m.k ? this.tcls(g.teamOf(m.k)) : '', vt = this.tcls(g.teamOf(m.v));
       div.className = 'kf' + (m.k === g.you ? ' me' : '') + (m.v === g.you ? ' dead' : '');
-      div.innerHTML = `${m.k ? `<span class="${kt}">${esc(kn)}</span>` : ''}${m.a ? `<span class="as">+ ${esc(g.nameOf(m.a))}</span>` : ''}<span class="w">${esc(w || 'X')}${m.hs ? ' <b style="color:#ff5a4a" title="Headshot">◉</b>' : ''}</span><span class="${vt}">${esc(vn)}</span>${m.tk ? '<span class="as">(TK)</span>' : ''}`;
+      div.innerHTML = `${m.k ? `<span class="${kt}">${esc(kn)}</span>` : ''}${m.a ? `<span class="as">+ ${esc(g.nameOf(m.a))}</span>` : ''}${this.weaponGlyph(m.w)}${m.hs ? '<span class="hs" title="Headshot">◉</span>' : ''}<span class="${vt}">${esc(vn)}</span>${m.tk ? '<span class="as">(TK)</span>' : ''}`;
     }
     this.el.killfeed.appendChild(div);
-    while (this.el.killfeed.children.length > 7) this.el.killfeed.firstChild.remove();
+    while (this.el.killfeed.children.length > 6) this.el.killfeed.firstChild.remove();
     setTimeout(() => div.remove(), 7000);
   }
 
@@ -144,7 +156,7 @@ export class HUD {
     const name = m.name;
     if (m.owner < 0) this.notice(`${TEAM_NAMES[m.by]} neutralized flag ${name}`);
     else {
-      this.banner(m.owner === mine ? `Captured ${name}` : `Lost ${name}`, m.owner === mine ? 'Your team holds this flag' : `${TEAM_NAMES[m.owner]} took the flag`, m.owner === T ? 't' : 'ct', 2200);
+      this.banner(m.owner === mine ? `Captured ${name}` : `Lost ${name}`, m.owner === mine ? 'Your team holds this flag' : `${TEAM_NAMES[m.owner]} took the flag`, this.tcls(m.owner), 2200);
     }
     this.cache.flags = null;
   }
@@ -152,9 +164,9 @@ export class HUD {
   onMcom(m) {
     const g = this.game;
     const by = g.nameOf(m.by);
-    if (m.ev === 'armed') { this.banner('M-COM armed', `${esc(by)} armed a station — disarm it before it blows!`, 't', 2400); this.notice(`${by} armed an M-COM`); }
-    else if (m.ev === 'disarmed') { this.banner('M-COM disarmed', `${esc(by)} saved the station`, 'ct', 2200); }
-    else if (m.ev === 'destroyed') this.banner('M-COM destroyed', '', 't', 2000);
+    if (m.ev === 'armed') { this.banner('M-COM armed', `${esc(by)} armed a station — disarm it before it blows!`, 'e', 2400); this.notice(`${by} armed an M-COM`); }
+    else if (m.ev === 'disarmed') { this.banner('M-COM disarmed', `${esc(by)} saved the station`, 'f', 2200); }
+    else if (m.ev === 'destroyed') this.banner('M-COM destroyed', '', 'e', 2000);
   }
 
   onMatchOver(m) {
@@ -163,7 +175,7 @@ export class HUD {
     this.endOpen = true;
     this.deploy.hide();
     const winName = m.winner < 0 ? 'Nobody' : TEAM_NAMES[m.winner];
-    const cls = m.winner === T ? 't' : m.winner === CT ? 'ct' : '';
+    const cls = m.winner === T || m.winner === CT ? (g.pt(m.winner) === 1 ? 'ct' : 't') : '';
     const mine = g.myTeam();
     const won = m.winner === mine;
     setTimeout(() => {
@@ -187,7 +199,7 @@ export class HUD {
     if (m.sys) { div.className = 'cl sys'; div.textContent = m.text; }
     else {
       div.className = 'cl';
-      const tc = TEAM_CLS[g.teamOf(m.from)] || 's';
+      const tc = ['t', 'ct', 's'][g.pt(g.teamOf(m.from))];
       div.innerHTML = `${m.team >= 0 ? '<span class="tag">[TEAM]</span>' : ''}<b class="${tc}">${esc(m.name)}</b>: ${esc(m.text)}`;
       audio.chat();
     }
@@ -252,7 +264,7 @@ export class HUD {
       <h2>Paused</h2>
       <div style="color:var(--dim);font-size:12px">The match keeps running while you're in this menu.</div>
       <div><span class="label">Team</span><div class="seg" id="pauseTeam">
-        <button data-t="0" class="${mt === T ? 'on' : ''}">Crimson</button><button data-t="1" class="${mt === CT ? 'on' : ''}">Azure</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
+        <button data-t="0" class="${mt === T ? 'on' : ''}">${TEAM_NAMES[0]}</button><button data-t="1" class="${mt === CT ? 'on' : ''}">${TEAM_NAMES[1]}</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
       <div><span class="label">Squad</span><div class="seg" id="pauseSquad">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}">${'ABCDEFGH'[i]}</button>`).join('')}</div></div>
       <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
       <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="4" max="60" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
@@ -260,9 +272,9 @@ export class HUD {
       <div class="row" style="gap:16px"><label class="chk"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}> Invert Y</label><label class="chk"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}> Toggle aim (RMB)</label></div>
       <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Mouse</kbd><span>Look / aim</span><kbd>LMB</kbd><span>Fire</span><kbd>RMB</kbd><span>Aim down sights / scope</span>
       <kbd>Shift</kbd><span>Sprint (forward)</span><kbd>Space</kbd><span>Jump (hop onto low cover)</span><kbd>C</kbd><span>Crouch (hold)</span><kbd>R</kbd><span>Reload</span>
-      <kbd>E</kbd><span>Enter / exit vehicle, revive, arm M-COM</span><kbd>F</kbd><span>Alt fire (underbarrel)</span><kbd>1-6</kbd><span>Weapons, gadgets, grenade, knife</span><kbd>Wheel</kbd><span>Cycle weapons</span>
+      <kbd>E</kbd><span>Enter / exit vehicle, revive, arm M-COM</span><kbd>G</kbd><span>Grenade</span><kbd>X</kbd><span>Knife</span><kbd>Wheel</kbd><span>Cycle weapons</span>
       <kbd>Q</kbd><span>Spot enemy</span><kbd>V</kbd><span>Ping</span><kbd>L</kbd><span>Loadout</span><kbd>M</kbd><span>Big map</span><kbd>Tab</kbd><span>Scoreboard</span>
-      <kbd>Space</kbd><span>Brake (vehicles)</span><kbd>1-4</kbd><span>Switch seat (vehicle)</span><kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span></div>
+      <kbd>Space</kbd><span>Brake (vehicles)</span><kbd>1-4</kbd><span>Weapons / gadgets (seats in vehicles)</span><kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span></div>
       <div class="row"><button class="btn primary" id="resumeBtn" style="flex:1">Resume</button>
       ${this.app.isHost() ? '<button class="btn" id="endMatchBtn">End match</button>' : ''}
       <button class="btn danger" id="leaveBtn">Leave</button></div></div>`;
@@ -309,7 +321,7 @@ export class HUD {
       if (team === SPEC && !list.length) continue;
       const tix = g.tix[team];
       const head = team === SPEC ? list.length : g.mode === 'tdm' ? tix : (tix < 0 ? '∞' : Math.max(0, Math.ceil(tix)));
-      html += `<div class="sb-team ${TEAM_CLS[team]}"><h3><span>${TEAM_NAMES[team]}</span><span>${head}${team === SPEC ? '' : g.mode === 'tdm' ? ' kills' : ' tickets'}</span></h3><table class="sb-table"><tr><th>Player</th>${team === SPEC ? '' : '<th>Score</th><th>K</th><th>D</th><th>A</th><th>Rev</th><th>Cap</th>'}<th>Ping</th></tr>`;
+      html += `<div class="sb-team ${['t', 'ct', 's'][g.pt(team)]}"><h3><span>${TEAM_NAMES[team]}</span><span>${head}${team === SPEC ? '' : g.mode === 'tdm' ? ' kills' : ' tickets'}</span></h3><table class="sb-table"><tr><th>Player</th>${team === SPEC ? '' : '<th>Score</th><th>K</th><th>D</th><th>A</th><th>Rev</th><th>Cap</th>'}<th>Ping</th></tr>`;
       for (const p of list) {
         html += `<tr class="${p.id === g.you ? 'me' : ''} ${p.al || team === SPEC || final ? '' : 'dead'}"><td>${team === SPEC ? '' : `<span class="cls" style="background:${CLS_COL[p.cl] || '#888'}">${CLS_LETTER[p.cl] || 'A'}</span>`}${esc(p.n)}${p.b ? '<span class="bot">BOT</span>' : ''}${p.id === g.hostId ? '<span class="bot">HOST</span>' : ''}${p.sq >= 0 && team !== SPEC ? `<span class="bot">${'ABCDEFGH'[p.sq] || ''}</span>` : ''}</td>`;
         if (team !== SPEC) html += `<td>${p.s}</td><td>${p.k}</td><td>${p.d}</td><td>${p.a}</td><td>${p.rv}</td><td>${p.cp}</td>`;
@@ -345,6 +357,7 @@ export class HUD {
     document.body.classList.toggle('deploying', this.deploy.open);
 
     this.renderTop(g, now);
+    this.renderCompass(g);
     if (slowTick) {
       this.renderMates(g);
       if (this.scoreOpen) this.renderScore();
@@ -356,8 +369,10 @@ export class HUD {
     if (me) {
       this.set('hp', me.hp, (v) => {
         el.hpNum.textContent = v; el.hpNum.classList.toggle('low', v <= 25);
-        [...el.hpBar.children].forEach((c, i) => { c.className = v > i * 10 ? `on ${v <= 25 ? 'low' : v <= 50 ? 'mid' : ''}` : ''; });
+        el.hpFill.style.width = `${Math.max(0, Math.min(100, v))}%`; el.hpFill.className = v <= 25 ? 'low' : v <= 50 ? 'mid' : '';
       });
+      const ar = me.ar || 0, maxAr = (CLASSES[me.cls] && CLASSES[me.cls].armor) || 50;
+      this.set('ar', ar + '/' + maxAr, () => { el.arNum.textContent = ar; el.arFill.style.width = `${Math.max(0, Math.min(100, (ar / maxAr) * 100))}%`; });
       this.set('cls', me.cls, (v) => { el.clsName.textContent = (CLASSES[v] ? CLASSES[v].name : '').toUpperCase(); });
       this.renderWeapon(g, me);
       this.renderVehicle(g, me);
@@ -372,40 +387,46 @@ export class HUD {
     this.set('spec', spec ? me.id : 0, () => { el.specbar.classList.toggle('hidden', !spec); });
     if (spec && this.cache.specName !== g.nameOf(me.id)) {
       this.cache.specName = g.nameOf(me.id);
-      el.specbar.innerHTML = `<small>SPECTATING</small><b>${esc(g.nameOf(me.id))}</b><small>Click or <kbd>Space</kbd> for next player${g.myTeam() === SPEC ? ' · <kbd>G</kbd> free camera' : ''}</small>`;
+      el.specbar.innerHTML = `<small>SPECTATING</small><b>${esc(g.nameOf(me.id))}</b><small>Click or <kbd>Space</kbd> for next player${g.myTeam() === SPEC ? ' · <kbd>H</kbd> free camera' : ''}</small>`;
     }
   }
 
+  /** ticket bars: the friendly side (blue) is always on the left, the enemy (red) on the right */
   renderTop(g, now) {
     const el = this.el;
     const mode = g.mode;
     const tix = g.tix;
+    const mine = g.myTeam();
+    const fT = mine === CT ? CT : T, eT = fT === T ? CT : T;        // spectators see Vanguard on the left
     this.maxTix = Math.max(this.maxTix, tix[0] || 0, tix[1] || 0, 1);
-    let s0, s1, bar0, bar1, label;
+    const val = (t) => (tix[t] === undefined || tix[t] < 0 ? '∞' : Math.max(0, Math.ceil(tix[t])));
+    let sF, sE, bF, bE, label;
     if (mode === 'tdm') {
-      s0 = tix[0]; s1 = tix[1]; bar0 = 1 - tix[0] / Math.max(1, g.target); bar1 = 1 - tix[1] / Math.max(1, g.target);
-      label = `First to ${g.target}`;
+      sF = tix[fT]; sE = tix[eT]; bF = tix[fT] / Math.max(1, g.target); bE = tix[eT] / Math.max(1, g.target);
+      label = `Team Deathmatch · first to ${g.target}`;
     } else if (mode === 'rush') {
-      s0 = Math.max(0, Math.ceil(tix[0])); s1 = '∞'; bar0 = tix[0] / this.maxTix; bar1 = 1;
-      label = g.rush ? `Rush · Stage ${g.rush[0] + 1}/${g.rush[1]}` : 'Rush';
+      sF = val(fT); sE = val(eT); bF = tix[fT] < 0 ? 1 : tix[fT] / this.maxTix; bE = tix[eT] < 0 ? 1 : tix[eT] / this.maxTix;
+      label = g.rush ? `Rush · stage ${g.rush[0] + 1}/${g.rush[1]}` : 'Rush';
     } else {
-      s0 = Math.max(0, Math.ceil(tix[0])); s1 = Math.max(0, Math.ceil(tix[1])); bar0 = tix[0] / this.maxTix; bar1 = tix[1] / this.maxTix;
+      sF = val(fT); sE = val(eT); bF = tix[fT] / this.maxTix; bE = tix[eT] / this.maxTix;
       label = 'Conquest';
     }
-    this.set('s0', s0, (v) => { el.scoreT.textContent = v; });
-    this.set('s1', s1, (v) => { el.scoreCT.textContent = v; });
-    el.barT.style.width = `${Math.max(0, Math.min(1, bar0)) * 100}%`;
-    el.barCT.style.width = `${Math.max(0, Math.min(1, bar1)) * 100}%`;
-    let left = Math.max(0, g.timer - (now - g.timerRecv) / 1000);
+    this.set('sF', sF, (v) => { el.scoreF.textContent = v; });
+    this.set('sE', sE, (v) => { el.scoreE.textContent = v; });
+    el.barF.style.width = `${Math.max(0, Math.min(1, bF)) * 100}%`;
+    el.barE.style.width = `${Math.max(0, Math.min(1, bE)) * 100}%`;
+    this.set('nF', mine === SPEC ? TEAM_NAMES[fT].toUpperCase() : 'FRIENDLY', (v) => { el.nameF.textContent = v; });
+    this.set('nE', mine === SPEC ? TEAM_NAMES[eT].toUpperCase() : 'ENEMY', (v) => { el.nameE.textContent = v; });
+    const left = Math.max(0, g.timer - (now - g.timerRecv) / 1000);
     const t = Math.ceil(left);
     this.set('time', `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`, (v) => { el.roundTime.textContent = v; });
     this.set('tlow', left < 60 ? 1 : 0, (v) => el.roundTime.classList.toggle('low', !!v));
     this.set('label', label, (v) => { el.roundLabel.textContent = v; });
-    // flag chips
+    // flag icons
     const flags = g.flagList();
-    const fk = flags.map((f) => `${f.id}${f.owner}${f.contested ? 1 : 0}`).join('|');
+    const fk = flags.map((f) => `${f.id}${g.pt(f.owner)}${f.contested ? 1 : 0}`).join('|');
     this.set('flags', fk, () => {
-      el.flagRow.innerHTML = flags.map((f) => `<div class="fchip ${f.owner === 0 ? 'r' : f.owner === 1 ? 'b' : ''} ${f.contested ? 'c' : ''}" title="${esc(f.name)}">${esc(f.letter)}</div>`).join('');
+      el.flagRow.innerHTML = flags.map((f) => { const po = g.pt(f.owner); return `<div class="fchip ${f.owner < 0 ? '' : po === 0 ? 'r' : 'b'} ${f.contested ? 'c' : ''}" title="${esc(f.name)}">${esc(f.letter)}</div>`; }).join('');
     });
     // objective line
     let obj = '';
@@ -420,6 +441,48 @@ export class HUD {
     this.set('obj', obj, (v) => { el.objective.textContent = v; el.objective.classList.toggle('hidden', !v); });
   }
 
+  /** heading strip with cardinal points and the objectives on it */
+  renderCompass(g) {
+    const c = this.compassCtx, cv = this.el.compass;
+    if (!c) return;
+    const W = cv.width, H = cv.height, r = g.renderer;
+    c.clearRect(0, 0, W, H);
+    if (!g.alive || !g.me) return;
+    const yaw = r && r.yaw !== undefined ? r.yaw : g.yaw;
+    const bearing = yaw + Math.PI / 2;                       // 0 = north (up the map), clockwise
+    const span = Math.PI * 0.62;                             // visible arc
+    const X = (a) => { let d = a - bearing; d = Math.atan2(Math.sin(d), Math.cos(d)); return d; };
+    const px = (d) => W / 2 + (d / (span / 2)) * (W / 2 - 12);
+    c.font = '800 12px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    for (let deg = 0; deg < 360; deg += 5) {
+      const d = X(deg * Math.PI / 180);
+      if (Math.abs(d) > span / 2) continue;
+      const x = px(d), fade = 1 - Math.pow(Math.abs(d) / (span / 2), 2);
+      c.globalAlpha = 0.35 + 0.65 * fade;
+      const card = deg % 45 === 0, big = deg % 15 === 0;
+      c.fillStyle = '#e8edf5';
+      if (card) { c.font = '800 13px system-ui, sans-serif'; c.fillText(['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][deg / 45], x, 12); }
+      else if (big) { c.fillRect(x - 0.5, 4, 1.5, 9); }
+      else c.fillRect(x - 0.5, 8, 1, 5);
+    }
+    c.globalAlpha = 1;
+    // objectives
+    const v = g.viewer();
+    if (v) {
+      for (const f of g.flagList()) {
+        const d = X(Math.atan2(f.x - v.x, -(f.y - v.y)));
+        if (Math.abs(d) > span / 2) continue;
+        const po = g.pt(f.owner);
+        c.fillStyle = f.owner < 0 ? '#e6e9ec' : po === 0 ? '#e0523a' : '#3f86e8';
+        const x = px(d); c.beginPath(); c.moveTo(x, 30); c.lineTo(x - 8, 20); c.lineTo(x + 8, 20); c.closePath(); c.fill();
+        c.fillStyle = '#0b0e14'; c.font = '900 10px system-ui, sans-serif'; c.fillText(f.letter, x, 24);
+      }
+    }
+    // centre caret
+    c.fillStyle = '#ffb23a'; c.beginPath(); c.moveTo(W / 2, 20); c.lineTo(W / 2 - 5, 30); c.lineTo(W / 2 + 5, 30); c.closePath(); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.22)'; c.lineWidth = 1; c.beginPath(); c.moveTo(6, 15.5); c.lineTo(W - 6, 15.5); c.stroke();
+  }
+
   renderMates(g) {
     const sq = g.mySquad();
     const team = g.me ? (g.roster.get(g.me.id) || {}).tm : g.myTeam();
@@ -429,10 +492,10 @@ export class HUD {
       const tup = latest ? latest.players.get(p.id) : null;
       const hp = tup && p.al ? tup[4] : 0;
       const need = !p.al && g.corpses.some((c) => c.id === p.id) ? '<span class="rv">✚</span>' : '';
-      const veh = p.vh ? '<span style="color:var(--dim);font-size:10px">▣</span>' : '';
-      return `<div class="mate ${team === T ? 't' : ''} ${p.al ? '' : 'dead'}"><span class="cl" style="background:${CLS_COL[p.cl] || '#888'}">${CLS_LETTER[p.cl] || 'A'}</span><span class="nm">${esc(p.n)}</span>${need}${veh}<span class="hpbar"><i style="width:${p.vh ? 100 : hp}%"></i></span></div>`;
+      const veh = p.vh ? '<span class="vh">▣</span>' : '';
+      return `<div class="mate ${p.id === g.you ? 'me' : ''} ${p.al ? '' : 'dead'}"><span class="cl" style="background:${CLS_COL[p.cl] || '#888'}">${CLS_LETTER[p.cl] || 'A'}</span><span class="nm">${esc(p.n)}</span><span class="rl">${CLS_NAME[p.cl] || ''}</span>${need}${veh}<span class="hpbar"><i style="width:${p.vh ? 100 : hp}%"></i></span></div>`;
     }).join('');
-    const html = `<div class="sqhead">Squad ${'ABCDEFGH'[sq] || ''}</div>${rows}`;
+    const html = `<div class="sqhead">${esc((SQUAD_NAMES[sq] || '').toUpperCase())}</div>${rows}`;
     if (html !== this.cache.matesHtml) { this.cache.matesHtml = html; this.el.mates.innerHTML = html; }
   }
 
@@ -442,41 +505,42 @@ export class HUD {
     const gadIdx = held >= HELD_GADGET_BASE ? held - HELD_GADGET_BASE : -1;
     const gi = held >= HELD_GREN_BASE && held < HELD_GADGET_BASE ? held - HELD_GREN_BASE : -1;
     const w = held < HELD_GREN_BASE ? g.heldWeapon(me) : null;
-    let clipTxt = '', resTxt = '', name = '', att = '';
+    let clipTxt = '', resTxt = '', name = '', att = '', mode = '', img = '';
     if (w && w.kind !== 'knife') {
-      if (me.alt && me.altc) { clipTxt = me.altc[0]; resTxt = '/ ' + me.altc[1]; name = w.alt === 'ugl' ? '40 mm Grenade' : 'Masterkey'; }
-      else { clipTxt = g.predictedClip(); resTxt = '/ ' + me.res; name = w.name; }
-      if (w.att) att = [w.att.optic !== 'iron' && w.att.optic !== w.defOptic ? ATTACH.optic[w.att.optic] : null, ATTACH.barrel[w.att.barrel], ATTACH.under[w.att.under], ATTACH.mag[w.att.mag]].filter((a) => a && a.name && !['Standard Muzzle', 'None', 'Standard Ammo', 'Iron Sights'].includes(a.name)).map((a) => a.name).join(' · ');
-      if (w.att && w.att.optic === w.defOptic && w.att.optic !== 'iron') att = ATTACH.optic[w.att.optic].name + (att ? ' · ' + att : '');
-    } else if (w) name = w.name;
+      clipTxt = g.predictedClip(); resTxt = '/' + me.res; name = w.name; mode = w.mode || '';
+      img = gunIcon(w.id, w.kind, w.att, 420, 170);
+      if (w.att) att = [ATTACH.optic[w.att.optic], ATTACH.barrel[w.att.barrel], ATTACH.under[w.att.under], ATTACH.mag[w.att.mag]].filter((a) => a && a.no).map((a) => a.name).join(' · ');
+    } else if (w) { name = w.name; mode = 'MELEE'; }
     else if (gi >= 0) { clipTxt = me.gr[gi]; name = GRENADE[GREN_ORDER[gi]].name; }
     else if (gadIdx >= 0) {
       const gd = GADGET_LIST[gadIdx];
       name = gd.name;
-      if (gd.kind === 'launcher') { clipTxt = me.clip; resTxt = '/ ' + me.res; } else if (gd.charges > 0) clipTxt = me.clip;
+      if (gd.kind === 'launcher') { clipTxt = me.clip; resTxt = '/' + me.res; img = gunIcon(gd.id, 'launcher', null, 420, 170); mode = 'ROCKET'; } else if (gd.charges > 0) clipTxt = me.clip;
     }
-    this.set('clip', String(clipTxt), (v) => { el.clip.textContent = v; el.clip.classList.toggle('low', w && w.kind !== 'knife' && Number(v) <= Math.ceil(w.mag * 0.25)); });
+    this.set('clip', String(clipTxt), (v) => { el.clip.textContent = v; el.clip.classList.toggle('low', !!(w && w.kind !== 'knife' && Number(v) <= Math.ceil(w.mag * 0.25))); });
     this.set('res', resTxt, (v) => { el.reserve.textContent = v; });
     this.set('wn', name, (v) => { el.weaponName.textContent = v; });
+    this.set('wmode', mode, (v) => { el.fireMode.textContent = v; });
     this.set('att', att, (v) => { el.weaponAtt.textContent = v; });
+    this.set('wimg', img, (v) => { el.weaponImg.src = v || ''; el.weaponImg.style.display = v ? 'block' : 'none'; });
     const key = [me.pw, me.sw, me.sel, me.gr.join(','), me.gsel, me.g.map((x) => (x ? x.join(':') : '-')).join(','), g.kit ? g.kit.primary.id + g.kit.secondary.id : ''].join('|');
     this.set('slots', key, () => {
       const parts = [];
-      const kit = g.kit;
+      const tile = (k, label, count, on, empty, sub) => `<div class="tile ${on ? 'sel' : ''} ${empty ? 'empty' : ''}"><kbd>${k}</kbd><span class="tl">${esc(label)}</span>${count !== '' ? `<b>${esc(count)}</b>` : ''}${sub || ''}</div>`;
       const pn = me.pw >= 0 ? WEAPON_LIST[me.pw].name : '—';
       const sn = me.sw >= 0 ? WEAPON_LIST[me.sw].name : '—';
-      parts.push(`<div class="slot ${me.sel === 'primary' ? 'sel' : ''}"><kbd>1</kbd>${esc(pn)}</div>`);
-      parts.push(`<div class="slot ${me.sel === 'secondary' ? 'sel' : ''}"><kbd>2</kbd>${esc(sn)}</div>`);
+      parts.push(tile('1', pn, '', me.sel === 'primary', false));
+      parts.push(tile('2', sn, '', me.sel === 'secondary', false));
       me.g.forEach((gd, i) => {
         if (!gd) return;
         const def = GADGET_LIST[gd[0]];
-        const cnt = def.kind === 'launcher' ? gd[1] + gd[2] : def.charges > 0 ? gd[1] : '';
-        parts.push(`<div class="slot ${me.sel === 'gadget' + i ? 'sel' : ''} ${def.charges > 0 && gd[1] + gd[2] === 0 ? 'empty' : ''}"><kbd>${3 + i}</kbd>${esc(def.name)}${cnt !== '' ? ' ×' + cnt : ''}</div>`);
+        const cnt = def.kind === 'launcher' ? gd[1] + gd[2] : def.charges > 0 ? '×' + gd[1] : '';
+        parts.push(tile(String(3 + i), def.name, cnt, me.sel === 'gadget' + i, def.charges > 0 && gd[1] + gd[2] === 0));
       });
+      const total = me.gr.reduce((a, b) => a + b, 0);
       const dots = GREN_ORDER.map((k, i) => Array.from({ length: me.gr[i] }, () => `<i style="background:${GREN_HEX[k]};${me.sel === 'grenade' && me.gsel === i ? 'outline:2px solid #fff' : ''}"></i>`).join('')).join('');
-      parts.push(`<div class="slot ${me.sel === 'grenade' ? 'sel' : ''} ${dots ? '' : 'empty'}"><kbd>5</kbd><span class="gr">${dots || '—'}</span></div>`);
-      parts.push(`<div class="slot ${me.sel === 'knife' ? 'sel' : ''}"><kbd>6</kbd>Knife</div>`);
-      void kit;
+      parts.push(tile('G', me.gsel >= 0 && GRENADE[GREN_ORDER[me.gsel]] ? GRENADE[GREN_ORDER[me.gsel]].name : 'Grenade', total ? '×' + total : '', me.sel === 'grenade', !total, `<span class="gr">${dots}</span>`));
+      parts.push(tile('X', 'Knife', '', me.sel === 'knife', false));
       this.el.slots.innerHTML = parts.join('');
     });
   }

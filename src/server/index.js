@@ -18,7 +18,7 @@ const SRC = path.join(__dirname, '..');
 const LANDING_DIR = path.join(SRC, 'landing');
 // One process hosts several games. Each has its own client bundle, shared rules, room manager and WebSocket path.
 const GAMES = {
-  bf: { name: 'Frontline: Voxel Warfare', client: path.join(SRC, 'client'), shared: path.join(SRC, 'shared'), Room: bfRoom.Room, sanitizeSettings: bfRoom.sanitizeSettings, defaults: bfRoom.DEFAULT_SETTINGS, mapList: bfMaps },
+  bf: { name: 'Voxel Frontline', client: path.join(SRC, 'client'), shared: path.join(SRC, 'shared'), Room: bfRoom.Room, sanitizeSettings: bfRoom.sanitizeSettings, defaults: bfRoom.DEFAULT_SETTINGS, mapList: bfMaps },
   cs: { name: 'CS Top-Down', client: path.join(SRC, 'cs', 'client'), shared: path.join(SRC, 'cs', 'shared'), Room: csRoom.Room, sanitizeSettings: csRoom.sanitizeSettings, defaults: csRoom.DEFAULT_SETTINGS, mapList: csMaps },
 };
 const PORT = Number(process.env.PORT) || 3000;
@@ -277,7 +277,7 @@ setInterval(() => {
 setInterval(() => { for (const mg of Object.values(managers)) mg.sweep(); }, 10000);
 
 server.listen(PORT, HOST, () => {
-  console.log(`\n  Frontline: Voxel Warfare server ready on port ${PORT}\n`);
+  console.log(`\n  Voxel Frontline server ready on port ${PORT}\n`);
   console.log(`  Local:    http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {
     for (const i of list || []) if (i.family === 'IPv4' && !i.internal) console.log(`  Network:  http://${i.address}:${PORT}   <- friends on your Wi-Fi/LAN use this`);

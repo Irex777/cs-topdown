@@ -1,13 +1,10 @@
 // Deploy screen: pick a class, weapons and attachments, choose where to spawn on the tactical map.
-import {
-  CLASSES, CLASS_ORDER, SIDEARMS, WEAPONS, ATTACH, ATTACH_SLOT_NAMES, GADGETS, attachOptions, defaultLoadout, sanitizeLoadout, resolveWeapon,
-} from '../../shared/weapons.js';
-import { GRENADE, GREN_ORDER, T, CT, SPEC } from '../../shared/constants.js';
+import { defaultLoadout, sanitizeLoadout } from '../../shared/weapons.js';
+import { T, CT, SPEC } from '../../shared/constants.js';
+import { KitEditor } from './kit.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const KIND_NAMES = { rifle: 'Assault rifle', smg: 'PDW / carbine', lmg: 'Light machine gun', sniper: 'Sniper rifle', dmr: 'Marksman rifle', shotgun: 'Shotgun', pistol: 'Pistol' };
-const SLOT_ORDER = ['optic', 'barrel', 'under', 'mag'];
 
 export class DeployScreen {
   constructor(app, game, net) {
@@ -38,7 +35,7 @@ export class DeployScreen {
   show(editOnly = false) {
     this.editOnly = editOnly;
     this.open = true;
-    this.built = false;
+    this.built = false; this.kitEditor = null;
     this.el.classList.remove('hidden');
     document.body.classList.add('deploying');
     this.build();
@@ -56,7 +53,7 @@ export class DeployScreen {
     const g = this.game;
     const team = g.myTeam();
     this.el.innerHTML = `<div class="dp">
-      <div class="dp-head"><h2>${this.editOnly ? 'Loadout' : 'Deploy'}</h2><span style="color:var(--dim);font-size:12px">${esc(g.map ? g.map.name : '')} · ${esc(({ conquest: 'Conquest', rush: 'Rush', tdm: 'Team Deathmatch' })[g.mode] || '')} · <b style="color:${team === T ? 'var(--t)' : 'var(--ct)'}">${team === T ? 'Crimson' : team === CT ? 'Azure' : ''}</b></span><span class="rev" id="dpRev"></span><span class="timer" id="dpTimer"></span></div>
+      <div class="dp-head"><h2>${this.editOnly ? 'Loadout' : 'Deploy'}</h2><span style="color:var(--dim);font-size:12px">${esc(g.map ? g.map.name : '')} · ${esc(({ conquest: 'Conquest', rush: 'Rush', tdm: 'Team Deathmatch' })[g.mode] || '')} · <b style="color:var(--ct)">${team === T ? 'Vanguard' : team === CT ? 'Bulwark' : ''}</b></span><span class="rev" id="dpRev"></span><span class="timer" id="dpTimer"></span></div>
       <div class="dp-map"><div class="cap"><span>Choose a spawn point</span><span id="dpSel" style="color:var(--accent)"></span></div><canvas id="dpMap" width="900" height="600"></canvas><div class="dp-spawns" id="dpSpawns"></div></div>
       <div class="dp-kit" id="dpKit"></div>
       <div class="dp-foot"><span class="info" id="dpInfo">${this.editOnly ? 'Changes apply the next time you spawn.' : ''}</span>${this.editOnly ? '<button class="btn" id="dpClose">Close <kbd>L</kbd></button>' : ''}<button class="btn green big" id="dpGo">${this.editOnly ? 'Save' : 'Deploy'}</button></div>
@@ -75,64 +72,17 @@ export class DeployScreen {
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
   }
 
-  weaponStats(w) {
-    const bar = (v, max) => `<div class="bar"><i style="width:${Math.min(100, (v / max) * 100)}%"></i></div>`;
-    const dmg = w.pellets > 1 ? `${Math.round(w.dmg)}×${w.pellets}` : Math.round(w.dmg);
-    const range = Math.round(Math.pow(w.rangeMod, 800 / 345) * 100);
-    return `<div class="stats">
-      <div class="bs"><div class="k">Damage</div><div class="v">${dmg}</div>${bar(w.dmg * w.pellets, 130)}</div>
-      <div class="bs"><div class="k">Rate</div><div class="v">${Math.round(w.rpm)}</div>${bar(w.rpm, 1000)}</div>
-      <div class="bs"><div class="k">Magazine</div><div class="v">${w.mag}</div>${bar(w.mag, 100)}</div>
-      <div class="bs"><div class="k">Range</div><div class="v">${range}%</div>${bar(range, 100)}</div>
-      <div class="bs"><div class="k">Mobility</div><div class="v">${Math.round(w.speed * 100)}%</div>${bar(w.speed, 1)}</div></div>`;
-  }
-
-  attachRows(id, att, tab) {
-    const w = WEAPONS[id];
-    let html = '';
-    for (const slot of SLOT_ORDER) {
-      const opts = attachOptions(w, slot);
-      if (opts.length <= 1) continue;
-      html += `<div class="att-row"><div class="k">${ATTACH_SLOT_NAMES[slot]}</div><div class="chips">${opts.map((o) => `<button class="chip ${att[slot] === o ? 'on' : ''}" data-att="${tab}:${slot}:${o}" data-tip="${esc(ATTACH[slot][o].desc || '')}">${esc(ATTACH[slot][o].name)}</button>`).join('')}</div></div>`;
-    }
-    return html;
-  }
-
   renderKit() {
-    const lo = this.lo = sanitizeLoadout(this.lo);
-    const c = CLASSES[lo.cls];
-    const pw = resolveWeapon(lo.primary.id, lo.primary.att), sw = resolveWeapon(lo.secondary.id, lo.secondary.att);
-    const cur = this.tab === 'secondary' ? sw : pw;
-    const classes = CLASS_ORDER.map((k) => `<div class="cls ${lo.cls === k ? 'on' : ''}" data-cls="${k}"><div class="ic" style="background:${CLASSES[k].color}">${CLASSES[k].icon}</div><b>${CLASSES[k].name}</b><small>${esc(CLASSES[k].desc)}</small></div>`).join('');
-    const gad = (slot) => c.gadgets[slot].map((id) => `<button class="chip ${lo.gadgets[slot] === id ? 'on' : ''}" data-gad="${slot}:${id}" data-tip="${esc(GADGETS[id].desc)}">${esc(GADGETS[id].name)}</button>`).join('');
-    const gren = GREN_ORDER.map((k) => `<button class="chip ${lo.gren === k ? 'on' : ''}" data-gren="${k}">${esc(GRENADE[k].name)}</button>`).join('');
-    const weaponChips = (list, key) => list.map((id) => `<button class="chip ${lo[key].id === id ? 'on' : ''}" data-wpn="${key}:${id}">${esc(WEAPONS[id].name)}</button>`).join('');
-    $('dpKit').innerHTML = `
-      <div class="dp-box"><h3>Class</h3><div class="classes">${classes}</div></div>
-      <div class="dp-box"><h3><span style="flex:1">Weapons</span><span class="chips"><button class="chip ${this.tab === 'primary' ? 'on' : ''}" data-tab="primary">Primary</button><button class="chip ${this.tab === 'secondary' ? 'on' : ''}" data-tab="secondary">Sidearm</button></span></h3>
-        <div class="chips">${this.tab === 'primary' ? weaponChips(c.primaries, 'primary') : weaponChips(SIDEARMS, 'secondary')}</div>
-        <div class="att-desc" style="margin-top:6px"><b>${esc(cur.name)}</b> · ${esc(KIND_NAMES[cur.kind] || cur.kind)}${cur.alt ? ' · alt fire ' + (cur.alt === 'ugl' ? '40 mm grenade' : 'masterkey') : ''}${cur.suppressed ? ' · suppressed' : ''}${cur.scope ? ' · ' + [0, '4x', '8x', '12x'][cur.scope] + ' optic' : ''}</div>
-        ${this.weaponStats(cur)}
-        <div style="margin-top:8px">${this.attachRows(this.tab === 'primary' ? lo.primary.id : lo.secondary.id, this.tab === 'primary' ? lo.primary.att : lo.secondary.att, this.tab)}</div>
-        <div class="att-desc" id="dpTip">Hover an attachment to see what it does.</div></div>
-      <div class="dp-box"><h3>Gadgets</h3>
-        <div class="att-row"><div class="k">Gadget 1 <kbd>3</kbd></div><div class="chips">${gad(0)}</div></div>
-        <div class="att-row"><div class="k">Gadget 2 <kbd>4</kbd></div><div class="chips">${gad(1)}</div></div>
-        <div class="att-row"><div class="k">Grenade <kbd>5</kbd></div><div class="chips">${gren}</div></div></div>`;
-    $('dpKit').onmouseover = (e) => { const b = e.target.closest('[data-tip]'); if (b && $('dpTip')) $('dpTip').textContent = b.dataset.tip || ''; };
+    if (!this.kitEditor) this.kitEditor = new KitEditor($('dpKit'), { onChange: (lo) => { this.lo = lo; this.save(); } });
+    else this.kitEditor.root = $('dpKit');
+    this.kitEditor.set(this.lo);
   }
 
   onClick(e) {
-    const t = e.target.closest('button, .cls, .sp-btn');
+    const t = e.target.closest('button, .sp-btn');
     if (!t) return;
     if (t.id === 'dpGo') return this.go();
     if (t.id === 'dpClose') return this.hide();
-    if (t.dataset.cls) { this.lo = defaultLoadout(t.dataset.cls); this.tab = 'primary'; this.save(); this.renderKit(); return; }
-    if (t.dataset.tab) { this.tab = t.dataset.tab; this.renderKit(); return; }
-    if (t.dataset.wpn) { const [key, id] = t.dataset.wpn.split(':'); this.lo[key] = { id, att: {} }; this.save(); this.renderKit(); return; }
-    if (t.dataset.att) { const [tab, slot, id] = t.dataset.att.split(':'); const target = this.lo[tab === 'primary' ? 'primary' : 'secondary']; target.att = { ...target.att, [slot]: id }; this.save(); this.renderKit(); return; }
-    if (t.dataset.gad) { const [slot, id] = t.dataset.gad.split(':'); this.lo.gadgets[Number(slot)] = id; this.save(); this.renderKit(); return; }
-    if (t.dataset.gren) { this.lo.gren = t.dataset.gren; this.save(); this.renderKit(); return; }
     if (t.dataset.spk) { const [k, id] = t.dataset.spk.split(':'); const o = this.game.spawnOpts.find((q) => q.k === k && String(q.id) === id); if (o && o.ok) { this.sel = { k, id: o.id }; this.paint(); } }
   }
 
@@ -177,11 +127,10 @@ export class DeployScreen {
     ctx.fillStyle = '#05070b'; ctx.fillRect(0, 0, c.width, c.height);
     ctx.drawImage(g.terrain.thumb, p0.ox, p0.oy, m.width * p0.k, m.height * p0.k);
     ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(p0.ox, p0.oy, m.width * p0.k, m.height * p0.k);
-    const myTeam = g.myTeam();
     // flags
     for (const f of g.flagList()) {
       const p = this.toCanvas(f.x, f.y);
-      ctx.fillStyle = f.owner === 0 ? '#c4472f' : f.owner === 1 ? '#3f7fd8' : '#cfd3d8';
+      const po = g.pt(f.owner); ctx.fillStyle = po === 0 ? '#c4472f' : po === 1 ? '#3f7fd8' : '#cfd3d8';
       ctx.fillRect(p.x - 10, p.y - 10, 20, 20);
       ctx.fillStyle = f.owner < 0 ? '#101418' : '#fff'; ctx.font = '900 13px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText(f.letter, p.x, p.y + 1);
@@ -192,7 +141,7 @@ export class DeployScreen {
       if (!p.mate) continue;
       const q = this.toCanvas(p.x, p.y);
       const sq = (g.roster.get(p.id) || {}).sq === g.mySquad();
-      ctx.fillStyle = sq ? '#7dff9a' : (myTeam === T ? '#ff8a72' : '#7fb0ff'); ctx.fillRect(q.x - 3, q.y - 3, 6, 6);
+      ctx.fillStyle = sq ? '#7dff9a' : '#7fb0ff'; ctx.fillRect(q.x - 3, q.y - 3, 6, 6);
     }
     // spawn options
     for (const o of g.spawnOpts) {
@@ -201,7 +150,7 @@ export class DeployScreen {
       ctx.globalAlpha = o.ok ? 1 : 0.35;
       if (o.k === 'squad') { ctx.fillStyle = '#7dff9a'; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, 6.3); ctx.fill(); ctx.strokeStyle = '#0b0e14'; ctx.lineWidth = 2; ctx.stroke(); }
       else if (o.k === 'beacon') { ctx.fillStyle = '#7dff9a'; ctx.beginPath(); ctx.moveTo(p.x, p.y - 10); ctx.lineTo(p.x + 8, p.y + 6); ctx.lineTo(p.x - 8, p.y + 6); ctx.closePath(); ctx.fill(); }
-      else if (o.k === 'base' || o.k === 'area') { ctx.fillStyle = myTeam === T ? '#c4472f' : '#3f7fd8'; ctx.fillRect(p.x - 12, p.y - 12, 24, 24); ctx.fillStyle = '#fff'; ctx.font = '900 12px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('HQ', p.x, p.y + 1); }
+      else if (o.k === 'base' || o.k === 'area') { ctx.fillStyle = '#3f7fd8'; ctx.fillRect(p.x - 12, p.y - 12, 24, 24); ctx.fillStyle = '#fff'; ctx.font = '900 12px ui-monospace, monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('HQ', p.x, p.y + 1); }
       ctx.globalAlpha = 1;
       if (on) { ctx.strokeStyle = '#ffd95a'; ctx.lineWidth = 3; ctx.setLineDash([6, 4]); ctx.strokeRect(p.x - 17, p.y - 17, 34, 34); ctx.setLineDash([]); }
       else if (o.ok && (o.k === 'flag')) { ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 2; ctx.strokeRect(p.x - 13, p.y - 13, 26, 26); }
