@@ -4,82 +4,259 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Choose your game</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23131a26'/%3E%3Cpath d='M16 5l9 5v10l-9 5-9-5V10z' fill='%23ffd95a'/%3E%3Cpath d='M16 5l9 5-9 5-9-5z' fill='%23fff2b0'/%3E%3Cpath d='M16 15v10l-9-5V10z' fill='%23d9a92e'/%3E%3C/svg%3E">
 <style>
   :root { --bg: #0a0d13; --text: #eef2f8; --dim: #9aa6b8; --font: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", "Courier New", monospace; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { min-height: 100%; background: var(--bg); color: var(--text); font-family: var(--font); }
-  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px 16px; gap: 28px;
-    background: radial-gradient(1100px 500px at 50% -10%, #1b2740 0%, transparent 70%), var(--bg); }
-  h1 { font-size: clamp(20px, 4vw, 30px); letter-spacing: 0.18em; text-transform: uppercase; text-align: center; }
-  h1 small { display: block; color: var(--dim); font-size: 12px; letter-spacing: 0.3em; margin-bottom: 8px; }
-  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 420px)); gap: 24px; width: 100%; justify-content: center; }
-  a.card { display: flex; flex-direction: column; gap: 14px; padding: 22px; text-decoration: none; color: inherit; border: 3px solid var(--c); background: rgba(12, 16, 24, 0.92);
-    box-shadow: 0 8px 0 rgba(0, 0, 0, 0.55), 0 0 0 0 var(--c); transition: transform .1s, box-shadow .1s; }
-  a.card:hover, a.card:focus-visible { transform: translateY(-4px); box-shadow: 0 12px 0 rgba(0, 0, 0, 0.55), 0 0 40px -6px var(--c); outline: none; }
-  .art { height: 150px; border: 2px solid rgba(255, 255, 255, 0.14); position: relative; overflow: hidden; image-rendering: pixelated; }
-  .bf .art { background:
-    linear-gradient(135deg, transparent 0 60%, rgba(0,0,0,.25) 60%),
-    repeating-linear-gradient(0deg, #4f8a3c 0 16px, #467e35 16px 32px); }
-  .bf .art i { position: absolute; display: block; box-shadow: 6px 6px 0 rgba(0, 0, 0, 0.35); }
-  .cs .art { background: #23262b; background-image: repeating-linear-gradient(0deg, rgba(255,255,255,.05) 0 1px, transparent 1px 24px), repeating-linear-gradient(90deg, rgba(255,255,255,.05) 0 1px, transparent 1px 24px); }
-  .cs .art i { position: absolute; display: block; }
-  .name { font-size: 22px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c); }
-  .tag { font-size: 12px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--dim); margin-top: -8px; }
-  ul { list-style: none; display: grid; gap: 6px; font-size: 13px; line-height: 1.4; color: #cfd6e2; }
-  ul li::before { content: "■ "; color: var(--c); font-size: 10px; }
-  .play { margin-top: auto; padding: 12px; text-align: center; font-weight: 900; letter-spacing: 0.14em; text-transform: uppercase; background: var(--c); color: #16110a; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 36px 16px; gap: 30px;
+    background: radial-gradient(1100px 520px at 50% -12%, #22345a 0%, transparent 70%), radial-gradient(700px 400px at 90% 110%, #3a2414 0%, transparent 70%), var(--bg); }
+  h1 { font-size: clamp(22px, 4vw, 34px); letter-spacing: 0.16em; text-transform: uppercase; text-align: center; text-shadow: 0 4px 0 rgba(0, 0, 0, 0.5); }
+  h1 small { display: block; color: var(--dim); font-size: 12px; letter-spacing: 0.32em; margin-bottom: 10px; text-shadow: none; }
+  .cards { display: grid; grid-template-columns: repeat(2, minmax(0, 470px)); gap: 28px; width: 100%; justify-content: center; }
+
+  a.card { position: relative; display: flex; flex-direction: column; text-decoration: none; color: inherit; border: 3px solid var(--c); background: #0e131c;
+    box-shadow: 0 8px 0 rgba(0, 0, 0, 0.55), 0 0 0 0 var(--c); transition: transform .12s, box-shadow .12s; overflow: hidden; }
+  a.card:hover, a.card:focus-visible { transform: translateY(-5px); box-shadow: 0 13px 0 rgba(0, 0, 0, 0.55), 0 0 46px -8px var(--c); outline: none; }
+  .artwrap { position: relative; }
+  .art { position: relative; aspect-ratio: 16 / 9; overflow: hidden; border-bottom: 3px solid var(--c); background: #111; }
+  .art svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; transition: transform .35s ease; }
+  a.card:hover .art svg { transform: scale(1.045); }
+  .art::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to bottom, transparent 55%, rgba(8, 11, 17, 0.75)); pointer-events: none; }
+  .emblem { position: absolute; left: 20px; bottom: -34px; z-index: 2; width: 74px; height: 74px; border: 3px solid var(--c); background: #0e131c; box-shadow: 0 5px 0 rgba(0, 0, 0, 0.55); }
+  .emblem svg { width: 100%; height: 100%; display: block; }
+  .body { position: relative; padding: 18px 22px 22px; display: flex; flex-direction: column; gap: 12px; flex: 1; }
+  .head { padding-left: 90px; min-height: 40px; margin-top: -4px; }
+  .name { font-size: 21px; font-weight: 900; letter-spacing: 0.07em; text-transform: uppercase; color: var(--c); line-height: 1.15; }
+  .tag { font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--dim); margin-top: 5px; }
+  .desc { font-size: 13px; line-height: 1.5; color: #cfd6e2; }
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px 5px 7px; font-size: 11px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase; color: #e6ebf3;
+    background: rgba(255, 255, 255, 0.06); border: 2px solid rgba(255, 255, 255, 0.13); }
+  .chip svg { width: 16px; height: 16px; fill: var(--c); flex: none; }
   .live { font-size: 12px; color: var(--dim); min-height: 1em; }
+  .play { margin-top: auto; padding: 13px; text-align: center; font-weight: 900; letter-spacing: 0.16em; text-transform: uppercase; background: var(--c); color: #16110a; box-shadow: inset 0 -4px 0 rgba(0, 0, 0, 0.22); }
+  a.card:hover .play { filter: brightness(1.08); }
   .bf { --c: #ffd95a; } .cs { --c: #ff9a3c; }
   footer { color: var(--dim); font-size: 12px; text-align: center; }
-  @media (max-width: 900px) { .cards { grid-template-columns: minmax(0, 480px); } }
+  @media (max-width: 1000px) { .cards { grid-template-columns: minmax(0, 520px); } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="i-tank" viewBox="0 0 24 24"><path d="M3 15h18v4H3z"/><path d="M6 10h9v5H6z"/><path d="M15 11.5h8v2h-8z"/></symbol>
+    <symbol id="i-heli" viewBox="0 0 24 24"><path d="M3 5h18v2H3z"/><path d="M11 7h2v2h-2z"/><path d="M5 9h11v6H5z"/><path d="M16 10.5h6v2h-6z"/><path d="M5 17h12v1.6H5z"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 3h2v18H5z"/><path d="M7 4h12l-3 4 3 4H7z"/></symbol>
+    <symbol id="i-cross" viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6z"/></symbol>
+    <symbol id="i-bomb" viewBox="0 0 24 24"><circle cx="10.5" cy="14.5" r="7"/><path d="M15 6l3-3 3 3-3 3z"/><path d="M14 8l2 2-1.5 1.5-2-2z"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path fill-rule="evenodd" d="M12 5C6 5 2 12 2 12s4 7 10 7 10-7 10-7-4-7-10-7zm0 11a4 4 0 110-8 4 4 0 010 8z"/></symbol>
+    <symbol id="i-gun" viewBox="0 0 24 24"><path d="M2 9h15v3.5H9.5L8.5 19H5l1-6.5H2z"/><path d="M17 8h6v2h-6z"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="8" cy="7" r="3.2"/><path d="M2 20c0-4 2.5-7 6-7s6 3 6 7z"/><circle cx="17" cy="8.5" r="2.6"/><path d="M14.5 14.2c.8-.5 1.6-.7 2.5-.7 3 0 5 2.5 5 6.5h-6.5c0-2.6-.4-4.4-1-5.8z"/></symbol>
+    <symbol id="i-cam" viewBox="0 0 24 24"><path d="M2 7h14v10H2z"/><path d="M16 10l6-3v10l-6-3z"/></symbol>
+  </defs>
+</svg>
+
 <h1><small>Pick a game</small>What are we playing?</h1>
 <div class="cards">
   <a class="card bf" href="/bf/" id="bf">
-    <div class="art" aria-hidden="true">
-      <i style="left:14%;top:26%;width:70px;height:46px;background:#a9584a"></i>
-      <i style="left:58%;top:52%;width:92px;height:40px;background:#9a9a96"></i>
-      <i style="left:38%;top:18%;width:34px;height:34px;background:#3d7c38"></i>
-      <i style="left:76%;top:16%;width:30px;height:60px;background:#28629f"></i>
-      <i style="left:22%;top:66%;width:56px;height:26px;background:#5a6f42"></i>
+    <div class="artwrap"><div class="art"><svg id="artBf" viewBox="0 0 480 270" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg></div>
+    <div class="emblem"><svg id="emBf" viewBox="0 0 72 72" aria-hidden="true"></svg></div></div>
+    <div class="body">
+      <div class="head"><div class="name">Frontline: Voxel Warfare</div><div class="tag">Combined arms · 3D third person</div></div>
+      <div class="desc">Huge destructible maps, tanks and helicopters, squads and revives. Follow your soldier from behind the shoulder and level the skyline.</div>
+      <div class="chips">
+        <span class="chip"><svg><use href="#i-flag"/></svg>Conquest · Rush · TDM</span>
+        <span class="chip"><svg><use href="#i-tank"/></svg>Tanks &amp; boats</span>
+        <span class="chip"><svg><use href="#i-heli"/></svg>Helicopters</span>
+        <span class="chip"><svg><use href="#i-bomb"/></svg>Full destruction</span>
+        <span class="chip"><svg><use href="#i-cross"/></svg>4 classes</span>
+        <span class="chip"><svg><use href="#i-people"/></svg>16 v 16</span>
+      </div>
+      <div class="live" id="bfLive"></div>
+      <div class="play">Play Frontline ▶</div>
     </div>
-    <div class="name">Frontline: Voxel Warfare</div>
-    <div class="tag">Combined-arms battles · 3D third-person voxel</div>
-    <ul>
-      <li>Big destructible maps, Conquest / Rush / Team Deathmatch</li>
-      <li>Tanks, jeeps, APCs, boats and helicopters</li>
-      <li>Chase camera behind your soldier, tank or helicopter</li>
-      <li>4 classes, attachments, revives and squads</li>
-      <li>Up to 16 vs 16 with bots filling every slot</li>
-    </ul>
-    <div class="live" id="bfLive"></div>
-    <div class="play">Play Frontline ▶</div>
   </a>
   <a class="card cs" href="/cs/" id="cs">
-    <div class="art" aria-hidden="true">
-      <i style="left:12%;top:20%;width:60px;height:12px;background:#6b5b45"></i>
-      <i style="left:12%;top:20%;width:12px;height:60px;background:#6b5b45"></i>
-      <i style="left:60%;top:56%;width:44px;height:44px;background:#8a7452"></i>
-      <i style="left:44%;top:30%;width:14px;height:14px;background:#ff5a3c;border-radius:50%"></i>
-      <i style="left:78%;top:24%;width:14px;height:14px;background:#6aa8ff;border-radius:50%"></i>
+    <div class="artwrap"><div class="art"><svg id="artCs" viewBox="0 0 480 270" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg></div>
+    <div class="emblem"><svg id="emCs" viewBox="0 0 72 72" aria-hidden="true"></svg></div></div>
+    <div class="body">
+      <div class="head"><div class="name">CS Top-Down</div><div class="tag">Tactical rounds · top down</div></div>
+      <div class="desc">Plant the bomb, hold the site, out-play the other team. Buy menu, real economy and a fog of war that hides what you can't see.</div>
+      <div class="chips">
+        <span class="chip"><svg><use href="#i-bomb"/></svg>Bomb defusal</span>
+        <span class="chip"><svg><use href="#i-eye"/></svg>Fog of war</span>
+        <span class="chip"><svg><use href="#i-gun"/></svg>25 weapons</span>
+        <span class="chip"><svg><use href="#i-people"/></svg>5 v 5 with bots</span>
+      </div>
+      <div class="live" id="csLive"></div>
+      <div class="play">Play CS ▶</div>
     </div>
-    <div class="name">CS Top-Down</div>
-    <div class="tag">Tactical rounds · top-down</div>
-    <ul>
-      <li>Bomb defusal with buy menu and economy, or Team Deathmatch</li>
-      <li>Fog of war: you only see what your character sees</li>
-      <li>25 weapons, smokes, flashes and molotovs</li>
-      <li>4 maps, 5v5 with bots filling the empty slots</li>
-    </ul>
-    <div class="live" id="csLive"></div>
-    <div class="play">Play CS ▶</div>
   </a>
 </div>
 <footer>Both games run on this server. Rooms, codes and invite links are separate for each game.</footer>
+
 <script>
-  // invite links from before the game picker: /?room=ABCD → ask which game it was for (CS was the original)
+  const NS = 'http://www.w3.org/2000/svg';
+  const hex = (h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+  const shade = (h, k) => { const c = hex(h).map((v) => Math.max(0, Math.min(255, Math.round(v * k)))); return `rgb(${c[0]},${c[1]},${c[2]})`; };
+  const el = (name, attrs, parent) => { const e = document.createElementNS(NS, name); for (const k in attrs) e.setAttribute(k, attrs[k]); if (parent) parent.appendChild(e); return e; };
+
+  // ---------------------------------------------------------------- Frontline key art: an isometric voxel diorama
+  function drawBf(svg) {
+    const W = 480, H = 270, TW = 46, TH = 23, CH = 23, OX = 250, OY = 70;
+    const defs = el('defs', {}, svg);
+    const sky = el('linearGradient', { id: 'sky', x1: 0, y1: 0, x2: 0, y2: 1 }, defs);
+    el('stop', { offset: 0, 'stop-color': '#5fa6ec' }, sky); el('stop', { offset: 1, 'stop-color': '#d6ebfa' }, sky);
+    const glow = el('radialGradient', { id: 'sun' }, defs);
+    el('stop', { offset: 0, 'stop-color': '#fff6c8', 'stop-opacity': 1 }, glow); el('stop', { offset: 1, 'stop-color': '#fff6c8', 'stop-opacity': 0 }, glow);
+    el('rect', { width: W, height: H, fill: 'url(#sky)' }, svg);
+    el('circle', { cx: 400, cy: 44, r: 70, fill: 'url(#sun)' }, svg);
+    el('circle', { cx: 400, cy: 44, r: 17, fill: '#fff7d6' }, svg);
+    // distant hills
+    el('path', { d: 'M0 150 L60 112 L120 140 L190 100 L260 138 L330 108 L400 140 L480 116 L480 270 L0 270Z', fill: '#7fb0a2', opacity: 0.55 }, svg);
+    const g = el('g', { transform: 'translate(250 150) scale(1.18) translate(-250 -150)' }, svg);
+    const P = (x, y, z) => [OX + (x - y) * TW / 2, OY + (x + y) * TH / 2 - z * CH];
+    const poly = (pts, fill, parent = g, extra = {}) => el('polygon', { points: pts.map((p) => p.map((v) => v.toFixed(1)).join(',')).join(' '), fill, ...extra }, parent);
+    const items = [];
+    const cube = (x, y, z, w, d, h, c, o = {}) => items.push({ x, y, z, w, d, h, c, o });
+    const drawCube = ({ x, y, z, w, d, h, c, o }) => {
+      const top = [P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)];
+      const left = [P(x, y + d, z + h), P(x + w, y + d, z + h), P(x + w, y + d, z), P(x, y + d, z)];
+      const right = [P(x + w, y, z + h), P(x + w, y + d, z + h), P(x + w, y + d, z), P(x + w, y, z)];
+      const s = o.stroke === false ? {} : { stroke: 'rgba(0,0,0,0.22)', 'stroke-width': 0.8, 'stroke-linejoin': 'round' };
+      poly(left, o.left || shade(c, 0.8), g, s); poly(right, o.right || shade(c, 0.62), g, s); poly(top, o.top || shade(c, 1.08), g, s);
+    };
+
+    // ground: checkerboard grass, a road, water
+    const N = 10;
+    for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+      let c = (x + y) % 2 ? '#5fa845' : '#69b24c';
+      if (y === 5 || y === 6) c = (x + y) % 2 ? '#5c6068' : '#666a73';
+      if (x >= 7 && y <= 2) c = (x + y) % 2 ? '#3f8fd2' : '#4a9ade';
+      if (x === 3 && (y === 5 || y === 6)) c = '#666a73';
+      const top = [P(x, y, 0), P(x + 1, y, 0), P(x + 1, y + 1, 0), P(x, y + 1, 0)];
+      poly(top, c, g, { stroke: 'rgba(0,0,0,0.1)', 'stroke-width': 0.6 });
+    }
+    // road dashes
+    for (const x of [1, 3.2, 5.4, 7.6]) poly([P(x, 5.9, 0), P(x + 0.9, 5.9, 0), P(x + 0.9, 6.06, 0), P(x, 6.06, 0)], '#e8e2b8', g);
+
+    // sandbags
+    for (let i = 0; i < 3; i++) cube(4.2 + i * 0.75, 4.2, 0, 0.7, 0.4, 0.4, '#cdb887');
+    // brick building (one corner blown away)
+    const B = '#b8624c';
+    cube(1, 1, 0, 3, 2.6, 1.7, B); cube(1, 1, 1.7, 3, 2.6, 0.12, '#8d8f96', { stroke: false });
+    for (const wx of [1.4, 2.4, 3.2]) cube(wx, 3.62, 0.6, 0.45, 0.06, 0.6, '#9fd6f0', { stroke: false });
+    cube(2.0, 3.62, 0.0, 0.5, 0.06, 0.55, '#4a3324', { stroke: false });
+    // damaged block + debris + fire
+    cube(4.2, 1, 0, 1.4, 1.8, 1.5, B); cube(4.2, 1, 1.5, 0.7, 0.9, 0.7, B);
+    const deb = [['#d9863a', 5.75, 2.7, 0.2], ['#c4472f', 5.9, 2.2, 0.1], ['#a9584a', 5.5, 3.1, 0.1], ['#e6d7b5', 4.9, 3.0, 0.1]];
+    for (const [c, x, y, h] of deb) cube(x, y, 0, 0.24, 0.24, h + 0.12, c, { stroke: false });
+    cube(5.1, 1.5, 1.5, 0.5, 0.5, 0.5, '#ffb030', { stroke: false }); cube(5.2, 1.6, 2.0, 0.3, 0.3, 0.45, '#ff6a1f', { stroke: false }); cube(5.25, 1.65, 2.4, 0.2, 0.2, 0.4, '#fff0a0', { stroke: false });
+    cube(5.0, 1.45, 2.5, 0.6, 0.6, 0.5, '#3b3b40', { stroke: false, top: '#55555b' }); cube(5.1, 1.55, 3.0, 0.7, 0.7, 0.6, '#2c2c30', { stroke: false, top: '#48484e' });
+    // trees
+    const tree = (x, y, s = 1) => { cube(x + 0.3, y + 0.3, 0, 0.22, 0.22, 0.8 * s, '#6a4a2c', { stroke: false }); cube(x - 0.05, y - 0.05, 0.7 * s, 0.9, 0.9, 0.55 * s, '#2f7a34'); cube(x + 0.12, y + 0.12, 1.25 * s, 0.6, 0.6, 0.5 * s, '#3f9444'); cube(x + 0.27, y + 0.27, 1.75 * s, 0.32, 0.32, 0.36 * s, '#57b04f'); };
+    tree(0.2, 4.6); tree(0.4, 7.2, 1.15); tree(7.6, 7.3); tree(8.3, 5.2, 0.9); tree(5.7, 8.3, 1.1); tree(2.6, 8.0, 0.9);
+    // tank (barrel aims down-right)
+    const tx = 2.3, ty = 5.1;
+    cube(tx, ty + 0.05, 0, 0.5, 1.3, 0.28, '#20232a', { stroke: false }); cube(tx + 1.3, ty + 0.05, 0, 0.5, 1.3, 0.28, '#20232a', { stroke: false });
+    cube(tx + 0.1, ty + 0.15, 0.22, 1.6, 1.1, 0.4, '#6d7b58'); cube(tx + 0.35, ty + 0.3, 0.62, 1.0, 0.8, 0.34, '#7d8b66');
+    cube(tx + 1.3, ty + 0.62, 0.7, 1.15, 0.16, 0.16, '#2c3038', { stroke: false }); cube(tx + 0.5, ty + 0.36, 0.96, 0.32, 0.32, 0.1, '#2c3038', { stroke: false });
+    // flag
+    cube(7.0, 4.4, 0, 0.5, 0.5, 0.18, '#8d8f96'); cube(7.2, 4.6, 0.18, 0.1, 0.1, 2.2, '#d5d9de', { stroke: false }); cube(7.3, 4.62, 1.75, 0.75, 0.06, 0.5, '#e0523a', { stroke: false });
+    // soldiers (tiny voxel people)
+    const soldier = (x, y, c) => { cube(x, y, 0, 0.22, 0.22, 0.3, '#3a3d45', { stroke: false }); cube(x - 0.02, y - 0.02, 0.3, 0.26, 0.26, 0.34, c, { stroke: false }); cube(x + 0.02, y + 0.02, 0.64, 0.18, 0.18, 0.18, '#e2b48c', { stroke: false }); };
+    soldier(6.1, 5.0, '#e0523a'); soldier(6.5, 5.4, '#e0523a'); soldier(3.4, 7.1, '#3f86e8');
+    // helicopter above
+    const hz = 5.4, hx = 8.6, hy = 4.6;
+    cube(hx, hy, hz, 1.3, 0.6, 0.55, '#7d8b66'); cube(hx - 0.9, hy + 0.2, hz + 0.2, 0.95, 0.2, 0.2, '#6d7b58', { stroke: false }); cube(hx - 1.0, hy + 0.22, hz + 0.2, 0.1, 0.16, 0.5, '#6d7b58', { stroke: false });
+    cube(hx + 1.0, hy + 0.05, hz + 0.1, 0.4, 0.5, 0.35, '#a6d8f0', { stroke: false }); cube(hx + 0.4, hy + 0.2, hz + 0.55, 0.14, 0.14, 0.14, '#2c3038', { stroke: false });
+    cube(hx - 0.7, hy + 0.27, hz + 0.68, 2.6, 0.06, 0.05, 'rgba(60,66,76,0.9)', { stroke: false }); cube(hx + 0.35, hy - 0.85, hz + 0.68, 0.06, 2.2, 0.05, 'rgba(60,66,76,0.8)', { stroke: false });
+    // heli shadow
+    poly([P(hx + 0.2, hy + 0.2, 0), P(hx + 1.5, hy + 0.2, 0), P(hx + 1.5, hy + 0.9, 0), P(hx + 0.2, hy + 0.9, 0)], 'rgba(0,0,0,0.18)', g);
+    // draw cubes far to near
+    items.sort((a, b) => (a.x + a.w / 2 + a.y + a.d / 2) - (b.x + b.w / 2 + b.y + b.d / 2) || a.z - b.z);
+    // shadows first would need a separate pass; the flat shadow above is enough for the icon
+    for (const it of items) drawCube(it);
+  }
+
+  // ---------------------------------------------------------------- CS key art: a top-down tactical map
+  function drawCs(svg) {
+    const W = 480, H = 270;
+    const defs = el('defs', {}, svg);
+    const cone = el('radialGradient', { id: 'cone', cx: 0.1, cy: 0.5, r: 1 }, defs);
+    el('stop', { offset: 0, 'stop-color': '#ffe7b0', 'stop-opacity': 0.55 }, cone); el('stop', { offset: 1, 'stop-color': '#ffe7b0', 'stop-opacity': 0.05 }, cone);
+    const pat = el('pattern', { id: 'grid', width: 24, height: 24, patternUnits: 'userSpaceOnUse' }, defs);
+    el('path', { d: 'M24 0H0V24', fill: 'none', stroke: 'rgba(255,255,255,0.05)', 'stroke-width': 1 }, pat);
+    el('rect', { width: W, height: H, fill: '#1a1d22' }, svg);
+    // lit floor
+    el('rect', { x: 0, y: 0, width: W, height: H, fill: '#262a31' }, svg);
+    el('rect', { width: W, height: H, fill: 'url(#grid)' }, svg);
+    // walls with a drop shadow (tan blocks)
+    const wall = (x, y, w, h) => { el('rect', { x: x + 5, y: y + 6, width: w, height: h, fill: 'rgba(0,0,0,0.45)' }, svg); el('rect', { x, y, width: w, height: h, fill: '#7a684b' }, svg); el('rect', { x, y, width: w, height: 4, fill: '#a58f68' }, svg); el('rect', { x, y: y + h - 3, width: w, height: 3, fill: '#4e4230' }, svg); };
+    wall(0, 0, 480, 26); wall(0, 244, 480, 26); wall(0, 26, 22, 70); wall(0, 170, 22, 74);
+    wall(150, 70, 18, 130); wall(300, 26, 18, 84); wall(300, 160, 18, 84); wall(210, 26, 40, 18);
+    const crate = (x, y, s) => { el('rect', { x: x + 4, y: y + 5, width: s, height: s, fill: 'rgba(0,0,0,0.45)' }, svg); el('rect', { x, y, width: s, height: s, fill: '#b58a4a' }, svg); el('rect', { x: x + 3, y: y + 3, width: s - 6, height: s - 6, fill: 'none', stroke: '#7d5b2c', 'stroke-width': 3 }, svg); el('path', { d: `M${x + 3} ${y + 3} L${x + s - 3} ${y + s - 3} M${x + s - 3} ${y + 3} L${x + 3} ${y + s - 3}`, stroke: '#7d5b2c', 'stroke-width': 2 }, svg); };
+    crate(196, 118, 34); crate(232, 132, 30); crate(70, 190, 30); crate(384, 110, 36);
+    // vision cone from the player
+    const px = 96, py = 138;
+    el('path', { d: `M${px} ${py} L470 40 L470 236 Z`, fill: 'url(#cone)' }, svg);
+    // bombsite
+    const bx = 388, by = 190;
+    el('circle', { cx: bx, cy: by, r: 46, fill: 'rgba(255,140,50,0.10)', stroke: '#ff9a3c', 'stroke-width': 3, 'stroke-dasharray': '10 8' }, svg);
+    el('text', { x: bx, y: by + 17, 'text-anchor': 'middle', 'font-size': 52, 'font-weight': 900, fill: 'rgba(255,154,60,0.45)', 'font-family': 'ui-monospace, Menlo, monospace' }, svg).textContent = 'A';
+    // bomb
+    el('circle', { cx: bx - 3, cy: by + 2, r: 11, fill: '#15171b', stroke: '#ff5a3c', 'stroke-width': 2 }, svg);
+    el('rect', { x: bx - 7, y: by - 2, width: 8, height: 4, fill: '#ff5a3c' }, svg);
+    el('path', { d: `M${bx + 3} ${by - 8} l6 -6`, stroke: '#ffd95a', 'stroke-width': 2.4, 'stroke-linecap': 'round' }, svg);
+    // smoke
+    for (const [x, y, r] of [[246, 196, 26], [268, 206, 22], [230, 210, 20], [258, 222, 18]]) el('circle', { cx: x, cy: y, r, fill: 'rgba(200,206,214,0.55)' }, svg);
+    // players: T (orange) advancing, CT (blue) defending, with tracers
+    const dude = (x, y, a, col, glow) => {
+      const g = el('g', { transform: `translate(${x} ${y}) rotate(${a})` }, svg);
+      el('circle', { cx: 2, cy: 3, r: 11, fill: 'rgba(0,0,0,0.4)' }, g);
+      el('rect', { x: 4, y: -3, width: 18, height: 5, fill: '#2a2d33' }, g);
+      el('circle', { r: 11, fill: col }, g); el('circle', { r: 11, fill: 'none', stroke: 'rgba(0,0,0,0.5)', 'stroke-width': 2 }, g);
+      el('circle', { cx: 3, r: 5.5, fill: glow }, g);
+    };
+    el('path', { d: 'M122 134 L356 176', stroke: '#fff0a0', 'stroke-width': 2, opacity: 0.85 }, svg);
+    el('path', { d: 'M360 150 L112 140', stroke: '#9cc8ff', 'stroke-width': 1.6, opacity: 0.6 }, svg);
+    dude(px, py, 4, '#e0703a', '#7a2f14'); dude(120, 96, -8, '#e0703a', '#7a2f14'); dude(86, 190, 12, '#e0703a', '#7a2f14');
+    dude(356, 160, 188, '#3f86e8', '#1a3a6e'); dude(420, 130, 200, '#3f86e8', '#1a3a6e');
+    el('circle', { cx: 130, cy: 134, r: 9, fill: '#fff3b0', opacity: 0.85 }, svg); el('circle', { cx: 130, cy: 134, r: 4, fill: '#ff9a30' }, svg);
+    // crosshair
+    const cx = 336, cy = 142;
+    const cr = el('g', { stroke: '#7dff9a', 'stroke-width': 2.4, 'stroke-linecap': 'round', fill: 'none' }, svg);
+    el('circle', { cx, cy, r: 13 }, cr); for (const [dx, dy, ex, ey] of [[-24, 0, -8, 0], [24, 0, 8, 0], [0, -24, 0, -8], [0, 24, 0, 8]]) el('path', { d: `M${cx + dx} ${cy + dy} L${cx + ex} ${cy + ey}` }, cr);
+    el('circle', { cx, cy, r: 2, fill: '#7dff9a' }, svg);
+    // scanlines / vignette
+    const vg = el('radialGradient', { id: 'vg', cx: 0.5, cy: 0.5, r: 0.75 }, defs);
+    el('stop', { offset: 0.6, 'stop-color': '#000', 'stop-opacity': 0 }, vg); el('stop', { offset: 1, 'stop-color': '#000', 'stop-opacity': 0.55 }, vg);
+    el('rect', { width: W, height: H, fill: 'url(#vg)' }, svg);
+  }
+
+  // ---------------------------------------------------------------- emblems (74px icons)
+  function emblemBf(svg) {
+    el('rect', { width: 72, height: 72, fill: '#131a26' }, svg);
+    el('rect', { y: 46, width: 72, height: 26, fill: '#2f6b2f' }, svg);
+    const c = (pts, f) => el('polygon', { points: pts, fill: f, stroke: 'rgba(0,0,0,0.3)', 'stroke-width': 1, 'stroke-linejoin': 'round' }, svg);
+    c('36,10 58,22 36,34 14,22', '#ffe27a'); c('14,22 36,34 36,60 14,48', '#e0b230'); c('58,22 36,34 36,60 58,48', '#b98d1d');
+    c('36,34 47,40 36,46 25,40', '#fff3b8'); // hint of a smaller cube face
+    el('path', { d: 'M36 34 V60 M14 22 L36 34 L58 22', stroke: 'rgba(0,0,0,0.25)', 'stroke-width': 1.2, fill: 'none' }, svg);
+    el('path', { d: 'M30 46 l6 4 l6 -4', stroke: '#131a26', 'stroke-width': 3, fill: 'none', 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, svg);
+  }
+  function emblemCs(svg) {
+    el('rect', { width: 72, height: 72, fill: '#1c1712' }, svg);
+    el('circle', { cx: 36, cy: 36, r: 22, fill: 'none', stroke: '#ff9a3c', 'stroke-width': 4 }, svg);
+    el('circle', { cx: 36, cy: 36, r: 5, fill: '#ff9a3c' }, svg);
+    for (const [x1, y1, x2, y2] of [[36, 4, 36, 20], [36, 52, 36, 68], [4, 36, 20, 36], [52, 36, 68, 36]]) el('path', { d: `M${x1} ${y1} L${x2} ${y2}`, stroke: '#ff9a3c', 'stroke-width': 4, 'stroke-linecap': 'square' }, svg);
+    el('path', { d: 'M36 20 L36 26 M36 46 L36 52 M20 36 L26 36 M46 36 L52 36', stroke: '#ffe0b8', 'stroke-width': 2 }, svg);
+  }
+
+  drawBf(document.getElementById('artBf')); drawCs(document.getElementById('artCs'));
+  emblemBf(document.getElementById('emBf')); emblemCs(document.getElementById('emCs'));
+
+  // invite links from before the game picker: /?room=ABCD → offer the code to whichever game is chosen
   try {
     const room = new URLSearchParams(location.search).get('room');
     if (room) { document.getElementById('cs').href = '/cs/?room=' + encodeURIComponent(room); document.getElementById('bf').href = '/bf/?room=' + encodeURIComponent(room); }
