@@ -334,7 +334,12 @@ export class Room {
         break;
       }
       case 'buy': if (typeof m.item === 'string') { if (g.buy(p, m.item)) this.send(p, { t: 'bought', item: m.item }); } break;
-      case 'rebuy': g.rebuy(p); break;
+      case 'rebuy': {
+        if (!g.canBuy(p)) { this.send(p, { t: 'toast', text: 'You can only buy in your spawn during buy time' }); break; }
+        const n = g.rebuy(p);
+        this.send(p, n ? { t: 'bought', item: 'rebuy' } : { t: 'toast', text: p.lastBuys.length ? 'You already have everything from your last loadout (or can\'t afford it)' : 'Nothing to re-buy yet' });
+        break;
+      }
       case 'spec': {
         if (p.alive) break;
         if (m.id) { const q = g.players.get(m.id | 0); if (q && q.alive && q.team !== SPEC && (p.team === SPEC || q.team === p.team)) p.specId = q.id; }

@@ -173,7 +173,7 @@ export class ClientGame {
     for (const c of this.pending) {
       const keys = c[1];
       const frozen = this.isFrozenAt(c[3]);
-      const scoped = !!(keys & KEY.SCOPE) && !!w && w.scope > 0;
+      const scoped = !!(keys & KEY.SCOPE) && !!w && w.kind !== 'knife';
       stepMovement(this.map, st, keys, maxSpeedFor(w, !!(keys & KEY.WALK), scoped), frozen);
     }
     const ex = this.pred.x - st.x, ey = this.pred.y - st.y;
@@ -286,7 +286,7 @@ export class ClientGame {
       x = this.pred.x + this.errX + (this.ext ? this.ext.x : 0); y = this.pred.y + this.errY + (this.ext ? this.ext.y : 0); angle = this.angle;
       const w = this.me.held < HELD_GREN_BASE ? WEAPON_LIST[this.me.held] : null;
       scopeLvl = w ? w.scope : 0;
-      scoped = !!(this.input.right && scopeLvl);
+      scoped = !!(this.input.right && w && w.kind !== 'knife');
     } else if (this.spec && !this.freecam) {
       const p = this.interpolated(this.spec);
       if (!p) return this._lastViewer || null;
@@ -405,7 +405,7 @@ export class ClientGame {
       const seq = ++this.seq;
       const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist)];
       const w = this.me.held < HELD_GREN_BASE ? WEAPON_LIST[this.me.held] : null;
-      const scoped = !!(keys & KEY.SCOPE) && !!w && w.scope > 0;
+      const scoped = !!(keys & KEY.SCOPE) && !!w && w.kind !== 'knife';
       const frozen = this.isFrozenAt(cmd[3]);
       stepMovement(this.map, this.pred, keys, maxSpeedFor(w, !!(keys & KEY.WALK), scoped), frozen);
       this.pending.push(cmd);

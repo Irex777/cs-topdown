@@ -11,10 +11,10 @@ export const BOT_NAMES = [
 ];
 
 const DIFF = {
-  easy:   { react: 0.60, turn: 6,  sigma: 0.10,  burst: 0.55, nades: 0.25, aggr: 0.25, hold: 0.45 },
-  normal: { react: 0.34, turn: 9,  sigma: 0.058, burst: 0.75, nades: 0.55, aggr: 0.45, hold: 0.7 },
-  hard:   { react: 0.21, turn: 13, sigma: 0.032, burst: 0.9,  nades: 0.8,  aggr: 0.6,  hold: 0.85 },
-  expert: { react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  nades: 1.0,  aggr: 0.75, hold: 1.0 },
+  easy:   { sight: 480, react: 0.60, turn: 6,  sigma: 0.10,  burst: 0.55, nades: 0.25, aggr: 0.25, hold: 0.45 },
+  normal: { sight: 600, react: 0.34, turn: 9,  sigma: 0.058, burst: 0.75, nades: 0.55, aggr: 0.45, hold: 0.7 },
+  hard:   { sight: 720, react: 0.21, turn: 13, sigma: 0.032, burst: 0.9,  nades: 0.8,  aggr: 0.6,  hold: 0.85 },
+  expert: { sight: 840, react: 0.12, turn: 19, sigma: 0.016, burst: 1.0,  nades: 1.0,  aggr: 0.75, hold: 1.0 },
 };
 
 const NO_BIAS = [1, 1];
@@ -364,7 +364,9 @@ export class BotBrain {
   perceive() {
     const g = this.g, p = this.p;
     const w = p.weapon();
-    const view = viewParams(p.scoped, w ? w.scope : 0);
+    // bots are not eagle-eyed: they notice enemies only within a difficulty-dependent distance and a slightly narrower cone
+    const full = viewParams(p.scoped, w ? w.scope : 0);
+    const view = { range: Math.min(full.range, this.d.sight), fov: full.fov * 0.9 };
     let best = null, bd = Infinity;
     for (const q of g.players.values()) {
       if (!q.alive || q.team === p.team || q.team === SPEC) continue;

@@ -2,10 +2,11 @@
 import { VISION, PLAYER_R } from './constants.js';
 import { angleDiff } from './gamemap.js';
 
-/** {range, fov} for a given scope level (0 none, 1 light, 2 heavy) */
+/** {range, fov}: scoped/aiming = holding right mouse; scopeLevel 0 = plain iron sights (still a tighter, longer view) */
 export function viewParams(scoped, scopeLevel) {
   if (scoped && scopeLevel === 2) return { range: VISION.scopeRange, fov: VISION.scopeFov };
   if (scoped && scopeLevel === 1) return { range: VISION.lightScopeRange, fov: VISION.lightScopeFov };
+  if (scoped) return { range: VISION.aimRange, fov: VISION.aimFov };
   return { range: VISION.range, fov: VISION.fov };
 }
 

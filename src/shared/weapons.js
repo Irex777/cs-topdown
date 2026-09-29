@@ -92,15 +92,16 @@ export function weaponSpread(w, speed, burst, scoped) {
   const s = scoped && w.scope;
   const maxV = BASE_SPEED * w.speed;
   const mf = clamp((speed / maxV - 0.35) / 0.65, 0, 1);
-  const base = s ? w.scopedSpread : w.spread;
-  const deg = base + w.moveSpread * mf * (s ? 1.4 : 1) + w.burst * Math.min(burst, w.burstMax);
+  // aiming down sights: scoped weapons use their scoped spread, everything else tightens by ~40%
+  const base = s ? w.scopedSpread : scoped ? w.spread * 0.6 : w.spread;
+  const deg = base + w.moveSpread * mf * (s ? 1.4 : scoped ? 0.7 : 1) + w.burst * Math.min(burst, w.burstMax) * (scoped && !s ? 0.7 : 1);
   return deg * Math.PI / 180;
 }
 
 /** Max movement speed in px/s for a given weapon and key state. */
 export function maxSpeedFor(w, walking, scoped) {
   let v = (w ? w.speedPx : BASE_SPEED);
-  if (scoped && w && w.scope) v *= w.scope === 2 ? 0.55 : 0.7;
+  if (scoped && w) v *= w.scope === 2 ? 0.55 : w.scope === 1 ? 0.7 : 0.78;
   if (walking) v *= 0.5;
   return v;
 }

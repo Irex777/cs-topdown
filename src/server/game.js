@@ -1,6 +1,6 @@
 // One match: rounds, economy, bomb, players. Owned by a Room.
-import { T, CT, SPEC, PHASE, RULES, KEY, DT, GRENADE, armorCost, otherTeam } from '../shared/constants.js';
-import { WEAPONS, canTeamUse, maxSpeedFor } from '../shared/weapons.js';
+import { T, CT, SPEC, PHASE, RULES, KEY, DT, GRENADE, GREN_ORDER, armorCost, otherTeam } from '../shared/constants.js';
+import { WEAPONS, DEFAULT_SECONDARY, canTeamUse, maxSpeedFor } from '../shared/weapons.js';
 import { stepMovement } from '../shared/movement.js';
 import { getMap } from '../shared/maps/index.js';
 import { Player } from './player.js';
@@ -58,7 +58,7 @@ export class Game {
     if (k === 'step' || k === 'shot') {
       const src = this.players.get(payload[1]);
       if (!src) return;
-      const reach = k === 'step' ? 520 : payload[9] ? 700 : 1500;
+      const reach = k === 'step' ? 420 : payload[9] ? 600 : 1100;
       for (const b of this.players.values()) {
         if (!b.bot || !b.alive || b.team === src.team) continue;
         const d = Math.hypot(b.x - x, b.y - y);
@@ -160,6 +160,7 @@ export class Game {
       this.lossStreak[loser]++;
       this.lossStreak[winner] = Math.max(0, this.lossStreak[winner] - 1);
     }
+    for (const p of this.players.values()) if (p.alive && !p.bot) this.saveLoadout(p);
     // round MVP
     let best = null;
     for (const p of this.players.values()) {
@@ -313,7 +314,7 @@ export class Game {
     p.angle = angle;
     p.lastKeys = keys;
     const w = p.weapon();
-    const wantScope = (keys & KEY.SCOPE) !== 0 && !!w && w.scope > 0;
+    const wantScope = (keys & KEY.SCOPE) !== 0 && !!w && w.kind !== 'knife';
     p.scoped = wantScope;
     p.walking = (keys & KEY.WALK) !== 0;
     // frozen is decided by the command's own timestamp, exactly as the client's prediction does
@@ -536,9 +537,22 @@ export class Game {
     return true;
   }
 
+  /** Remembers what the player is carrying so "re-buy" (X) can restore it after they die or a new round starts. */
+  saveLoadout(p) {
+    const items = [];
+    if (p.primary) items.push(p.primary);
+    if (p.secondary && p.secondary !== DEFAULT_SECONDARY[p.team]) items.push(p.secondary);
+    if (p.armor > 0) items.push(p.helmet ? 'helmet' : 'kevlar');
+    if (p.kit) items.push('kit');
+    for (const k of GREN_ORDER) for (let i = 0; i < p.grenades[k]; i++) items.push(k);
+    if (items.length) p.lastBuys = items;
+  }
+
+  /** Buys the remembered loadout again. Returns how many items were bought. */
   rebuy(p, silent = false) {
-    const list = p.lastBuys.slice();
-    for (const it of list) this.buy(p, it, silent);
+    let n = 0;
+    for (const it of p.lastBuys.slice()) if (this.buy(p, it, silent)) n++;
+    return n;
   }
 
   // ------------------------------------------------------------------ snapshots

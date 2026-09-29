@@ -56,7 +56,7 @@ The server keeps everything in memory; rooms disappear shortly after the last pl
 | `Shift` | Walk (silent, more accurate) |
 | Mouse | Aim — the camera leans toward the cursor |
 | Left click | Fire / throw grenade toward the cursor |
-| Right click (hold) | Scope with SSG 08 / AWP / SG 553 / AUG: see farther, move slower |
+| Right click (hold) | Aim down sights with any gun: tighter spread, longer and narrower sight, camera leans out, you move slower (snipers zoom out much farther) |
 | `R` | Reload |
 | `E` | Hold to plant / defuse, tap to pick up a weapon |
 | `B` | Buy menu (`1`–`6` picks a column, then an item number). `X` re-buys your last loadout |

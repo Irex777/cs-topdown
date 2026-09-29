@@ -77,10 +77,10 @@ export class Renderer {
       const own = g.alive && g.me && g.me.own;
       let lx = 0, ly = 0;
       if (own) {
-        const k = viewer.scoped ? 0.92 : 0.30;
+        const k = viewer.scoped ? (viewer.scopeLvl === 2 ? 0.92 : 0.62) : 0.30;
         lx = (inp.mx - this.W / 2) * k / this.scale;
         ly = (inp.my - this.H / 2) * k / this.scale;
-        const m = viewer.scoped ? 700 : 360;
+        const m = viewer.scoped ? (viewer.scopeLvl === 2 ? 700 : 520) : 360;
         const l = Math.hypot(lx, ly);
         if (l > m) { lx *= m / l; ly *= m / l; }
       }
@@ -201,10 +201,15 @@ export class Renderer {
       ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a + 0.4);
       ctx.globalAlpha = 0.9;
       const col = TEAM_COL[c.team] || TEAM_COL[2];
-      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(2, 3, 13, 11, 0, 0, TAU); ctx.fill();
-      ctx.fillStyle = col.dark; ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.fill();
-      ctx.fillStyle = col.helm; ctx.beginPath(); ctx.arc(-1, 2, 6, 0, TAU); ctx.fill();
-      ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.stroke();
+      // a fallen soldier: sprawled torso, splayed arms and legs, helmet
+      ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(2, 3, 15, 13, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = col.dark; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(0, 8); ctx.lineTo(7, 15); ctx.moveTo(0, -8); ctx.lineTo(-6, -15); ctx.stroke();   // arms
+      ctx.strokeStyle = '#1b1e23'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.moveTo(-6, 3); ctx.lineTo(-17, 7); ctx.moveTo(-6, -3); ctx.lineTo(-16, -6); ctx.stroke(); // legs
+      ctx.fillStyle = col.dark; ctx.beginPath(); ctx.ellipse(0, 0, 8.5, 11.5, 0.3, 0, TAU); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.4; ctx.stroke();
+      ctx.fillStyle = col.helm; ctx.beginPath(); ctx.arc(5, 1, 5.6, 0, TAU); ctx.fill(); ctx.stroke();
       ctx.restore();
     }
   }
@@ -303,47 +308,80 @@ export class Renderer {
     const g = this.game;
     const col = TEAM_COL[p.team] || TEAM_COL[2];
     const speed = p.own ? p.speed : this._speedOf(p);
-    const stride = Math.sin(this.t * 11 + p.id * 1.7) * clamp(speed / 120, 0, 1);
+    const run = clamp(speed / 120, 0, 1);
+    const stride = Math.sin(this.t * 11 + p.id * 1.7) * run;
+    const SKIN = '#e0b48a';
     ctx.save();
     ctx.translate(p.x, p.y);
-    // shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(3, 4, 13, 12, 0, 0, TAU); ctx.fill();
+    // ground shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.32)'; ctx.beginPath(); ctx.ellipse(3, 4, 13, 15, 0, 0, TAU); ctx.fill();
     ctx.rotate(p.a);
-    // feet
-    ctx.fillStyle = '#20242a';
-    ctx.beginPath(); ctx.ellipse(-2 + stride * 5, -5, 5, 3.2, 0, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(-2 - stride * 5, 5, 5, 3.2, 0, 0, TAU); ctx.fill();
-    // weapon (in front of the body)
+    ctx.scale(1.2, 1.2);   // drawn a bit larger than the 11px hit circle so the figure reads clearly
+
+    // boots (alternate as the soldier runs)
+    ctx.fillStyle = '#1b1e23';
+    ctx.beginPath(); ctx.ellipse(-1 + stride * 6, -5.5, 6, 3.4, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(-1 - stride * 6, 5.5, 6, 3.4, 0, 0, TAU); ctx.fill();
+
+    // backpack (bomb strapped on for the carrier)
+    ctx.fillStyle = col.dark;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-13, -6, 8, 12, 2.5) : ctx.rect(-13, -6, 8, 12); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+    if (p.fl & 16) { ctx.fillStyle = '#c23a2a'; ctx.fillRect(-12, -4, 6, 8); ctx.fillStyle = '#ffdd55'; ctx.fillRect(-10.5, -1, 3, 2); }
+
+    // what is in the hands
     const held = p.held;
     const flashOn = (g.muzzle.get(p.id) || 0) > now;
-    let tip = 26;
+    const isGren = held >= HELD_GREN_BASE && held < 120;
+    const w = isGren ? null : (WEAPON_LIST[held] || WEAPON_LIST[0]);
+    const kind = isGren ? 'grenade' : w.kind;
+    const grips = {
+      pistol: [[12, 2.5], [13, -1.5]], smg: [[12, 3], [20, -1.5]], rifle: [[13, 3], [25, -1.5]], sniper: [[13, 3], [27, -1.5]],
+      shotgun: [[13, 3], [25, -1.5]], knife: [[14, 3], [9, -9]], grenade: [[14, 2], [10, -8]],
+    }[kind];
+
+    // arms: shoulders -> hands
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = col.dark; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(grips[0][0], grips[0][1]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -10); ctx.lineTo(grips[1][0], grips[1][1]); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(0, 9); ctx.lineTo(grips[0][0], grips[0][1] - 1); ctx.moveTo(0, -11); ctx.lineTo(grips[1][0], grips[1][1] - 1); ctx.stroke();
+
+    // weapon
+    let tip = 0;
     ctx.save();
     ctx.translate(8, 2);
-    if (held >= HELD_GREN_BASE && held < 120) {
+    if (isGren) {
       ctx.fillStyle = GREN_COL[GREN_ORDER[held - HELD_GREN_BASE]] || '#888';
-      ctx.beginPath(); ctx.arc(12, 0, 4.5, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
-      tip = 0;
-    } else {
-      tip = this.drawGunShape(ctx, WEAPON_LIST[held] || WEAPON_LIST[0], 0);
-    }
+      ctx.beginPath(); ctx.arc(8, 0, 4.5, 0, TAU); ctx.fill(); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1; ctx.stroke();
+    } else tip = this.drawGunShape(ctx, w, 0);
     ctx.restore();
-    // arms
-    ctx.strokeStyle = col.dark; ctx.lineWidth = 4.5; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(1, -8); ctx.lineTo(13, 0); ctx.moveTo(1, 8); ctx.lineTo(11, 3); ctx.stroke();
-    // torso
-    ctx.fillStyle = col.body; ctx.beginPath(); ctx.arc(0, 0, PLAYER_R, 0, TAU); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.6; ctx.stroke();
-    // vest / shoulder pads
-    ctx.fillStyle = col.dark;
-    ctx.beginPath(); ctx.ellipse(-1, -8, 4.4, 3.4, 0.2, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(-1, 8, 4.4, 3.4, -0.2, 0, TAU); ctx.fill();
-    if (p.ar > 0) { ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(0, 0, 8.2, 0.6, TAU - 0.6); ctx.stroke(); }
-    // head + helmet
-    ctx.fillStyle = col.helm; ctx.beginPath(); ctx.arc(1, 0, 6.6, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.arc(-0.5, -1.5, 3.2, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#e0b48a'; ctx.beginPath(); ctx.arc(4.5, 0, 2.6, -1.3, 1.3); ctx.fill();
-    // bomb on back
-    if (p.fl & 16) { ctx.fillStyle = '#c23a2a'; ctx.fillRect(-13, -3, 4, 6); }
+
+    // hands
+    ctx.fillStyle = SKIN; ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 0.8;
+    for (const [hx, hy] of grips) { ctx.beginPath(); ctx.arc(hx, hy, 2.7, 0, TAU); ctx.fill(); ctx.stroke(); }
+
+    // torso: broad across the shoulders, shallow front to back
+    ctx.fillStyle = col.body;
+    ctx.beginPath(); ctx.ellipse(0, 0, 8.5, 11.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 1.5; ctx.stroke();
+    // tactical vest
+    ctx.fillStyle = p.ar > 0 ? 'rgba(20,24,30,0.55)' : col.dark;
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(-4, -8, 9, 16, 3) : ctx.rect(-4, -8, 9, 16); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-1, -6); ctx.lineTo(-1, 6); ctx.moveTo(2.5, -6); ctx.lineTo(2.5, 6); ctx.stroke();
+    // shoulder pads
+    ctx.fillStyle = col.dark; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1;
+    for (const sy of [-10.5, 10.5]) { ctx.beginPath(); ctx.ellipse(0.5, sy, 4.4, 3.6, 0, 0, TAU); ctx.fill(); ctx.stroke(); }
+
+    // head with helmet
+    ctx.fillStyle = col.helm; ctx.beginPath(); ctx.arc(1.5, 0, 6.2, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.20)'; ctx.beginPath(); ctx.arc(0, -1.8, 3.4, 0, TAU); ctx.fill();
+    ctx.strokeStyle = col.text; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.arc(1.5, 0, 4.4, -0.9, 0.9); ctx.stroke();   // team band
+    ctx.fillStyle = SKIN; ctx.beginPath(); ctx.arc(6.2, 0, 2.3, -1.2, 1.2); ctx.fill();                                // face
+
     // muzzle flash
     if (flashOn && tip > 0) {
       const fx = 8 + tip;
@@ -550,7 +588,7 @@ export class Renderer {
     // scope vignette
     if (viewer && viewer.scoped && g.alive) {
       const gr = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.7);
-      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.5)');
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, viewer.scopeLvl ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.24)');
       ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
     }
     // flashbang whiteout

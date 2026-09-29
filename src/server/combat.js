@@ -84,7 +84,6 @@ export function tryFire(game, p, held, edge, vt, aimDist) {
   p.fireCd = w.cd;
   const spread = weaponSpread(w, p.speed, p.burst, p.scoped);
   p.burst++; p.burstT = 0;
-  p.scoped = p.scoped && w.scope > 0;
 
   // lag compensation: shoot against where the client saw the other players
   let tf = 0;
@@ -176,6 +175,7 @@ export function killPlayer(game, v, attacker, wid) {
   const self = !attacker || attacker.id === v.id;
   const friendly = !self && attacker.team === v.team;
   v.stats.deaths++;
+  if (!v.bot) game.saveLoadout(v);
   // drop the primary weapon and the bomb
   if (v.primary) { game.dropWeapon(v, v.primary, 0); v.primary = null; }
   if (v.hasBomb) game.dropBomb(v);

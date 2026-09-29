@@ -33,6 +33,8 @@ export const VISION = {
   scopeFov: 62 * Math.PI / 180,
   lightScopeRange: 1200,
   lightScopeFov: 84 * Math.PI / 180,
+  aimRange: 1120,    // aiming down sights with any gun: narrower but longer sight
+  aimFov: 86 * Math.PI / 180,
   serverFovPad: 24 * Math.PI / 180,   // server sends slightly more than the client will draw
 };
 

@@ -242,7 +242,7 @@ export class HUD {
         <button data-t="0" class="${mt === T ? 'on' : ''}">Terrorists</button><button data-t="1" class="${mt === CT ? 'on' : ''}">Counter-Terrorists</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
       <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
       <div class="slider"><span>View size</span><input type="range" id="zoomRange" min="70" max="140" value="${Math.round(g.renderer.userZoom * 100)}" aria-label="View size"></div>
-      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Shift</kbd><span>Walk (silent)</span><kbd>LMB</kbd><span>Fire / throw</span><kbd>RMB</kbd><span>Scope (snipers)</span>
+      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Shift</kbd><span>Walk (silent)</span><kbd>LMB</kbd><span>Fire / throw</span><kbd>RMB</kbd><span>Aim down sights</span>
       <kbd>R</kbd><span>Reload</span><kbd>E</kbd><span>Plant / defuse / pick up</span><kbd>B</kbd><span>Buy menu</span><kbd>1-4</kbd><span>Weapons, grenades</span>
       <kbd>G</kbd><span>Drop weapon</span><kbd>Q</kbd><span>Last weapon</span><kbd>Tab</kbd><span>Scoreboard</span><kbd>M</kbd><span>Big map</span>
       <kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span><kbd>V</kbd><span>Ping location</span><kbd>X</kbd><span>Re-buy last loadout</span></div>
