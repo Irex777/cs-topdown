@@ -347,7 +347,7 @@ export class ClientGame {
           break;
         }
         case 'vshot': {
-          const [, vid, snd, x, y, ang, len, kind] = e;
+          const [, , snd, x, y, ang, len, kind] = e;
           const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
           const seen = this.visiblePoint(x, y) || this.visiblePoint(ex, ey);
           audio.vshot(snd, { x, y });
@@ -578,8 +578,27 @@ export class ClientGame {
 
     this.fixedUpdate(dt);
     this.fx.update(dt);
+    this.engineSounds(dt);
     this.renderer.render(dt, nowMs);
     this.ui.onFrame && this.ui.onFrame(this, dt);
+  }
+
+  /** engine loops: nearby vehicles that are actually moving (or any helicopter) make noise, louder when driven */
+  engineSounds(dt) {
+    const v = this.viewer();
+    if (!v || !this.alive) return;
+    this._enginePos = this._enginePos || new Map();
+    const seen = new Set();
+    for (const c of this.vehiclesDrawn()) {
+      if (c.hp <= 0) continue;
+      seen.add(c.id);
+      const last = this._enginePos.get(c.id);
+      this._enginePos.set(c.id, { x: c.x, y: c.y });
+      if (Math.hypot(c.x - v.x, c.y - v.y) > 900) continue;
+      const kind = VEHICLE_LIST[c.ty], speed = last && dt > 0 ? Math.hypot(c.x - last.x, c.y - last.y) / dt : 0;
+      if (kind === 'heli' ? c.occ : speed > 12) audio.engine(kind, speed, { x: c.x, y: c.y });
+    }
+    for (const id of this._enginePos.keys()) if (!seen.has(id)) this._enginePos.delete(id);
   }
 
   fixedUpdate(dt) {

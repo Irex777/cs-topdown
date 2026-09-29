@@ -5,7 +5,6 @@ import { VEHICLES, VEHICLE_LIST } from '../../../shared/vehicles.js';
 import { TILES } from '../../../shared/gamemap.js';
 import { canSee } from '../../../shared/vision.js';
 import { computeVision } from './vision.js';
-import { Terrain } from './terrain.js';
 import { soldierModel, vehicleModel, drawSprite, box25, TEAM_PAL, TAU } from './voxel.js';
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);

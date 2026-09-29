@@ -1,6 +1,6 @@
 // Scripted checks of individual game mechanics on a real (headless) game: capture, destruction, revive, vehicles, gadgets, rockets, C4...
 import { Room } from '../src/server/room.js';
-import { T, CT, KEY, SPEC, TILE, RULES } from '../src/shared/constants.js';
+import { T, CT, KEY, TILE, RULES } from '../src/shared/constants.js';
 import { WEAPONS } from '../src/shared/weapons.js';
 
 let failures = 0;

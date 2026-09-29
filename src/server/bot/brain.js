@@ -25,7 +25,6 @@ const pick = (a) => a[Math.floor(rnd() * a.length)];
 const gauss = () => (rnd() + rnd() + rnd() - 1.5) * 1.15;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const norm = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 
 /** How far each weapon kind is worth firing at, in pixels. */
 const RANGE = { pistol: 480, smg: 560, shotgun: 340, rifle: 820, lmg: 780, dmr: 1150, sniper: 2600, knife: 60 };

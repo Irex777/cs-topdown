@@ -1,11 +1,11 @@
 // One match: players, spawning, squads, revive, vehicles, projectiles, gadgets. Owned by a Room; the game mode
 // (Conquest / Rush / Team Deathmatch) lives in modes/*.js and hooks into this class.
-import { T, CT, SPEC, PHASE, RULES, KEY, DT, TILE, SPRINT_MUL, GREN_ORDER, otherTeam, SQUAD_NAMES } from '../shared/constants.js';
-import { maxSpeedFor, sanitizeLoadout, GADGETS } from '../shared/weapons.js';
+import { SPEC, PHASE, RULES, KEY, DT, otherTeam, SQUAD_NAMES } from '../shared/constants.js';
+import { maxSpeedFor, sanitizeLoadout } from '../shared/weapons.js';
 import { stepMovement } from '../shared/movement.js';
 import { createMap } from '../shared/maps/index.js';
 import { Player, newStats } from './player.js';
-import { tryFire, tickWeaponTimers, startReload, selectSlot, toggleAlt, killPlayer, damagePlayer } from './combat.js';
+import { tryFire, tickWeaponTimers, damagePlayer } from './combat.js';
 import { updateGrenades, updateFires, updateSmokes } from './grenades.js';
 import { updateProjectiles } from './projectiles.js';
 import { updateGadgets } from './gadgets.js';

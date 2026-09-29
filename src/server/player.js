@@ -1,4 +1,4 @@
-import { RULES, PLAYER_R, SPEC, GREN_ORDER, GRENADE } from '../shared/constants.js';
+import { PLAYER_R, SPEC, GREN_ORDER, GRENADE } from '../shared/constants.js';
 import {
   WEAPONS, resolveWeapon, defaultLoadout, sanitizeLoadout, GADGETS, GADGET_LIST, CLASSES, ALT, HELD_GREN_BASE, HELD_GADGET_BASE,
 } from '../shared/weapons.js';

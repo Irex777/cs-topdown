@@ -155,8 +155,6 @@ export class Terrain {
         if (!road(tx, ty + 1) && chAt(tx, ty + 1) !== '~') ctx.fillRect(px, py + TILE - 3, TILE, 3);
         if (!road(tx - 1, ty) && chAt(tx - 1, ty) !== '~') ctx.fillRect(px, py, 3, TILE);
         if (!road(tx + 1, ty) && chAt(tx + 1, ty) !== '~') ctx.fillRect(px + TILE - 3, py, 3, TILE);
-        // dashed centre line: the middle of a road at least three wide
-        if (chAt(tx, ty - 1) === '_' && chAt(tx, ty + 1) === '_' && chAt(tx, ty - 2) === '_' && chAt(tx, ty + 2) === '_' && chAt(tx - 1, ty) !== '_' && false) ctx.fillRect(px + 14, py, 4, 16);
       } else if (f === 'r') {
         for (let i = 0; i < 5; i++) {
           const h1 = hash2(tx, ty, 20 + i), h2 = hash2(tx, ty, 40 + i), s = 4 + Math.floor(hash2(tx, ty, 60 + i) * 6);

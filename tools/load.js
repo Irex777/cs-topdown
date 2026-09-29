@@ -27,7 +27,7 @@ for (let i = 0; i < N; i++) {
   });
   await new Promise((r) => ws.on('open', r));
   ws.send(JSON.stringify({ t: 'hello', name: 'L' + i }));
-  if (i === 0) ws.send(JSON.stringify({ t: 'create', name: 'L0', settings: { map: 'dust', teamSize: Math.ceil(N / 2), bots: false, rounds: 30 } }));
+  if (i === 0) ws.send(JSON.stringify({ t: 'create', name: 'L0', settings: { map: 'riverside', mode: 'conquest', teamSize: Math.ceil(N / 2), bots: false, tickets: 600 } }));
   else { await sleep(150); ws.send(JSON.stringify({ t: 'join', code: clients[0].code, name: 'L' + i })); }
   await sleep(150);
   clients.push(c);

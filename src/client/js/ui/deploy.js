@@ -1,6 +1,6 @@
 // Deploy screen: pick a class, weapons and attachments, choose where to spawn on the tactical map.
 import {
-  CLASSES, CLASS_ORDER, SIDEARMS, WEAPONS, ATTACH, ATTACH_SLOTS, ATTACH_SLOT_NAMES, GADGETS, attachOptions, defaultLoadout, sanitizeLoadout, resolveWeapon,
+  CLASSES, CLASS_ORDER, SIDEARMS, WEAPONS, ATTACH, ATTACH_SLOT_NAMES, GADGETS, attachOptions, defaultLoadout, sanitizeLoadout, resolveWeapon,
 } from '../../../shared/weapons.js';
 import { GRENADE, GREN_ORDER, T, CT, SPEC } from '../../../shared/constants.js';
 

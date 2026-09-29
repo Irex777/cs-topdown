@@ -1,5 +1,5 @@
 // Rockets, tank shells and other physical projectiles.
-import { DT, SPEC, PLAYER_R } from '../shared/constants.js';
+import { SPEC, PLAYER_R } from '../shared/constants.js';
 import { PROJ } from '../shared/weapons.js';
 import { rayCircle, angleDiff } from '../shared/gamemap.js';
 import { explode } from './world.js';

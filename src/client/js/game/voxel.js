@@ -156,7 +156,7 @@ export function soldierModel(team, cls, kind, frame, dead = false) {
 }
 
 // ------------------------------------------------------------------------------------------------ vehicles
-function wheel(m, x, y, s = 3, h = 3) { m.box(x, y, 0, x + s, y + 1, h, '#1b1c20'); }
+
 
 const vehModels = new Map();
 /** parts: 'body' (rotates with the hull), 'turret' (rotates with the turret angle), 'gun' (free mounted machine gun), 'rotor' */

@@ -1,7 +1,7 @@
 {
-  "name": "cs-topdown",
-  "version": "2.0.0",
-  "description": "Top-down Counter-Strike style multiplayer shooter: bomb defusal, fog of war, bots, share a room link and play with friends",
+  "name": "frontline-voxel-warfare",
+  "version": "3.0.0",
+  "description": "Frontline: Voxel Warfare \u2014 a 2.5D voxel combined-arms shooter for the browser: big destructible maps, Conquest / Rush / Team Deathmatch, classes, weapon attachments, vehicles, bots.",
   "type": "commonjs",
   "main": "src/server/index.js",
   "scripts": {
@@ -11,7 +11,8 @@
     "lint": "eslint src tools",
     "maps": "node tools/preview-maps.js",
     "sim": "node tools/sim.js",
-    "balance": "node tools/balance.js"
+    "mechanics": "node tools/mechanics.js",
+    "botstats": "node tools/botstats.js"
   },
   "engines": {
     "node": ">=18"

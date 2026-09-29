@@ -1,6 +1,6 @@
 // Shooting, reloading, weapon switching, damage, kills and revives.
 import { DT, PLAYER_R, SPEC, RULES, GREN_ORDER } from '../shared/constants.js';
-import { WEAPONS, ALT, weaponSpread } from '../shared/weapons.js';
+import { ALT, weaponSpread } from '../shared/weapons.js';
 import { rayCircle, angleDiff } from '../shared/gamemap.js';
 import { throwGrenade } from './grenades.js';
 import { useGadget } from './gadgets.js';

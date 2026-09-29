@@ -249,7 +249,7 @@ setInterval(() => {
 setInterval(() => manager.sweep(), 10000);
 
 server.listen(PORT, HOST, () => {
-  console.log(`\n  CS Top-Down server ready on port ${PORT}\n`);
+  console.log(`\n  Frontline: Voxel Warfare server ready on port ${PORT}\n`);
   console.log(`  Local:    http://localhost:${PORT}`);
   for (const list of Object.values(os.networkInterfaces())) {
     for (const i of list || []) if (i.family === 'IPv4' && !i.internal) console.log(`  Network:  http://${i.address}:${PORT}   <- friends on your Wi-Fi/LAN use this`);

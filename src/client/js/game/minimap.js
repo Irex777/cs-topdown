@@ -4,7 +4,6 @@ import { GADGET_LIST } from '../../../shared/weapons.js';
 import { VEHICLES, VEHICLE_LIST } from '../../../shared/vehicles.js';
 import { TEAM_COL } from './render.js';
 
-const TAU = Math.PI * 2;
 const RADAR_SPAN = 2400;      // world px across the radar
 
 export class Minimap {
