@@ -11,6 +11,7 @@ import { FX3D } from './fx3d.js';
 import { Overlay } from './overlay.js';
 import { Viewmodel } from './viewmodel.js';
 import { Sky, moodFor } from './sky.js';
+import { assets, makeSoldier, soldierGun, makeVehicle } from './assets.js';
 
 export { TEAM_COL } from './overlay.js';
 
@@ -118,12 +119,14 @@ export class Renderer {
     const W = this.world;
     const mesh = (geo, mat = VOXEL_MAT) => { const m = new THREE.Mesh(geo, mat); m.castShadow = true; m.receiveShadow = false; return m; };
     this.pools.soldiers = new Pool(W, () => {
-      const obj = mesh(soldierGeo(0, 'assault', 'rifle', 0));
+      const obj = new THREE.Group();
+      const vox = mesh(soldierGeo(0, 'assault', 'rifle', 0));           // procedural fallback until the Blender model has loaded
+      obj.add(vox);
       const shield = new THREE.Mesh(BOX, new THREE.MeshBasicMaterial({ color: 0x9fd8ff, transparent: true, opacity: 0.28, depthWrite: false }));
       shield.scale.set(20, 34, 20); shield.position.y = 17; shield.visible = false; obj.add(shield);
-      return { obj, shield, geo: null };
+      return { obj, vox, shield, geo: null, rig: null, rigKey: '' };
     });
-    this.pools.corpses = new Pool(W, () => ({ obj: mesh(soldierGeo(0, 'assault', 'rifle', 0, true)), geo: null }));
+    this.pools.corpses = new Pool(W, () => { const obj = new THREE.Group(); const vox = mesh(soldierGeo(0, 'assault', 'rifle', 0, true)); obj.add(vox); return { obj, vox, geo: null, rig: null, rigKey: '' }; });
     this.pools.vehicles = new Pool(W, (id) => ({ obj: new THREE.Group(), id, key: '', parts: {} , dispose() { /* geometry is shared */ } }));
     this.pools.flags = new Pool(W, () => {
       const obj = new THREE.Group();
@@ -459,9 +462,22 @@ export class Renderer {
       const team = g.pt(p.team);
       const kind = weaponKindOf(p.held);
       const speed = p.speed || 0;
+      if (assets.soldier) {
+        const rk = `${team}|${p.cls || 'assault'}`;
+        if (e.rigKey !== rk) { if (e.rig) e.obj.remove(e.rig.root); e.rig = makeSoldier(team, p.cls || 'assault'); e.rigKey = rk; if (e.rig) e.obj.add(e.rig.root); }
+        if (e.rig) {
+          e.vox.visible = false;
+          const wid = p.held < HELD_GREN_BASE ? (WEAPON_LIST[p.held] ? WEAPON_LIST[p.held].id : '') : (p.held >= HELD_GADGET_BASE && kind === 'launcher' ? 'rpg' : '');
+          soldierGun(e.rig, kind === 'knife' ? '' : wid, WEAPON_LIST[p.held] ? WEAPON_LIST[p.held].defOptic : '');
+          const k = Math.min(1, speed / 70), ph = t * (speed > 240 ? 11 : 8.5) * Math.min(1.4, 0.55 + speed / 130) + p.id * 1.7;
+          const sw = Math.sin(ph) * 0.75 * k;
+          if (e.rig.legL) { e.rig.legL.rotation.z = sw; e.rig.legR.rotation.z = -sw; }
+          e.rig.root.position.y = Math.abs(Math.cos(ph)) * 0.35 * k;
+        }
+      } else e.vox.visible = true;
       const frame = speed > 35 ? (Math.floor(t * (speed > 240 ? 12 : 9) + p.id) % 2 === 0 ? 1 : 2) : 0;
       const geo = soldierGeo(team, p.cls || 'assault', kind, frame);
-      if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
+      if (e.geo !== geo) { e.vox.geometry = geo; e.geo = geo; }
       e.obj.position.set(p.x, p.z || 0, p.y); e.obj.rotation.y = -p.a;
       e.obj.scale.set(1, 1 - 0.3 * (p.cf || 0), 1);
       e.obj.visible = !((p.own || (this.fpsNow && g.me && p.id === g.me.id)) && this.hideOwn);
@@ -473,8 +489,14 @@ export class Renderer {
     for (const c of g.corpses) {
       if (!this.near(c.x, c.y)) continue;
       const e = P.corpses.get(c.id);
-      const geo = soldierGeo(g.pt(c.team), c.cls || 'assault', 'rifle', 0, true);
-      if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
+      const cteam = g.pt(c.team), ck = `${cteam}|${c.cls || 'assault'}`;
+      if (assets.soldier) {
+        if (e.rigKey !== ck) { if (e.rig) e.obj.remove(e.rig.root); e.rig = makeSoldier(cteam, c.cls || 'assault'); e.rigKey = ck; if (e.rig) { e.rig.root.rotation.x = -Math.PI / 2; e.rig.root.position.y = 4; e.obj.add(e.rig.root); } }
+        e.vox.visible = !e.rig;
+        if (e.rig && e.rig.legL) { e.rig.legL.rotation.z = 0.25; e.rig.legR.rotation.z = -0.15; }
+      } else e.vox.visible = true;
+      const geo = soldierGeo(cteam, c.cls || 'assault', 'rifle', 0, true);
+      if (e.geo !== geo) { e.vox.geometry = geo; e.geo = geo; }
       e.obj.position.set(c.x, 0, c.y); e.obj.rotation.y = -(c.a + 0.5);
     }
     P.corpses.sweep();
@@ -558,6 +580,14 @@ export class Renderer {
     const grp = e.obj;
     while (grp.children.length) grp.remove(grp.children[0]);
     e.parts = {};
+    e.glb = null;
+    const mv = assets.vehicles[def.id] ? makeVehicle(def.id, team) : null;
+    if (mv) {
+      e.glb = mv;
+      for (const [n, node] of Object.entries(mv.parts)) { grp.add(node); e.parts[n] = node; }
+      e.key = `${def.id}${team}g`;
+      return;
+    }
     const add = (part) => { const m = new THREE.Mesh(vehicleGeo(def.id, team, part), VOXEL_MAT); m.castShadow = true; grp.add(m); e.parts[part] = m; return m; };
     add('body');
     if (def.id === 'tank' || def.id === 'apc') { add('turret'); add('gun'); }
@@ -578,30 +608,35 @@ export class Renderer {
       if (!def || !this.near(v.x, v.y)) continue;
       const team = g.pt(v.team);
       const e = P.vehicles.get(v.id);
-      if (e.key !== `${def.id}${team}`) this.buildVehicle(e, def, team);
+      if (e.key !== `${def.id}${team}${assets.vehicles[def.id] ? 'g' : ''}`) this.buildVehicle(e, def, team);
       const pr = e.parts;
+      const M = e.glb ? e.glb.mount : null;
       const t = this.t;
       const bob = def.kind === 'boat' ? Math.sin(t * 2.2 + v.id) * 1.4 : 0;
       const top = TOP[def.id] || 0;
       const x = v.x, z = v.y, a = v.a;
       e.obj.position.set(0, 0, 0);
       const set = (m, px, py, pz, ang) => { m.position.set(px, py, pz); m.rotation.y = -ang; };
+      // a point `f` ahead and `r` to the right of (x, z) for heading h
+      const off = (h, f, r) => [x + Math.cos(h) * f - Math.sin(h) * r, z + Math.sin(h) * f + Math.cos(h) * r];
       if (def.id === 'heli') {
         const alt = AIR_ALT + Math.sin(t * 1.7 + v.id) * 1.5;
         set(pr.body, x, alt, z, a);
         pr.body.rotation.z = clamp((v.speed || 0) / 340, 0, 1) * -0.09;
-        set(pr.rotor, x, alt + 24, z, t * 26);
-        set(pr.gun, x + Math.cos(a) * 9, alt - 2, z + Math.sin(a) * 9, v.ga);
+        if (pr.rotor) set(pr.rotor, x, alt + (M ? M.ry : 24), z, t * 26);
+        if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, alt + M.gy, gz, v.ga); } else set(pr.gun, x + Math.cos(a) * 9, alt - 2, z + Math.sin(a) * 9, v.ga); }
         if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25, alt + 12);
       } else {
         set(pr.body, x, bob, z, a);
         if (def.id === 'tank') {
-          set(pr.turret, x, top, z, v.ta);
-          set(pr.gun, x - Math.cos(v.ta) * 6, top + 15, z - Math.sin(v.ta) * 6, v.ga);
+          if (pr.turret) set(pr.turret, x, M ? M.ty : top, z, v.ta);
+          if (pr.gun) { if (M) { const [gx, gz] = off(v.ta, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(v.ta) * 6, top + 15, z - Math.sin(v.ta) * 6, v.ga); }
         } else if (def.id === 'apc') {
-          set(pr.turret, x, top, z, v.ta);
-          set(pr.gun, x - Math.cos(a) * 12, top + 12, z - Math.sin(a) * 12, v.ga);
-        } else if (def.id === 'jeep' || def.id === 'boat') set(pr.gun, x - Math.cos(a) * 9, top + bob, z - Math.sin(a) * 9, v.ga);
+          if (pr.turret) set(pr.turret, x, M ? M.ty : top, z, v.ta);
+          if (pr.gun) { if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 12, top + 12, z - Math.sin(a) * 12, v.ga); }
+        } else if ((def.id === 'jeep' || def.id === 'boat') && pr.gun) {
+          if (M) { const [gx, gz] = off(a, M.gx, M.gz); set(pr.gun, gx, M.gy + bob, gz, v.ga); } else set(pr.gun, x - Math.cos(a) * 9, top + bob, z - Math.sin(a) * 9, v.ga);
+        }
         if (pr.hat) set(pr.hat, x - Math.cos(a) * 3, 17, z - Math.sin(a) * 3, a);
         if (v.hp < 55 && g.fx.shouldSmoke(v.id, now)) g.fx.damageSmoke(x, z, v.hp < 25);
       }
