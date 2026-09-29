@@ -14,5 +14,5 @@ export default [
   { files: ['src/server/**/*.js', 'src/shared/**/*.js', 'tools/**/*.js'], languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: nodeGlobals }, rules },
   { files: ['tools/**/*.mjs'], languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: { ...nodeGlobals, ...browserGlobals } }, rules },
   { files: ['src/client/**/*.js'], languageOptions: { ecmaVersion: 2023, sourceType: 'module', globals: browserGlobals }, rules },
-  { ignores: ['node_modules/**', 'server.js', 'public/**', 'test-*.js', 'shared/**', 'server/**'] },
+  { ignores: ['node_modules/**'] },
 ];

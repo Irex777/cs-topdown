@@ -2,8 +2,3 @@ node_modules
 .git
 tools
 *.md
-server.js
-server
-shared
-public
-test-*.js
