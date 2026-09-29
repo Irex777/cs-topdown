@@ -16,39 +16,39 @@ export const VWEAPONS = {
 // resist: multipliers applied to incoming damage by type. size = [length, width, height] px, used by the renderer.
 export const VEHICLES = {
   quad: {
-    name: 'Quad Bike', kind: 'wheeled', r: 12, hp: 130, maxSpeed: 292, revSpeed: 88, accel: 381, drag: 1.5, grip: 7, turn: 3.4,
+    name: 'Quad Bike', kind: 'wheeled', r: 17, hp: 130, maxSpeed: 292, revSpeed: 88, accel: 381, drag: 1.5, grip: 7, turn: 3.4,
     resist: { bullet: 1.0, expl: 1.3 }, view: { range: 1000, fov: 165 * Math.PI / 180 },
-    seats: [{ name: 'Driver' }, { name: 'Passenger' }], open: true, respawn: 40, size: [24, 14, 12], zr: [0, 14], pts: 60,
+    seats: [{ name: 'Driver' }, { name: 'Passenger' }], open: true, respawn: 40, size: [34, 20, 17], zr: [0, 20], pts: 60,
   },
   jeep: {
-    name: 'Recon Jeep', kind: 'wheeled', r: 16, hp: 320, maxSpeed: 252, revSpeed: 82, accel: 299, drag: 1.2, grip: 5.2, turn: 2.6,
+    name: 'Recon Jeep', kind: 'wheeled', r: 23, hp: 320, maxSpeed: 252, revSpeed: 82, accel: 299, drag: 1.2, grip: 5.2, turn: 2.6,
     resist: { bullet: 0.55, expl: 1.0 }, view: { range: 1080, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver' }, { name: 'Gunner', weapon: 'mg50', aim: 'free', turn: 7 }, { name: 'Passenger' }, { name: 'Passenger' }],
-    respawn: 50, size: [40, 24, 16], zr: [0, 26], pts: 100,
+    respawn: 50, size: [58, 35, 23], zr: [0, 38], pts: 100,
   },
   apc: {
-    name: 'APC', kind: 'tracked', r: 21, hp: 700, maxSpeed: 180, revSpeed: 79, accel: 173, drag: 2.2, grip: 12, turn: 1.9, turretTurn: 3.2,
+    name: 'APC', kind: 'tracked', r: 31, hp: 700, maxSpeed: 180, revSpeed: 79, accel: 173, drag: 2.2, grip: 12, turn: 1.9, turretTurn: 3.2,
     resist: { bullet: 0.12, expl: 0.8 }, view: { range: 1100, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'autocannon', aim: 'turret', turn: 3.2 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 6 }, { name: 'Passenger' }, { name: 'Passenger' }],
-    respawn: 75, size: [50, 28, 20], zr: [0, 30], pts: 180,
+    respawn: 75, size: [75, 42, 30], zr: [0, 45], pts: 180,
   },
   tank: {
-    name: 'Main Battle Tank', kind: 'tracked', r: 24, hp: 1000, maxSpeed: 156, revSpeed: 70, accel: 148, drag: 2.4, grip: 14, turn: 1.6, turretTurn: 1.7,
+    name: 'Main Battle Tank', kind: 'tracked', r: 37, hp: 1000, maxSpeed: 156, revSpeed: 70, accel: 148, drag: 2.4, grip: 14, turn: 1.6, turretTurn: 1.7,
     resist: { bullet: 0.035, expl: 0.65 }, view: { range: 1200, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver', weapon: 'cannon', aim: 'turret', turn: 1.7 }, { name: 'Gunner', weapon: 'coax', aim: 'free', turn: 5 }],
-    respawn: 100, size: [56, 32, 22], zr: [0, 28], pts: 260, crush: true,
+    respawn: 100, size: [87, 50, 34], zr: [0, 43], pts: 260, crush: true,
   },
   heli: {
-    name: 'Attack Helicopter', kind: 'air', r: 24, hp: 560, maxSpeed: 265, accel: 1.7, turn: 3.0, alt: 44,
+    name: 'Attack Helicopter', kind: 'air', r: 32, hp: 560, maxSpeed: 265, accel: 1.7, turn: 3.0, alt: 56,
     resist: { bullet: 0.32, expl: 0.9 }, view: { range: 1150, fov: 360 * Math.PI / 180, air: true },
     seats: [{ name: 'Pilot', weapon: 'pod', aim: 'body' }, { name: 'Gunner', weapon: 'minigun', aim: 'free', turn: 5 }],
-    respawn: 110, size: [52, 20, 20], zr: [34, 72], pts: 320,
+    respawn: 110, size: [70, 27, 27], zr: [46, 98], pts: 320,
   },
   boat: {
-    name: 'Patrol Boat', kind: 'boat', r: 19, hp: 420, maxSpeed: 252, revSpeed: 74, accel: 222, drag: 0.9, grip: 2.2, turn: 2.0,
+    name: 'Patrol Boat', kind: 'boat', r: 27, hp: 420, maxSpeed: 252, revSpeed: 74, accel: 222, drag: 0.9, grip: 2.2, turn: 2.0,
     resist: { bullet: 0.5, expl: 1.0 }, view: { range: 1100, fov: 165 * Math.PI / 180 },
     seats: [{ name: 'Driver' }, { name: 'Gunner', weapon: 'mg50', aim: 'free', turn: 7 }, { name: 'Passenger' }, { name: 'Passenger' }],
-    respawn: 60, size: [52, 24, 14], zr: [0, 22], pts: 120,
+    respawn: 60, size: [75, 35, 20], zr: [0, 32], pts: 120,
   },
 };
 export const VEHICLE_LIST = Object.keys(VEHICLES);

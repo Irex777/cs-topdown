@@ -19,7 +19,7 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const lerp = (a, b, t) => a + (b - a) * t;
 const PROJ_LIST = Object.keys(PROJ);
 const KIND_TIP = { pistol: 14, smg: 20, rifle: 26, dmr: 26, lmg: 28, sniper: 32, shotgun: 24, knife: 16, launcher: 24, tool: 16, grenade: 12 };
-const AIR_ALT = 44;
+const AIR_ALT = 56;
 const TOP = { jeep: 21, apc: 21, tank: 15, boat: 18 };
 const SKY = new THREE.Color('#9cc4ea');
 const FOV = 62;
@@ -275,7 +275,7 @@ export class Renderer {
     if (!viewer) return { D: 0, H: 320, ahead: 300, fov: FOV, hideOwn: false };
     if (me && me.veh) {
       const def = g.vehDef();
-      if (def && def.kind === 'air') return { D: 250, H: 56, ahead: 520, fov: FOV, hideOwn: false };
+      if (def && def.kind === 'air') return { D: 270, H: 70, ahead: 520, fov: FOV, hideOwn: false };
       const r = def ? def.r : 14;
       return { D: 120 + r * 6, H: 18 + r * 0.9, ahead: 330, fov: FOV, hideOwn: false };
     }
