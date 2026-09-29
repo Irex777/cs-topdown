@@ -363,6 +363,7 @@ export class BotBrain {
     const w = p.weapon();
     const tq = this.visible && this.target ? this.resolveTarget() : null;
     const engaged = !!tq;
+    if (!engaged) this.aimZ = undefined;
 
     let mv = { mode: 'stop' };
     let fire = false, aimAt = null, use = false, walk = false, scope = false, look, sprint = false, altUse = false;
@@ -430,6 +431,10 @@ export class BotBrain {
     else desired = this.aim;
     const turn = this.d.turn * (engaged ? 1 : 0.55) * (flashed ? 0.15 : 1);
     this.aim = norm(this.aim + clamp(norm(desired - this.aim), -turn * dt, turn * dt));
+    // vertical aim: at the height clearShot() picked when engaged, level otherwise
+    let wantPitch = 0;
+    if (engaged && aimAt && this.aimZ !== undefined) wantPitch = Math.atan2(this.aimZ - p.eyeZ, Math.max(30, Math.hypot(aimAt.x - p.x, aimAt.y - p.y)));
+    this.pitch = (this.pitch || 0) + clamp(wantPitch - (this.pitch || 0), -turn * dt, turn * dt);
 
     // ---- output
     let keys = 0;
@@ -445,6 +450,7 @@ export class BotBrain {
     if (this.job && this.job.rmb) keys |= KEY.SCOPE;
     cmd.keys = keys;
     cmd.angle = this.aim;
+    cmd.pitch = this.pitch;
     cmd.aimDist = this.job && this.job.dist ? this.job.dist : 300;
     void altUse;
     return cmd;
@@ -462,9 +468,10 @@ export class BotBrain {
   resolveTarget() {
     const g = this.g, t = this.target;
     if (!t) return null;
-    if (t.kind === 'p') { const q = g.players.get(t.id); return q && q.alive && !q.veh ? { x: q.x, y: q.y, vx: q.vx, vy: q.vy, speed: q.speed, veh: null, soft: 1 } : null; }
+    if (t.kind === 'p') { const q = g.players.get(t.id); return q && q.alive && !q.veh ? { x: q.x, y: q.y, vx: q.vx, vy: q.vy, speed: q.speed, veh: null, soft: 1, z: q.z, h: q.bodyH } : null; }
     const v = g.vehicleById(t.id);
-    return v && !v.dead ? { x: v.x, y: v.y, vx: v.vx, vy: v.vy, speed: v.speed, veh: v, soft: v.def.resist.bullet } : null;
+    const zr = v && v.def.zr ? v.def.zr : [0, 26];
+    return v && !v.dead ? { x: v.x, y: v.y, vx: v.vx, vy: v.vy, speed: v.speed, veh: v, soft: v.def.resist.bullet, z: zr[0], h: zr[1] - zr[0] } : null;
   }
 
   // ---------------------------------------------------------------- jobs (class abilities)
@@ -638,8 +645,23 @@ export class BotBrain {
       else mv = { mode: 'manual', ax: Math.cos(perp) * 0.9 + Math.cos(toEnemy) * 0.15, ay: Math.sin(perp) * 0.9 + Math.sin(toEnemy) * 0.15 };
     } else mv = { mode: 'manual', ax: Math.cos(perp), ay: Math.sin(perp) };
     if (mv.mode === 'stop' && !fire && this.d.aggr > 0.55 && dist > 300 && p.hp > 45 && kind !== 'sniper') mv = { mode: 'path', goal: { x: tq.x, y: tq.y } };
+    if (fire && !tq.veh && !this.clearShot(tq, toEnemy, dist)) fire = false;
+    if (tq.veh) this.aimZ = tq.z + tq.h * 0.5;
     this.noFireT = fire ? 0 : this.noFireT + dt;
     return { mv: outOfRange || (this.noFireT > 1.4 && dist > 300) ? null : mv, fire, aimAt: { x: tq.x, y: tq.y }, scope };
+  }
+
+  /** Is there a line for a bullet to the chest (or failing that the head) over any low cover? Remembers the height to aim at. */
+  clearShot(tq, ang, dist) {
+    const p = this.p, map = this.g.map;
+    const eye = p.eyeZ, c = Math.cos(ang), sn = Math.sin(ang);
+    for (const f of [0.6, 0.9, 0.3]) {
+      const zt = tq.z + tq.h * f;
+      const r = map.castBullet(p.x, p.y, eye, c, sn, (zt - eye) / Math.max(1, dist), dist);
+      if (r.d >= dist - 14) { this.aimZ = zt; return true; }
+    }
+    this.aimZ = tq.z + tq.h * 0.6;
+    return false;
   }
 
   // ---------------------------------------------------------------- perception

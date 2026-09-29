@@ -113,7 +113,7 @@ export class HUD {
     try { localStorage.setItem('bf.hints', '1'); } catch { /* ignore */ }
     const div = document.createElement('div');
     div.className = 'hintbar';
-    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Shift</kbd> sprint</span><span><kbd>LMB</kbd> fire</span><span><kbd>RMB</kbd> aim / scope</span><span><kbd>E</kbd> enter vehicle / arm</span><span><kbd>Q</kbd> spot</span><span><kbd>3</kbd><kbd>4</kbd> gadgets</span><span><kbd>F</kbd> alt fire</span><span><kbd>L</kbd> loadout</span><span><kbd>M</kbd> map</span>';
+    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>LMB</kbd> fire</span><span><kbd>RMB</kbd> aim</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span><kbd>R</kbd> reload</span><span><kbd>E</kbd> use / vehicle</span><span><kbd>Q</kbd> spot</span><span><kbd>L</kbd> loadout</span>';
     this.el.hud.appendChild(div);
     setTimeout(() => div.remove(), 18000);
   }
@@ -131,7 +131,7 @@ export class HUD {
       const kt = m.k ? TEAM_CLS[g.teamOf(m.k)] : '', vt = TEAM_CLS[g.teamOf(m.v)];
       const w = KILL_NAMES[m.w] || (WEAPONS[m.w] ? WEAPONS[m.w].name : '');
       div.className = 'kf' + (m.k === g.you ? ' me' : '') + (m.v === g.you ? ' dead' : '');
-      div.innerHTML = `${m.k ? `<span class="${kt}">${esc(kn)}</span>` : ''}${m.a ? `<span class="as">+ ${esc(g.nameOf(m.a))}</span>` : ''}<span class="w">${esc(w || 'X')}</span><span class="${vt}">${esc(vn)}</span>${m.tk ? '<span class="as">(TK)</span>' : ''}`;
+      div.innerHTML = `${m.k ? `<span class="${kt}">${esc(kn)}</span>` : ''}${m.a ? `<span class="as">+ ${esc(g.nameOf(m.a))}</span>` : ''}<span class="w">${esc(w || 'X')}${m.hs ? ' <b style="color:#ff5a4a" title="Headshot">◉</b>' : ''}</span><span class="${vt}">${esc(vn)}</span>${m.tk ? '<span class="as">(TK)</span>' : ''}`;
     }
     this.el.killfeed.appendChild(div);
     while (this.el.killfeed.children.length > 7) this.el.killfeed.firstChild.remove();
@@ -255,12 +255,14 @@ export class HUD {
         <button data-t="0" class="${mt === T ? 'on' : ''}">Crimson</button><button data-t="1" class="${mt === CT ? 'on' : ''}">Azure</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
       <div><span class="label">Squad</span><div class="seg" id="pauseSquad">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}">${'ABCDEFGH'[i]}</button>`).join('')}</div></div>
       <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
-      <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="6" max="80" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
-      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move (relative to the view) / drive</span><kbd>Mouse</kbd><span>Look and aim</span><kbd>Shift</kbd><span>Sprint</span><kbd>C</kbd><span>Walk (silent)</span><kbd>LMB</kbd><span>Fire / use gadget</span>
-      <kbd>RMB</kbd><span>Aim / scope / detonate C4</span><kbd>R</kbd><span>Reload</span><kbd>E</kbd><span>Enter / exit vehicle, arm M-COM</span><kbd>F</kbd><span>Alt fire (underbarrel)</span>
-      <kbd>1-6</kbd><span>Weapons, gadgets, grenade</span><kbd>Q</kbd><span>Spot enemy</span><kbd>L</kbd><span>Loadout</span><kbd>M</kbd><span>Big map</span>
-      <kbd>Space</kbd><span>Handbrake</span><kbd>1-4</kbd><span>Switch seat (in vehicle)</span><kbd>V</kbd><span>Ping</span><kbd>Tab</kbd><span>Scoreboard</span>
-      <kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span></div>
+      <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="4" max="60" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
+      <div class="slider"><span>Field of view</span><input type="range" id="fovRange" min="70" max="120" value="${Math.round(g.fov)}" aria-label="Field of view"><b id="fovVal" style="min-width:34px;text-align:right">${Math.round(g.fov)}°</b></div>
+      <div class="row" style="gap:16px"><label class="chk"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}> Invert Y</label><label class="chk"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}> Toggle aim (RMB)</label></div>
+      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Mouse</kbd><span>Look / aim</span><kbd>LMB</kbd><span>Fire</span><kbd>RMB</kbd><span>Aim down sights / scope</span>
+      <kbd>Shift</kbd><span>Sprint (forward)</span><kbd>Space</kbd><span>Jump (hop onto low cover)</span><kbd>C</kbd><span>Crouch (hold)</span><kbd>R</kbd><span>Reload</span>
+      <kbd>E</kbd><span>Enter / exit vehicle, revive, arm M-COM</span><kbd>F</kbd><span>Alt fire (underbarrel)</span><kbd>1-6</kbd><span>Weapons, gadgets, grenade, knife</span><kbd>Wheel</kbd><span>Cycle weapons</span>
+      <kbd>Q</kbd><span>Spot enemy</span><kbd>V</kbd><span>Ping</span><kbd>L</kbd><span>Loadout</span><kbd>M</kbd><span>Big map</span><kbd>Tab</kbd><span>Scoreboard</span>
+      <kbd>Space</kbd><span>Brake (vehicles)</span><kbd>1-4</kbd><span>Switch seat (vehicle)</span><kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span></div>
       <div class="row"><button class="btn primary" id="resumeBtn" style="flex:1">Resume</button>
       ${this.app.isHost() ? '<button class="btn" id="endMatchBtn">End match</button>' : ''}
       <button class="btn danger" id="leaveBtn">Leave</button></div></div>`;
@@ -268,7 +270,11 @@ export class HUD {
     $('leaveBtn').onclick = () => { this.closePause(); this.app.leaveRoom(); };
     const em = $('endMatchBtn'); if (em) em.onclick = () => { this.net.send({ t: 'lobby' }); this.closePause(); };
     $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
-    $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; try { localStorage.setItem('fl.sens', String(g.sens)); } catch { /* ignore */ } };
+    const save = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* ignore */ } };
+    $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; save('fl.sens', g.sens); };
+    $('fovRange').oninput = (e) => { g.fov = Number(e.target.value); $('fovVal').textContent = g.fov + '°'; save('fl.fov', g.fov); };
+    $('invY').onchange = (e) => { g.invertY = e.target.checked; save('fl.inv', g.invertY ? 1 : 0); };
+    $('adsT').onchange = (e) => { g.input.adsToggle = e.target.checked; g.input.right = false; save('fl.adsT', g.input.adsToggle ? 1 : 0); };
     $('pauseTeam').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'team', team: Number(b.dataset.t) }); this.closePause(); } };
     $('pauseSquad').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'a', a: 'squad', n: Number(b.dataset.s) }); this.closePause(); } };
     el.onclick = (e) => { if (e.target === el) this.closePause(); };

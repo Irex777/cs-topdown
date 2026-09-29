@@ -9,6 +9,7 @@ import { soldierGeo, vehicleGeo, propGeo, grenadeGeo, VOXEL_MAT } from './models
 import { BlockField, Ground, tileHeight } from './world3d.js';
 import { FX3D } from './fx3d.js';
 import { Overlay } from './overlay.js';
+import { Viewmodel } from './viewmodel.js';
 
 export { TEAM_COL } from './overlay.js';
 
@@ -22,7 +23,7 @@ const SKY = new THREE.Color('#9cc4ea');
 const FOV = 62;
 const SCOPE = [{ d: 95, fov: 50 }, { d: 52, fov: 34 }, { d: 32, fov: 22 }, { d: 22, fov: 14 }];
 
-function weaponKindOf(held) {
+export function weaponKindOf(held) {
   if (held >= HELD_GADGET_BASE) { const g = GADGET_LIST[held - HELD_GADGET_BASE]; return g ? (g.kind === 'launcher' ? 'launcher' : 'tool') : 'tool'; }
   if (held >= HELD_GREN_BASE) return 'grenade';
   const w = WEAPON_LIST[held];
@@ -71,6 +72,7 @@ export class Renderer {
     this.aimGround = null;
     this.ctx = canvas.getContext('2d');
     this.overlay = new Overlay(this);
+    this.fpsNow = false; this.bobT = 0; this.eyeSmooth = null;
 
     this.gl = document.createElement('canvas');
     this.gl.id = 'game3d';
@@ -102,6 +104,7 @@ export class Renderer {
     this.world = new THREE.Group(); this.scene.add(this.world);
     this.pools = {};
     this.mkPools();
+    this.viewmodel = new Viewmodel(this);
     this._v = new THREE.Vector3(); this._ray = new THREE.Raycaster();
     window.addEventListener('resize', () => this.resize());
     this.resize();
@@ -188,6 +191,7 @@ export class Renderer {
     this.gl.style.width = this.W + 'px'; this.gl.style.height = this.H + 'px';
     this.camera.aspect = this.W / this.H;
     this.camera.updateProjectionMatrix();
+    if (this.viewmodel) this.viewmodel.resize(this.W, this.H);
   }
 
   // ------------------------------------------------------------------ projection helpers (used by the overlay and input)
@@ -247,8 +251,73 @@ export class Renderer {
     return 1;
   }
 
+  /** first person: on foot (yours, or the soldier you are spectating); vehicles, the death view and the free camera use the chase camera */
+  isFps(viewer) {
+    const g = this.game, me = g.me;
+    if (g.freecam || !viewer || !me || me.veh) return false;
+    if (g.alive && me.own) return true;
+    return !g.alive && !!g.spec && me.id === g.spec && !me.own;
+  }
+
+  updateCameraFps(dt, viewer) {
+    const g = this.game, cam = this.camera, me = g.me;
+    const own = !!me.own;
+    const yaw = own ? g.viewYaw() : g.yaw;
+    const pitch = own ? g.viewPitch() : g.pitch;
+    this.yaw = yaw;
+    // aiming zoom
+    const scoped = !!(viewer.scoped && g.alive) || (!own && !!(me.sc));
+    this.scopeK += ((scoped ? 1 : 0) - this.scopeK) * (1 - Math.exp(-(viewer.scopeLvl >= 2 ? 8 : 12) * dt));
+    const aspect = Math.max(1.2, this.W / this.H);
+    const hFov = Math.min(g.fov, 118) * Math.PI / 180;
+    const sprintK = own && me.spr ? 1 : 0;
+    this.sprintFov = (this.sprintFov || 0) + (sprintK - (this.sprintFov || 0)) * (1 - Math.exp(-6 * dt));
+    let tanHalf = Math.tan(hFov / 2) / aspect * (1 + 0.06 * this.sprintFov);
+    tanHalf *= 1 + (g.zoomMul(viewer.scopeLvl) - 1) * this.scopeK;
+    const vfov = 2 * Math.atan(tanHalf) * 180 / Math.PI;
+    if (Math.abs(cam.fov - vfov) > 0.01 || cam.near !== 1.4) { cam.fov = vfov; cam.near = 1.4; cam.updateProjectionMatrix(); }
+    // eye position: crouching lowers it, walking bobs it, landing dips it
+    const speed = own ? Math.hypot(g.pred.vx, g.pred.vy) : Math.hypot(me.vx || 0, me.vy || 0);
+    const air = own ? Math.abs(g.pred.vz) > 1 : Math.abs(me.vz || 0) > 1;
+    const moving = Math.min(1.6, speed / 92) * (air ? 0 : 1);
+    this.bobT += dt * (3 + moving * 5.5);
+    const ads = this.scopeK;
+    const bobA = moving * (sprintK ? 1.5 : viewer.cf > 0.5 ? 0.5 : 1) * (1 - ads * 0.85);
+    g.landDip *= Math.exp(-9 * dt);
+    let eye = viewer.eye + Math.abs(Math.cos(this.bobT)) * -0.55 * bobA - g.landDip * 3.2;
+    if (this.eyeSmooth === null || Math.abs(eye - this.eyeSmooth) > 30) this.eyeSmooth = eye;
+    this.eyeSmooth += (eye - this.eyeSmooth) * (1 - Math.exp(-22 * dt));   // stepping onto cover glides instead of snapping
+    eye = this.eyeSmooth;
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const side = Math.sin(this.bobT) * 0.32 * bobA;
+    const sh = g.fx.shake;
+    const px = viewer.x - sy * side + g.fx.shakeX * 0.35, pz = viewer.y + cy * side + g.fx.shakeY * 0.35;
+    cam.position.set(px, eye + g.fx.shakeY * 0.25, pz);
+    const cp = Math.cos(pitch);
+    cam.lookAt(px + cy * cp, cam.position.y + Math.sin(pitch), pz + sy * cp);
+    // lean into strafing, wobble with explosions
+    const rx = -sy, ry = cy;
+    const strafe = own ? (g.pred.vx * rx + g.pred.vy * ry) / 92 : 0;
+    this.leanRoll = (this.leanRoll || 0) + ((clamp(strafe, -1, 1) * 0.012 + g.fx.shakeX * 0.002) - (this.leanRoll || 0)) * (1 - Math.exp(-10 * dt));
+    cam.rotateZ(this.leanRoll + Math.sin(this.bobT) * 0.0035 * bobA);
+    cam.updateMatrixWorld();
+    this.focal = this.H / (2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
+    this.pivot = { x: viewer.x, y: viewer.y, h: eye };
+    this.camDist = 0; this.hideOwn = true;
+    this.cam.x = viewer.x; this.cam.y = viewer.y;
+    this.aimGround = this.screenToWorld(this.W / 2, this.H / 2);
+    const tx = viewer.x + cy * 260, tz = viewer.y + sy * 260;
+    this.sun.target.position.set(tx, 0, tz);
+    this.sun.position.set(tx + this.sunDir.x * 1200, this.sunDir.y * 1200, tz + this.sunDir.z * 1200);
+    this.sun.target.updateMatrixWorld();
+    this.fpsCtx = { speed, air, strafe, sh };
+  }
+
   updateCamera(dt, viewer) {
     const g = this.game, cam = this.camera;
+    this.fpsNow = this.isFps(viewer);
+    if (this.fpsNow) { this.updateCameraFps(dt, viewer); return; }
+    if (cam.near !== 3) { cam.near = 3; cam.updateProjectionMatrix(); }
     const P = this.camParams(viewer);
     const scoped = !!(viewer && viewer.scoped && g.alive);
     this.scopeK += ((scoped ? 1 : 0) - this.scopeK) * (1 - Math.exp(-12 * dt));
@@ -301,8 +370,30 @@ export class Renderer {
     this.ground.update(this.pivot.x + Math.cos(this.yaw) * 400, this.pivot.y + Math.sin(this.yaw) * 400, 1700);
     this.updateEntities(viewer, nowMs);
     this.fx3d.update();
-    this.renderer.render(this.scene, this.camera);
+    this.renderer.autoClear = true;
+    if (this.debugVm) { this.renderer.setClearColor(0x6d8fb3); this.renderer.clear(); } else this.renderer.render(this.scene, this.camera);
+    this.drawViewmodel(dt, viewer);
     this.overlay.draw(this.ctx, viewer, dt);
+  }
+
+  drawViewmodel(dt, viewer) {
+    const g = this.game, me = g.me, vm = this.viewmodel;
+    if (!this.fpsNow || !me || me.veh || !viewer) { vm.visible = false; return; }
+    const own = !!me.own;
+    if (!vm.flash.material.map && this.fx3d) { vm.flash.material.map = this.fx3d.glowTex; vm.flash.material.needsUpdate = true; }
+    const held = me.held;
+    const kind = weaponKindOf(held);
+    const weapon = own ? g.heldWeapon(me) : WEAPON_LIST[held];
+    const fc = this.fpsCtx || {};
+    const edge = own && g.input.left && !this._prevLeft;
+    this._prevLeft = own && g.input.left;
+    const zoomed = !!(viewer.scoped && (viewer.scopeLvl || 0) >= 1 && this.scopeK > 0.55);
+    vm.render(dt, {
+      fps: true, me, viewer, kind, weapon, team: g.myTeam() >= 0 && own ? g.myTeam() : (g.teamOf(me.id) >= 0 ? g.teamOf(me.id) : 2),
+      speed: fc.speed || 0, air: !!fc.air, strafe: fc.strafe || 0,
+      ads: !!(viewer.scoped && g.alive) || (!own && !!me.sc), sprint: !!me.spr, crouch: viewer.cf > 0.5,
+      reload: me.rel || 0, swing: edge && (kind === 'knife' || kind === 'grenade' || kind === 'tool'), scopedView: zoomed,
+    });
   }
 
   moveFreecam(dt) {
@@ -332,8 +423,9 @@ export class Renderer {
       const frame = speed > 35 ? (Math.floor(t * (speed > 240 ? 12 : 9) + p.id) % 2 === 0 ? 1 : 2) : 0;
       const geo = soldierGeo(team, p.cls || 'assault', kind, frame);
       if (e.geo !== geo) { e.obj.geometry = geo; e.geo = geo; }
-      e.obj.position.set(p.x, 0, p.y); e.obj.rotation.y = -p.a;
-      e.obj.visible = !(p.own && this.hideOwn);
+      e.obj.position.set(p.x, p.z || 0, p.y); e.obj.rotation.y = -p.a;
+      e.obj.scale.set(1, 1 - 0.3 * (p.cf || 0), 1);
+      e.obj.visible = !((p.own || (this.fpsNow && g.me && p.id === g.me.id)) && this.hideOwn);
       e.shield.visible = !!(p.fl & 32);
       if ((g.muzzle.get(p.id) || 0) > now) this.muzzle(p.x + Math.cos(p.a) * (KIND_TIP[kind] || 20), 15, p.y + Math.sin(p.a) * (KIND_TIP[kind] || 20));
     }

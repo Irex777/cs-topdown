@@ -209,7 +209,7 @@ export class Game {
       const fr = this.map.freeSpotNear(opt.x, opt.y, 24, 70, Math.random, 1);
       x = fr.x; y = fr.y;
     } else { const fr = this.map.nearestFree(x, y); x = fr.x; y = fr.y; }
-    p.x = x; p.y = y; p.vx = 0; p.vy = 0;
+    p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.z = 0; p.vz = 0; p.cf = 0; p.pitch = 0;
     const face = this.map.spawnCenter[otherTeam(p.team)] || { x: this.map.width / 2, y: this.map.height / 2 };
     p.angle = Math.atan2(face.y - p.y, face.x - p.x);
     p.fireCd = 0; p.reloadT = 0; p.drawT = 0.3; p.burst = 0; p.scoped = false;
@@ -317,14 +317,14 @@ export class Game {
     } else tickWeaponTimers(this, p, dt);
     if (p.bot) {
       const c = p.bot.think(dt);
-      this.applyCmd(p, c.keys, c.angle, 0, c.aimDist, c.ax, c.ay);
+      this.applyCmd(p, c.keys, c.angle, 0, c.aimDist, c.ax, c.ay, c.pitch);
       if (c.seat !== undefined && c.seat >= 0) switchSeat(this, p, c.seat);
     } else {
       const q = p.cmdQ;
       let n = q.length > 8 ? 4 : q.length > 3 ? 2 : 1;
       while (n-- > 0 && q.length) {
         const c = q.shift();
-        this.applyCmd(p, c[1], c[2], c[3], c[4]);
+        this.applyCmd(p, c[1], c[2], c[3], c[4], undefined, undefined, c[5]);
         p.lastSeq = c[0];
         if (!p.alive) break;
       }
@@ -337,7 +337,7 @@ export class Game {
     return Math.max(this.time - 0.4, Math.min(this.time, Math.round((vt + 0.1) * 1000) / 1000));
   }
 
-  applyCmd(p, keys, angle, vt, aimDist, ax, ay) {
+  applyCmd(p, keys, angle, vt, aimDist, ax, ay, pitch = 0) {
     const useHeld = (keys & KEY.USE) !== 0;
     if (p.veh) {
       vehicleCmd(this, p, keys, angle, vt, aimDist);
@@ -346,21 +346,24 @@ export class Game {
       return;
     }
     p.angle = angle;
+    p.pitch = Math.max(-1.5, Math.min(1.5, Number.isFinite(pitch) ? pitch : 0));
     p.lastKeys = keys;
     const w = p.weapon();
     const fire = (keys & KEY.FIRE) !== 0;
     const wantScope = (keys & KEY.SCOPE) !== 0 && !!w && w.kind !== 'knife';
     p.scoped = wantScope;
-    p.walking = (keys & KEY.WALK) !== 0;
-    p.sprinting = (keys & KEY.SPRINT) !== 0 && !wantScope && !p.walking && !fire;
-    if (ax === undefined) [ax, ay] = relativeDir(keys, angle);   // humans: keys are relative to the view
+    const human = ax === undefined;
+    p.walking = (keys & KEY.WALK) !== 0 || p.cf > 0.5;
+    // sprinting: humans must be running forward; only while not aiming, shooting or crouched
+    p.sprinting = (keys & KEY.SPRINT) !== 0 && !wantScope && !p.walking && !fire && (!human || (keys & KEY.UP) !== 0);
+    if (human) [ax, ay] = relativeDir(keys, angle);   // humans: keys are relative to the view
     stepMovement(this.map, p, keys, maxSpeedFor(w, p.walking, p.scoped, p.sprinting), false, ax, ay);
-    // footsteps
+    // footsteps (silent in the air and when crouched)
     const sp = p.speed;
-    if (!p.walking && sp > 70) {
+    if (!p.walking && p.z < 1 && sp > 45) {
       p.stepAcc += sp * DT;
-      if (p.stepAcc > 64) { p.stepAcc = 0; this.emit(['step', p.id, Math.round(p.x), Math.round(p.y), p.team, p.sprinting ? 1 : 0], p.x, p.y, p.sprinting ? 720 : 640); }
-    } else if (sp <= 70) p.stepAcc = Math.max(p.stepAcc, 40);
+      if (p.stepAcc > 44) { p.stepAcc = 0; this.emit(['step', p.id, Math.round(p.x), Math.round(p.y), p.team, p.sprinting ? 1 : 0], p.x, p.y, p.sprinting ? 720 : 640); }
+    } else if (sp <= 45) p.stepAcc = Math.max(p.stepAcc, 40);
     this.handleUse(p, useHeld, keys);
     tryFire(this, p, fire, !p.prevFire && fire, vt, aimDist, keys);
     p.prevFire = fire;

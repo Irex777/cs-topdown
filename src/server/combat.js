@@ -1,14 +1,15 @@
 // Shooting, reloading, weapon switching, damage, kills and revives.
-import { DT, PLAYER_R, SPEC, RULES, GREN_ORDER } from '../shared/constants.js';
+import { DT, PLAYER_R, SPEC, RULES, GREN_ORDER, HEAD_FRAC, BODY_H, BODY_H_CROUCH } from '../shared/constants.js';
 import { ALT, weaponSpread } from '../shared/weapons.js';
-import { rayCircle, angleDiff } from '../shared/gamemap.js';
+import { angleDiff } from '../shared/gamemap.js';
 import { throwGrenade } from './grenades.js';
 import { useGadget } from './gadgets.js';
 import { spawnProjectile } from './projectiles.js';
 import { damageVehicle } from './vehicles.js';
 
 const MAX_RANGE = 2800;
-const tmp = { x: 0, y: 0, alive: false };
+const tmp = { x: 0, y: 0, z: 0, cf: 0, alive: false };
+const HEAD_MUL = 2, LEG_MUL = 0.85;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
 export function tickWeaponTimers(game, p, dt) {
@@ -120,29 +121,36 @@ export function tryFire(game, p, held, edge, vt, aimDist, keys) {
   if (p.spawnProt > 0) p.spawnProt = 0;
   if (alt) { fireAlt(game, p, w, alt, vt, aimDist); return; }
   p.fireCd = w.cd;
-  const spread = weaponSpread(w, p.speed, p.burst, p.scoped);
+  const spread = weaponSpread(w, p.speed, p.burst, p.scoped, p.cf, Math.abs(p.vz) > 1);
   p.burst++; p.burstT = 0;
   const tf = lagTick(game, vt);
-  const ox = p.x, oy = p.y;
+  const ox = p.x, oy = p.y, oz = p.eyeZ;
   const shotgun = w.pellets > 1;
   for (let i = 0; i < w.pellets; i++) {
-    const off = shotgun ? (Math.random() * 2 - 1) * spread : (Math.random() + Math.random() - 1) * spread;
-    const ang = p.angle + off;
-    const r = castRay(game, ox, oy, ang, { range: MAX_RANGE, shooter: p, tf });
+    const rr = shotgun ? Math.sqrt(Math.random()) * spread : (Math.random() + Math.random() - 1) * spread;
+    const th = Math.random() * Math.PI * 2;
+    const ang = p.angle + rr * Math.cos(th) / Math.max(0.2, Math.cos(p.pitch));
+    const pit = clamp(p.pitch + rr * Math.sin(th), -1.5, 1.5);
+    const r = castRay(game, ox, oy, oz, ang, pit, { range: MAX_RANGE, shooter: p, tf });
     let kind = r.tile ? 1 : 0;
     const fall = Math.pow(w.rangeMod, r.dist / 345);
     if (r.target) {
       kind = 2;
-      const dealt = damagePlayer(game, r.target, p, w.dmg * fall, w.id, { angle: ang });
-      if (dealt > 0 && p.conn) game.emit(['hitm', Math.round(dealt), r.target.alive ? 0 : 1], 0, 0, 0, p.id);
+      const zone = r.head ? HEAD_MUL : r.leg ? LEG_MUL : 1;
+      const dealt = damagePlayer(game, r.target, p, w.dmg * fall * zone, w.id, { angle: ang, head: r.head });
+      if (dealt > 0 && p.conn) game.emit(['hitm', Math.round(dealt), r.target.alive ? 0 : 1, r.head ? 1 : 0], 0, 0, 0, p.id);
     } else if (r.veh) {
       kind = 3;
       const dmg = w.dmg * fall * w.vehMult * r.veh.def.resist.bullet;
       damageVehicle(game, r.veh, dmg, p, w.id, 'bullet');
-      if (p.conn && i === 0) game.emit(['hitm', 1, 0], 0, 0, 0, p.id);
+      if (p.conn && i === 0) game.emit(['hitm', 1, 0, 0], 0, 0, 0, p.id);
     }
-    game.emit(['shot', p.id, w.idx, Math.round(ox), Math.round(oy), Math.round(ang * 1000) / 1000, Math.round(r.dist), kind, i === 0 ? 0 : 1, w.suppressed ? 1 : 0], ox, oy, w.suppressed ? 700 : 2200);
+    emitShot(game, p, w.idx, ox, oy, oz, ang, pit, r, kind, i === 0 ? 0 : 1, w.suppressed ? 1 : 0, w.suppressed ? 700 : 2200);
   }
+}
+
+function emitShot(game, p, widx, ox, oy, oz, ang, pit, r, kind, sub, supp, radius) {
+  game.emit(['shot', p.id, widx, Math.round(ox), Math.round(oy), Math.round(ang * 1000) / 1000, Math.round(r.dist), kind, sub, supp, Math.round(oz * 10) / 10, Math.round(pit * 1000) / 1000], ox, oy, radius);
 }
 
 function lagTick(game, vt) {
@@ -160,44 +168,84 @@ function fireAlt(game, p, w, alt, vt, aimDist) {
   // masterkey: a short blast of pellets
   const spread = alt.spread * Math.PI / 180;
   const tf = lagTick(game, vt);
+  const oz = p.eyeZ;
   for (let i = 0; i < alt.pellets; i++) {
-    const ang = p.angle + (Math.random() * 2 - 1) * spread;
-    const r = castRay(game, p.x, p.y, ang, { range: 600, shooter: p, tf });
+    const rr = Math.sqrt(Math.random()) * spread, th = Math.random() * Math.PI * 2;
+    const ang = p.angle + rr * Math.cos(th), pit = clamp(p.pitch + rr * Math.sin(th), -1.5, 1.5);
+    const r = castRay(game, p.x, p.y, oz, ang, pit, { range: 600, shooter: p, tf });
     let kind = r.tile ? 1 : 0;
-    if (r.target) { kind = 2; const dealt = damagePlayer(game, r.target, p, alt.dmg * Math.pow(0.72, r.dist / 345), 'mk', { angle: ang }); if (dealt > 0 && p.conn) game.emit(['hitm', Math.round(dealt), r.target.alive ? 0 : 1], 0, 0, 0, p.id); }
+    if (r.target) { kind = 2; const dealt = damagePlayer(game, r.target, p, alt.dmg * Math.pow(0.72, r.dist / 345) * (r.head ? HEAD_MUL : 1), 'mk', { angle: ang, head: r.head }); if (dealt > 0 && p.conn) game.emit(['hitm', Math.round(dealt), r.target.alive ? 0 : 1, r.head ? 1 : 0], 0, 0, 0, p.id); }
     else if (r.veh) { kind = 3; damageVehicle(game, r.veh, alt.dmg * 0.2, p, 'mk', 'bullet'); }
-    game.emit(['shot', p.id, w.idx, Math.round(p.x), Math.round(p.y), Math.round(ang * 1000) / 1000, Math.round(r.dist), kind, i === 0 ? 0 : 1, 0], p.x, p.y, 2000);
+    emitShot(game, p, w.idx, p.x, p.y, oz, ang, pit, r, kind, i === 0 ? 0 : 1, 0, 2000);
   }
 }
 
+/** Entry and exit distance of a unit ray through a circle, or null if it misses. */
+function chord(ox, oy, dx, dy, cx, cy, r) {
+  const fx = cx - ox, fy = cy - oy;
+  const t = fx * dx + fy * dy;
+  const px = fx - t * dx, py = fy - t * dy;
+  const d2 = px * px + py * py;
+  if (d2 > r * r) return null;
+  const h = Math.sqrt(r * r - d2);
+  if (t + h < 0) return null;
+  return [Math.max(0, t - h), t + h];
+}
+
 /**
- * Casts a bullet. Returns { dist, target (soldier), veh (vehicle), tile (hit a wall) }.
- * opts: range, shooter, tf (lag compensation tick), ignoreVeh, air (fired from an aircraft: ground fire does not reach it and vice versa is allowed)
+ * Distance along a rising ray at which it is inside the vertical band [z0, z1] over the horizontal span [t0, t1], or -1.
+ * Returns the first such distance.
  */
-export function castRay(game, ox, oy, ang, opts) {
+function bandHit(oz, slope, t0, t1, z0, z1) {
+  const za = oz + slope * t0, zb = oz + slope * t1;
+  if (Math.max(za, zb) < z0 || Math.min(za, zb) > z1) return -1;
+  if (Math.abs(slope) < 1e-6) return t0;
+  // first distance where the ray enters the band
+  const enter = za > z1 ? (z1 - oz) / slope : za < z0 ? (z0 - oz) / slope : t0;
+  return Math.max(t0, Math.min(t1, enter));
+}
+
+/**
+ * Casts a bullet from height oz through the 2.5D world. Returns { dist (horizontal), z (height where it ended), target
+ * (soldier), head, leg, veh (vehicle), tile (hit a wall) }.
+ * opts: range, shooter, tf (lag compensation tick), ignoreVeh.
+ */
+export function castRay(game, ox, oy, oz, ang, pitch, opts) {
   const map = game.map;
   const shooter = opts.shooter;
   const dx = Math.cos(ang), dy = Math.sin(ang);
-  const wallD = map.castDist(ox, oy, dx, dy, opts.range);
-  let best = wallD, target = null, veh = null;
+  const slope = Math.tan(pitch);
+  const wall = map.castBullet(ox, oy, oz, dx, dy, slope, opts.range);
+  const wallD = wall.d, wallTile = wall.tx >= 0;
+  let best = wallD, target = null, veh = null, head = false, leg = false;
   const tf = opts.tf || 0;
   for (const q of game.players.values()) {
     if (q === shooter || !q.alive || q.veh || q.team === SPEC || q.spawnProt > 0) continue;
     if (q.team === shooter.team && !game.ff) continue;
-    let qx = q.x, qy = q.y;
-    if (tf > 0) { q.rewound(tf, tmp); if (!tmp.alive) continue; qx = tmp.x; qy = tmp.y; }
+    let qx = q.x, qy = q.y, qz = q.z, cf = q.cf;
+    if (tf > 0) { q.rewound(tf, tmp); if (!tmp.alive) continue; qx = tmp.x; qy = tmp.y; qz = tmp.z; cf = tmp.cf; }
     if (Math.abs(qx - ox) > best + PLAYER_R || Math.abs(qy - oy) > best + PLAYER_R) continue;
-    const d = rayCircle(ox, oy, dx, dy, qx, qy, PLAYER_R);
-    if (d >= 0 && d < best) { best = d; target = q; veh = null; }
+    const c = chord(ox, oy, dx, dy, qx, qy, PLAYER_R);
+    if (!c) continue;
+    const h = BODY_H + (BODY_H_CROUCH - BODY_H) * cf;
+    const d = bandHit(oz, slope, c[0], c[1], qz, qz + h);
+    if (d >= 0 && d < best) {
+      best = d; target = q; veh = null;
+      const frac = (oz + slope * d - qz) / h;
+      head = frac >= HEAD_FRAC; leg = frac < 0.3;
+    }
   }
   for (const v of game.vehicles) {
     if (v.dead || v === opts.ignoreVeh) continue;
     if (v.team === shooter.team && !game.ff && v.team >= 0) continue;
     if (Math.abs(v.x - ox) > best + v.def.r || Math.abs(v.y - oy) > best + v.def.r) continue;
-    const d = rayCircle(ox, oy, dx, dy, v.x, v.y, v.def.r * 0.92);
-    if (d >= 0 && d < best) { best = d; veh = v; target = null; }
+    const c = chord(ox, oy, dx, dy, v.x, v.y, v.def.r * 0.92);
+    if (!c) continue;
+    const zr = v.def.zr || [0, 26];
+    const d = bandHit(oz, slope, c[0], c[1], zr[0], zr[1]);
+    if (d >= 0 && d < best) { best = d; veh = v; target = null; head = leg = false; }
   }
-  return { dist: best, target, veh, tile: !target && !veh && wallD < opts.range };
+  return { dist: best, z: oz + slope * best, target, veh, head, leg, tile: !target && !veh && wallTile && wallD < opts.range };
 }
 
 function swingKnife(game, p, w) {
@@ -272,7 +320,7 @@ export function killPlayer(game, v, attacker, wid, o = {}) {
     attacker.stats.kills = Math.max(0, attacker.stats.kills - 1); attacker.stats.score = Math.max(0, attacker.stats.score - 100);
   } else if (self) { v.stats.score = Math.max(0, v.stats.score - 50); }
   if (game.mode.onDeath) game.mode.onDeath(game, v, attacker, wid);
-  game.broadcast({ t: 'kill', k: self ? 0 : attacker.id, v: v.id, w: wid, a: assister, tk: friendly ? 1 : 0 });
+  game.broadcast({ t: 'kill', k: self ? 0 : attacker.id, v: v.id, w: wid, a: assister, tk: friendly ? 1 : 0, hs: o.head ? 1 : 0 });
   const corpse = !o.noCorpse && !NO_CORPSE.has(wid);
   game.emit(['die', v.id, Math.round(v.x), Math.round(v.y), Math.round(v.angle * 100) / 100, v.team, corpse ? 1 : 0], v.x, v.y, 99999);
   if (corpse) game.addCorpse(v);

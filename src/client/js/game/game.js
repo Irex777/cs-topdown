@@ -1,5 +1,5 @@
 // Client-side game controller: snapshot buffer, interpolation, prediction (soldier and vehicle driver), events, per-frame loop.
-import { DT, PHASE, KEY, SPEC, TILE, T, CT } from '../../shared/constants.js';
+import { DT, PHASE, KEY, SPEC, TILE, T, CT, BASE_SPEED, EYE_H, EYE_H_CROUCH } from '../../shared/constants.js';
 import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, maxSpeedFor, resolveWeapon } from '../../shared/weapons.js';
 import { VEHICLES, VEHICLE_LIST, stepVehicle } from '../../shared/vehicles.js';
 import { createMap } from '../../shared/maps/index.js';
@@ -31,8 +31,15 @@ export class ClientGame {
     this.snaps = [];
     this.offset = 0;                 // serverTime - localTime
     this.haveOffset = false;
-    this.sens = 0.0024;
-    try { const s = parseFloat(localStorage.getItem('fl.sens')); if (Number.isFinite(s)) this.sens = clamp(s, 0.0006, 0.008); } catch { /* ignore */ }
+    // player settings (kept in the browser)
+    this.sens = 0.0018; this.fov = 100; this.invertY = false;
+    try {
+      const n = (k) => parseFloat(localStorage.getItem(k));
+      if (Number.isFinite(n('fl.sens'))) this.sens = clamp(n('fl.sens'), 0.0004, 0.008);
+      if (Number.isFinite(n('fl.fov'))) this.fov = clamp(n('fl.fov'), 70, 120);
+      this.invertY = localStorage.getItem('fl.inv') === '1';
+      this.input.adsToggle = localStorage.getItem('fl.adsT') === '1';
+    } catch { /* ignore */ }
     this.reset();
     this._bindInput();
     this._last = 0;
@@ -47,7 +54,7 @@ export class ClientGame {
     this.tix = [0, 0]; this.target = 0; this.rush = null;
     this.snaps.length = 0;
     this.me = null;                   // latest server-side own (or spectated) state
-    this.pred = { x: 0, y: 0, vx: 0, vy: 0 };
+    this.pred = { x: 0, y: 0, vx: 0, vy: 0, z: 0, vz: 0, cf: 0 };
     this.predVeh = { x: 0, y: 0, a: 0, vx: 0, vy: 0 };
     this.predMode = '';
     this.predValid = false;
@@ -60,6 +67,10 @@ export class ClientGame {
     this.angle = 0;
     this.aimDist = 300;
     this.yaw = 0;                     // where the camera (and aim) points, radians, 0 = +x
+    this.pitch = 0;                   // look up (+) / down (-), radians
+    this.recoil = { p: 0, y: 0, hot: 0 };   // camera kick from shooting (added to the view, recovers over time)
+    this.lookRate = { y: 0, p: 0 };   // how fast the view turned this frame (drives weapon sway)
+    this.eyeBob = 0; this.landDip = 0; this.lastVz = 0;
     this.elev = 0.34;                 // camera elevation above the horizon (mouse up/down)
     this.followYaw = 0; this.lookOff = 0; this.lookIdle = 0; this.lookKey = '';
     this.camH = 240;
@@ -180,7 +191,7 @@ export class ClientGame {
 
   profile() {
     const mv = this.me ? this.me.mv : null;
-    return mv ? { speedPx: mv[0], scope: mv[1], adsSpeed: mv[2], can: !!mv[3] } : { speedPx: 205, scope: 0, adsSpeed: 1, can: false };
+    return mv ? { speedPx: mv[0], scope: mv[1], adsSpeed: mv[2], can: !!mv[3] } : { speedPx: BASE_SPEED, scope: 0, adsSpeed: 1, can: false };
   }
 
   reconcile(s, wasAlive) {
@@ -192,7 +203,7 @@ export class ClientGame {
       this.rc = me.rc;
       this.predMode = key;
       if (drv) this.predVeh = { x: me.veh.x, y: me.veh.y, a: me.veh.a, vx: me.veh.vx, vy: me.veh.vy };
-      this.pred = { x: me.x, y: me.y, vx: me.vx, vy: me.vy };
+      this.pred = { x: me.x, y: me.y, vx: me.vx, vy: me.vy, z: me.z || 0, vz: me.vz || 0, cf: me.cf || 0 };
       this.pending.length = 0;
       this.shots.fired.length = 0;
       this.errX = this.errY = 0;
@@ -213,13 +224,13 @@ export class ClientGame {
       return;
     }
     if (me.veh) return;
-    const st = { x: me.x, y: me.y, vx: me.vx, vy: me.vy };
+    const st = { x: me.x, y: me.y, vx: me.vx, vy: me.vy, z: me.z || 0, vz: me.vz || 0, cf: me.cf || 0 };
     const prof = this.profile();
     for (const c of this.pending) {
       const keys = c[1];
       const scoped = !!(keys & KEY.SCOPE) && prof.can;
-      const walk = !!(keys & KEY.WALK);
-      const sprint = !!(keys & KEY.SPRINT) && !scoped && !walk && !(keys & KEY.FIRE);
+      const walk = !!(keys & KEY.WALK) || st.cf > 0.5;
+      const sprint = !!(keys & KEY.SPRINT) && (keys & KEY.UP) !== 0 && !scoped && !walk && !(keys & KEY.FIRE);
       const [ax, ay] = relativeDir(keys, c[2]);
       stepMovement(this.map, st, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
     }
@@ -227,10 +238,14 @@ export class ClientGame {
     if (Math.hypot(ex, ey) > 70) { this.errX = this.errY = 0; }
     else { this.errX += ex; this.errY += ey; }
     this.pred.x = st.x; this.pred.y = st.y; this.pred.vx = st.vx; this.pred.vy = st.vy;
+    // vertical state: trust the replay, but never fight a small difference
+    if (Math.abs(this.pred.z - st.z) > 4) { this.pred.z = st.z; this.pred.vz = st.vz; }
+    this.pred.cf = st.cf;
   }
 
   onRespawn() {
     if (this.me && Number.isFinite(this.me.a)) this.yaw = this.me.a;
+    this.pitch = 0; this.recoil.p = this.recoil.y = 0; this.input.right = false;
     this.lookKey = '';
     this.ui.onRespawn && this.ui.onRespawn();
   }
@@ -272,7 +287,7 @@ export class ClientGame {
     if (ownId) {
       const v = this.viewer();
       const me = this.me;
-      list.push({ id: ownId, x: v.x, y: v.y, a: this.angle, hp: me.hp, held: me.held, fl: (me.sc ? 1 : 0) | (me.sprot ? 32 : 0), cls: me.cls, speed: Math.hypot(this.pred.vx, this.pred.vy), team: this.myTeam(), mate: true, own: true });
+      list.push({ id: ownId, x: v.x, y: v.y, a: this.angle, hp: me.hp, held: me.held, fl: (me.sc ? 1 : 0) | (me.sprot ? 32 : 0) | (this.pred.cf > 0.5 ? 64 : 0), cls: me.cls, speed: Math.hypot(this.pred.vx, this.pred.vy), z: this.pred.z, pitch: this.viewPitch(), cf: this.pred.cf, team: this.myTeam(), mate: true, own: true });
     }
     this.playerCache = list;
     return list;
@@ -339,20 +354,25 @@ export class ClientGame {
     for (const e of evs) {
       switch (e[0]) {
         case 'shot': {
-          const [, pid, widx, x, y, ang, len, kind, sub, supp] = e;
+          const [, pid, widx, x, y, ang, len, kind, sub, supp, oz = 24, pit = 0] = e;
           const w = WEAPON_LIST[widx];
           const own = pid === this.you && !!this.me && this.me.own;
-          const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
+          const cp = Math.cos(pit), slope = Math.tan(pit);
+          const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len, ez = Math.max(0, oz + slope * len);
           const seen = own || this.visiblePoint(x, y) || this.visiblePoint(ex, ey);
           if (!own && !sub) audio.shot(w.kind, { x, y }, !!supp);
           if (!own && !sub) this.muzzle.set(pid, now + 70);
           if (seen) {
-            fx.tracer(x + Math.cos(ang) * 14, y + Math.sin(ang) * 14, ex, ey, own, w.kind === 'sniper');
-            if (kind === 1) fx.sparks(ex, ey, ang, 4);
-            else if (kind === 2) fx.blood(ex, ey, ang, 7);
-            else if (kind === 3) fx.sparks(ex, ey, ang, 6, 14);
-            if (!own && !sub && w.kind !== 'shotgun' && Math.random() < 0.6) fx.casing(x, y, ang);
+            // tracers leave from the muzzle: below the eye, a little to the right for the local player
+            const fwd = own ? 22 : 16, side = own ? 5 : 3;
+            const sx = x + Math.cos(ang) * fwd - Math.sin(ang) * side, sy = y + Math.sin(ang) * fwd + Math.cos(ang) * side, sz = oz - 4;
+            fx.tracer(sx, sy, sz, ex, ey, ez, own, w.kind === 'sniper');
+            if (kind === 1) fx.sparks(ex, ey, ang, 4, ez);
+            else if (kind === 2) fx.blood(ex, ey, ang, 7, ez);
+            else if (kind === 3) fx.sparks(ex, ey, ang, 6, ez);
+            if (!own && !sub && w.kind !== 'shotgun' && Math.random() < 0.6) fx.casing(x, y, ang, oz - 4);
           }
+          void cp;
           break;
         }
         case 'vshot': {
@@ -361,7 +381,7 @@ export class ClientGame {
           const seen = this.visiblePoint(x, y) || this.visiblePoint(ex, ey);
           audio.vshot(snd, { x, y });
           if (seen && (snd === 'lmg' || snd === 'cannon2')) {
-            fx.tracer(x, y, ex, ey, false, true, 22);
+            fx.tracer(x, y, 24, ex, ey, 24, false, true);
             if (kind === 1) fx.sparks(ex, ey, ang, 4); else if (kind === 2) fx.blood(ex, ey, ang, 6); else if (kind === 3) fx.sparks(ex, ey, ang, 7, 14);
           }
           if (seen) fx.muzzle(x - Math.cos(ang) * 10, y - Math.sin(ang) * 10, ang, 22);
@@ -376,7 +396,7 @@ export class ClientGame {
         case 'nade': audio.throwNade({ x: e[2], y: e[3] }); break;
         case 'boom': this.onBoom(e[1], e[2], e[3], e[4]); break;
         case 'hurt': this.onHurt(e[1], e[2]); break;
-        case 'hitm': this.hitMarker = now; this.hitKill = !!e[2]; audio.hitmarker(!!e[2]); break;
+        case 'hitm': this.hitMarker = now; this.hitKill = !!e[2]; this.hitHead = !!e[3]; audio.hitmarker(!!e[2], !!e[3]); break;
         case 'die': this.onDie(e); break;
         case 'vdie': fx.explosion(e[3], e[4], 170); audio.explosion('bomb', { x: e[3], y: e[4] }); fx.addShake(6); break;
         case 'vspawn': break;
@@ -444,7 +464,7 @@ export class ClientGame {
 
   viewer() {
     if (!this.map) return null;
-    let x, y, angle, scoped = false, scopeLvl = 0, view = null, air = false;
+    let x, y, angle, scoped = false, scopeLvl = 0, view = null, air = false, z = 0, cf = 0, pit = null;
     if (this.alive && this.me && this.me.own) {
       angle = this.angle;
       if (this.me.veh) {
@@ -454,6 +474,7 @@ export class ClientGame {
         view = def.view; air = !!def.view.air;
       } else {
         x = this.pred.x + this.errX + (this.ext ? this.ext.x : 0); y = this.pred.y + this.errY + (this.ext ? this.ext.y : 0);
+        z = this.pred.z; cf = this.pred.cf;
         const prof = this.profile();
         scopeLvl = prof.can ? prof.scope : 0;
         scoped = !!(this.input.right && prof.can);
@@ -467,13 +488,13 @@ export class ClientGame {
       } else {
         const p = this.interpolated(this.spec);
         if (!p) return this._lastViewer || null;
-        x = p.x; y = p.y; angle = p.a;
+        x = p.x; y = p.y; angle = p.a; z = p.z || 0; cf = p.cf || 0; pit = p.pitch || 0;
         const w = p.held < HELD_GREN_BASE ? WEAPON_LIST[p.held] : null;
         scopeLvl = w ? (this.me && this.me.mv ? this.me.mv[1] : w.scope) : 0; scoped = !!(p.fl & 1);
       }
     } else return this._lastViewer || null;
     if (!view) view = viewParams(scoped, scopeLvl);
-    const v = { x, y, angle, scoped, scopeLvl, view, air };
+    const v = { x, y, angle, scoped, scopeLvl, view, air, z, cf, pitch: pit, eye: z + EYE_H + (EYE_H_CROUCH - EYE_H) * cf };
     this._lastViewer = v;
     return v;
   }
@@ -496,12 +517,12 @@ export class ClientGame {
     }
     if (a && b && s1.st > s0.st) {
       const k = clamp((rt - s0.st) / (s1.st - s0.st), 0, 1);
-      return { id, x: lerp(a[1], b[1], k), y: lerp(a[2], b[2], k), a: lerpAngle(a[3], b[3], k), hp: b[4], held: b[5], fl: b[6], cls: CLS[b[7]] || 'assault', speed: b[8] };
+      return { id, x: lerp(a[1], b[1], k), y: lerp(a[2], b[2], k), a: lerpAngle(a[3], b[3], k), hp: b[4], held: b[5], fl: b[6], cls: CLS[b[7]] || 'assault', speed: b[8], z: lerp(a[9] || 0, b[9] || 0, k), pitch: lerp(a[10] || 0, b[10] || 0, k), cf: lerp(a[11] || 0, b[11] || 0, k) };
     }
     return this._tuple(a || b);
   }
 
-  _tuple(t) { return { id: t[0], x: t[1], y: t[2], a: t[3], hp: t[4], held: t[5], fl: t[6], cls: CLS[t[7]] || 'assault', speed: t[8] }; }
+  _tuple(t) { return { id: t[0], x: t[1], y: t[2], a: t[3], hp: t[4], held: t[5], fl: t[6], cls: CLS[t[7]] || 'assault', speed: t[8], z: t[9] || 0, pitch: t[10] || 0, cf: t[11] || 0 }; }
 
   interpolatedVeh(id) {
     const snaps = this.snaps;
@@ -593,13 +614,25 @@ export class ClientGame {
     const typing = this.ui.chatOpen || this.ui.pauseOpen;
     inp.lookEnabled = !!this.active && !typing && !(this.ui.isOverlayOpen && this.ui.isOverlayOpen());
     if (inp.locked && !inp.lookEnabled) inp.releaseLock();
+    // back in the game after a menu / chat: take the mouse again while the click / key press that closed it still counts
+    if (inp.lookEnabled && !inp.locked && !inp.lockDenied && this.playing() && navigator.userActivation && navigator.userActivation.isActive && performance.now() - (this._lockTry || 0) > 400) { this._lockTry = performance.now(); inp.requestLock(); }
     const look = inp.takeLook();
+    const rc = this.recoil;
+    // recoil settles quickly once the trigger is released
+    if (rc.hot > 0) rc.hot -= dt;
+    const decay = Math.exp(-(rc.hot > 0 ? 1.7 : 7.5) * dt);
+    rc.p *= decay; rc.y *= decay;
+    this.lookRate.y = 0; this.lookRate.p = 0;
     if (!inp.lookEnabled) return;
     const own = this.alive && this.me && this.me.own;
+    // toggled aiming ends when you reload or start sprinting
+    if (inp.adsToggle && inp.right && own && this.me && (this.me.rel > 0 || this.me.spr)) inp.right = false;
     let sens = this.sens;
     const v = this._lastViewer;
-    if (v && v.scoped) sens *= [0.85, 0.55, 0.35, 0.22][clamp(v.scopeLvl || 0, 0, 3)];
-    const dx = look.dx * sens, dy = look.dy * sens;
+    // the mouse turns the view more slowly the more you are zoomed in
+    if (v && v.scoped) sens *= this.zoomMul(v.scopeLvl);
+    const dx = look.dx * sens, dy = look.dy * sens * (this.invertY ? -1 : 1);
+    this.lookRate.y = dx; this.lookRate.p = -dy;
     if (own && this.me.veh) {
       const def = this.vehDef(), sd = def.seats[this.me.veh.seat];
       const key = `${this.me.veh.id}:${this.me.veh.seat}`;
@@ -618,19 +651,27 @@ export class ClientGame {
         this.followYaw = lerpAngle(this.followYaw, heading, 1 - Math.exp(-5 * dt));
         this.yaw = this.followYaw + this.lookOff;
       } else this.yaw += dx;
+      this.elev = clamp(this.elev + dy * 0.8, 0.06, 1.25);
     } else if (own || (!this.spec && !this.freecam) || this.freecam) {
       this.lookKey = '';
       this.yaw += dx;
+      this.pitch = clamp(this.pitch - dy, -1.45, 1.45);
+      this.elev = clamp(this.elev + dy * 0.8, 0.06, 1.25);
     } else {
-      // spectating someone: swing behind them, with a little mouse glance
+      // spectating someone: look through their eyes
       this.lookKey = '';
       const vw = this.viewer();
-      if (vw) this.yaw = lerpAngle(this.yaw, vw.angle, 1 - Math.exp(-8 * dt));
+      if (vw) { this.yaw = lerpAngle(this.yaw, vw.angle, 1 - Math.exp(-14 * dt)); this.pitch += ((vw.pitch || 0) - this.pitch) * (1 - Math.exp(-14 * dt)); }
     }
     while (this.yaw > Math.PI) this.yaw -= Math.PI * 2;
     while (this.yaw < -Math.PI) this.yaw += Math.PI * 2;
-    this.elev = clamp(this.elev + dy * 0.8, 0.06, 1.25);
   }
+
+  /** field-of-view multiplier of the current aiming zoom (1 = none) */
+  zoomMul(lvl) { return [0.78, 0.4, 0.22, 0.14][clamp(lvl || 0, 0, 3)]; }
+
+  viewYaw() { return this.yaw + this.recoil.y; }
+  viewPitch() { return clamp(this.pitch + this.recoil.p, -1.5, 1.5); }
 
   // ------------------------------------------------------------------ frame loop
   frame(nowMs) {
@@ -674,7 +715,7 @@ export class ClientGame {
     // aim angle from the mouse, relative to where the player currently is on screen
     const v = this.viewer();
     if (v && this.alive && this.me && this.me.own) {
-      this.angle = this.yaw;
+      this.angle = this.me.veh ? this.yaw : this.viewYaw();
       const a = this.renderer.aimGround;
       if (a) this.aimDist = clamp(Math.hypot(a.x - v.x, a.y - v.y), 30, 2000);
     }
@@ -696,16 +737,21 @@ export class ClientGame {
       if (!(this.alive && this.me && this.me.own && this.predValid)) continue;
       const keys = this.ui.inputBlocked && this.ui.inputBlocked() ? 0 : this.input.keys();
       const seq = ++this.seq;
-      const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist)];
+      const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist), Math.round(this.viewPitch() * 1000) / 1000];
       if (this.inDriverSeat()) {
         stepVehicle(this.map, this.predVeh, this.vehDef(), keys, this.angle);
       } else if (!this.me.veh) {
         const prof = this.profile();
         const scoped = !!(keys & KEY.SCOPE) && prof.can;
-        const walk = !!(keys & KEY.WALK);
-        const sprint = !!(keys & KEY.SPRINT) && !scoped && !walk && !(keys & KEY.FIRE);
+        const walk = !!(keys & KEY.WALK) || this.pred.cf > 0.5;
+        const sprint = !!(keys & KEY.SPRINT) && (keys & KEY.UP) !== 0 && !scoped && !walk && !(keys & KEY.FIRE);
         const [ax, ay] = relativeDir(keys, this.angle);
+        const vz0 = this.pred.vz;
         stepMovement(this.map, this.pred, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
+        if (vz0 < -120 && this.pred.vz === 0) { this.landDip = Math.min(1, -vz0 / 300); audio.ownStep(true); }   // landing thump
+        // your own footsteps (the server only sends everybody else's)
+        const spd = Math.hypot(this.pred.vx, this.pred.vy);
+        if (this.pred.z < 1 && spd > 45 && this.pred.cf < 0.5 && !walk) { this.stepAcc = (this.stepAcc || 0) + spd * DT; if (this.stepAcc > 44) { this.stepAcc = 0; audio.ownStep(false); } }
         this.predictFire(keys, seq);
       }
       this.pending.push(cmd);
@@ -719,7 +765,7 @@ export class ClientGame {
         const pv = this.predVeh;
         if (pv.vx || pv.vy) { const def = this.vehDef(); const r = this.map.moveCircle(pv.x, pv.y, pv.vx * this.acc, pv.vy * this.acc, def.r, def.kind === 'air' ? null : def.kind === 'boat' ? this.map.blockBoat : this.map.blockInf); this.ext = { x: r.x - pv.x, y: r.y - pv.y }; }
       } else if (!this.me.veh && (this.pred.vx || this.pred.vy)) {
-        const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11);
+        const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11, this.map.blockInf, this.pred.z);
         this.ext = { x: r.x - this.pred.x, y: r.y - this.pred.y };
       }
     }
@@ -740,15 +786,20 @@ export class ClientGame {
     if (me.alt) return;
     if (!w.auto && !edge) return;
     if (this.predictedClip() <= 0) return;
-    const rw = this.kit && (me.held === this.kit.primary.id ? 0 : 0) ? null : null;
-    void rw;
     this.shots.cd = this.heldCd(me);
     this.shots.fired.push(seq);
     this.muzzle.set(this.you, performance.now() + 70);
     audio.shot(w.kind, null, this.heldSuppressed(me), true);
-    this.fx.addShake(w.kick * 0.5);
+    // camera kick: up, with a little sideways wander; less when aiming down the sights
+    const rw = this.heldWeapon(me) || w;
+    const ads = (keys & KEY.SCOPE) !== 0;
+    const kd = (0.16 + rw.kick * 0.22) * (ads ? 0.62 : 1) * Math.PI / 180;
+    this.recoil.p = Math.min(0.16, this.recoil.p + kd);
+    this.recoil.y += (Math.random() - 0.5) * 2 * kd * 0.55;
+    this.recoil.hot = 0.16;
+    this.shotKick = 1;
     const v = this.viewer();
-    if (v) this.fx.casing(v.x, v.y, this.angle);
+    if (v) this.fx.casing(v.x, v.y, this.angle, v.eye - 4);
   }
 
   heldWeapon(me) {

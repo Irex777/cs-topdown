@@ -263,7 +263,7 @@ export class Room {
           p.qSeq = seq;
           const ang = Number(c[2]);
           if (!Number.isFinite(ang)) continue;
-          p.cmdQ.push([seq, c[1] & 1023, ang, Number(c[3]) || 0, Math.max(0, Math.min(1000, Number(c[4]) || 0))]);
+          p.cmdQ.push([seq, c[1] & 4095, ang, Number(c[3]) || 0, Math.max(0, Math.min(1000, Number(c[4]) || 0)), Math.max(-1.5, Math.min(1.5, Number(c[5]) || 0))]);
         }
         if (p.cmdQ.length > 24) p.cmdQ.splice(0, p.cmdQ.length - 24);
         return;

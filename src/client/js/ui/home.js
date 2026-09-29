@@ -26,14 +26,14 @@ export class Home {
       <div class="hero">
         <div class="logo"><small>Combined arms warfare</small><span>Frontline</span><span>Voxel Warfare</span></div>
         <div class="cubes"><i></i><i></i><i></i><i></i><i></i></div>
-        <p class="tagline">Big maps, real destruction and combined arms in a chunky 3D voxel world, seen over your shoulder. Capture flags in Conquest, blow up M-COMs in Rush, drive tanks and fly helicopters, revive your squad and level every wall you can find.</p>
+        <p class="tagline">Big maps, real destruction and combined arms in a chunky 3D voxel world — first person on foot, chase camera in vehicles. Capture flags in Conquest, blow up M-COMs in Rush, drive tanks and fly helicopters, revive your squad and level every wall you can find.</p>
         <div class="features">
           <div>Conquest, Rush &amp; Team Deathmatch</div><div>4 classes with gadgets</div>
           <div>Weapon attachments &amp; optics</div><div>Fully destructible terrain</div>
           <div>Jeeps, APCs, tanks, helis, boats</div><div>Squads, spotting, revives</div>
           <div>Line-of-sight fog of war</div><div>Smart bots fill any empty slot</div>
         </div>
-        <div class="controls-mini"><span><kbd>WASD</kbd> move <kbd>Shift</kbd> sprint <kbd>Mouse</kbd> aim</span><span><kbd>E</kbd> vehicles &amp; objectives <kbd>Q</kbd> spot <kbd>L</kbd> loadout</span></div>
+        <div class="controls-mini"><span><kbd>WASD</kbd> move <kbd>Mouse</kbd> look <kbd>Shift</kbd> sprint <kbd>Space</kbd> jump <kbd>C</kbd> crouch</span><span><kbd>LMB</kbd> fire <kbd>RMB</kbd> aim <kbd>E</kbd> vehicles &amp; objectives <kbd>Q</kbd> spot</span></div>
       </div>
       <div class="card-panel play-card">
         ${invite ? `<div class="join-banner"><div style="flex:1"><span class="label" style="margin:0">You're invited to room</span><b>${esc(invite)}</b></div><button class="btn primary" id="joinInvite">Join</button></div>` : ''}

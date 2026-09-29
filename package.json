@@ -1,7 +1,7 @@
 {
   "name": "frontline-voxel-warfare",
   "version": "3.0.0",
-  "description": "Two browser shooters on one server: Frontline: Voxel Warfare (third-person 3D voxel combined arms with destruction and vehicles) and the original CS Top-Down (bomb defusal, fog of war). Bots, rooms, invite links.",
+  "description": "Two browser shooters on one server: Frontline: Voxel Warfare (first-person 3D voxel combined arms with destruction and vehicles) and the original CS Top-Down (bomb defusal, fog of war). Bots, rooms, invite links.",
   "type": "commonjs",
   "main": "src/server/index.js",
   "scripts": {

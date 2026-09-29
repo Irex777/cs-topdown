@@ -29,7 +29,7 @@ function trial(useVt, lagSec) {
       const pos = { x: 0, y: 0, alive: false };
       b.rewound(tf, pos);
       const ang = Math.atan2(pos.y - a.y, pos.x - a.x);
-      cmd = [seq++, KEY.FIRE, ang, useVt ? vt : 0, 0];
+      cmd = [seq++, KEY.FIRE | KEY.SCOPE, ang, useVt ? vt : 0, 0];
     } else cmd = [seq++, 0, Math.PI, 0, 0];
     room.handle(a, { t: 'in', c: [cmd] });
     room.tick();

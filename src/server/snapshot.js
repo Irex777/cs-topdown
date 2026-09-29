@@ -5,6 +5,7 @@ import { VEHICLE_LIST, VWEAPONS } from '../shared/vehicles.js';
 import { canSee, viewParams } from '../shared/vision.js';
 import { PROJ_TYPES } from './projectiles.js';
 
+const r2 = (v) => Math.round(v * 100) / 100;
 const r1 = (v) => Math.round(v * 10) / 10;
 const r3 = (v) => Math.round(v * 1000) / 1000;
 
@@ -71,7 +72,9 @@ function playerTuple(q, full) {
   if (q.sprinting) fl |= 8;
   if (q.reviveProg > 0) fl |= 16;
   if (q.spawnProt > 0) fl |= 32;
-  return [q.id, r1(q.x), r1(q.y), r3(q.angle), full ? Math.ceil(q.hp) : 0, q.heldCode(), fl, q.cls === 'assault' ? 0 : q.cls === 'engineer' ? 1 : q.cls === 'support' ? 2 : 3, r1(q.speed)];
+  if (q.cf > 0.5) fl |= 64;
+  if (Math.abs(q.vz) > 1) fl |= 128;
+  return [q.id, r1(q.x), r1(q.y), r3(q.angle), full ? Math.ceil(q.hp) : 0, q.heldCode(), fl, q.cls === 'assault' ? 0 : q.cls === 'engineer' ? 1 : q.cls === 'support' ? 2 : 3, r1(q.speed), r1(q.z), r3(q.pitch), Math.round(q.cf * 100) / 100];
 }
 
 function vehicleTuple(v) {
@@ -127,14 +130,14 @@ export function buildSnapshot(game, p) {
     if (g && g.def.kind === 'launcher') { clip = g.loaded ? 1 : 0; res = g.charges; } else if (g) { clip = g.charges; res = 0; }
     snap.me = {
       id: t.id, own: t === p ? 1 : 0,
-      x: r1(t.x), y: r1(t.y), vx: r1(t.vx), vy: r1(t.vy), a: r3(t.angle),
+      x: r1(t.x), y: r1(t.y), vx: r1(t.vx), vy: r1(t.vy), a: r3(t.angle), z: r2(t.z), vz: r1(t.vz), cf: Math.round(t.cf * 1000) / 1000, pt: r3(t.pitch),
       hp: Math.ceil(t.hp), cls: t.cls,
       pw: t.primaryW ? t.primaryW.idx : -1, sw: t.secondaryW ? t.secondaryW.idx : -1,
       gr: GREN_ORDER.map((k) => t.grenades[k]), sel: t.sel, gsel: GREN_ORDER.indexOf(t.gsel), held,
       g: t.gadgets.map((x) => (x ? [x.def.idx, x.charges, x.loaded ? 1 : 0] : null)),
       clip, res, alt: t.altMode ? 1 : 0, altc: t.primaryW && t.primaryW.alt ? [t.am.alt.clip, t.am.alt.reserve] : null,
       rel: t.reloadT > 0 ? Math.round((1 - t.reloadT / (t.reloadTotal || 1)) * 100) / 100 : 0,
-      sp: Math.round(weaponSpread(w || { kind: 'knife' }, t.speed, t.burst, t.scoped) * 10000) / 10000,
+      sp: Math.round(weaponSpread(w || { kind: 'knife' }, t.speed, t.burst, t.scoped, t.cf, Math.abs(t.vz) > 1) * 10000) / 10000,
       mv: gun ? [r1(w.speedPx), w.scope, Math.round((w.adsSpeed || 1) * 1000) / 1000, 1] : [BASE_SPEED, 0, 1, 0],
       pl: 0, plk: '',
       fl: Math.max(0, r1(t.flashUntil - game.time)), ff: Math.max(0, r1(t.flashFullUntil - game.time)),

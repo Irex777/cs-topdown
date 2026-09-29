@@ -160,6 +160,13 @@ class AudioEngine {
   }
 
   empty() { if (!this.ready() || this._throttle('empty', 150)) return; const out = this._out(null, 0.4); const t = this.ctx.currentTime; this._noise(out, t, 0.03, { freq: 3500, gain: 0.5 }); }
+  /** your own footstep / landing (not positional) */
+  ownStep(loud) {
+    if (!this.ready() || this._throttle('ownstep', 120)) return;
+    const out = this._out(null, loud ? 0.5 : 0.22); if (!out) return;
+    this._noise(out, this.ctx.currentTime, loud ? 0.12 : 0.06, { type: 'lowpass', freq: loud ? 380 : 520 + Math.random() * 160, gain: 0.9 });
+  }
+
   step(pos) {
     if (!this.ready() || this._throttle('step' + Math.round(pos.x / 60) + Math.round(pos.y / 60), 90)) return;
     const out = this._out(pos, 0.35, 620); if (!out) return;
@@ -167,11 +174,12 @@ class AudioEngine {
     this._noise(out, t, 0.07, { type: 'lowpass', freq: 500 + Math.random() * 200, gain: 0.9 });
   }
 
-  hitmarker(kill) {
+  hitmarker(kill, head) {
     if (!this.ready()) return;
     const out = this._out(null, 0.5); const t = this.ctx.currentTime;
     this._tone(out, t, 0.05, { type: 'triangle', from: kill ? 1500 : 2300, gain: 0.4 });
     if (kill) this._tone(out, t + 0.06, 0.08, { type: 'triangle', from: 1900, gain: 0.4 });
+    if (head) this._tone(out, t, 0.11, { type: 'sine', from: 3300, to: 2600, gain: 0.32 });
   }
 
   hurt() {

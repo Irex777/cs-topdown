@@ -4,7 +4,7 @@ The main page asks what you want to play:
 
 | | URL | What it is |
 | --- | --- | --- |
-| **Frontline: Voxel Warfare** | `/bf/` | Third-person 3D voxel combined-arms shooter — described below |
+| **Frontline: Voxel Warfare** | `/bf/` | First-person 3D voxel combined-arms shooter — described below |
 | **CS Top-Down** | `/cs/` | The original top-down tactical shooter: bomb defusal, buy menu and economy, fog of war, 25 weapons, grenades, 4 maps (code in `src/cs/`, tools in `tools/cs/`) |
 
 Each game has its own rooms, room codes, invite links and public room list; one Node process serves both
@@ -13,7 +13,7 @@ Each game has its own rooms, room codes, invite links and public room list; one 
 
 # Frontline: Voxel Warfare
 
-A third-person **3D voxel combined-arms shooter** for the browser — big destructible maps, Conquest / Rush / Team Deathmatch,
+A first-person **3D voxel combined-arms shooter** for the browser — big destructible maps, Conquest / Rush / Team Deathmatch,
 four classes with deep weapon attachments, gadgets, revives, squads and drivable ground, water and air vehicles.
 Bots fill every empty slot, so a match is always possible; friends join with a 4-letter room code or an invite link.
 No accounts, no build step, all audio synthesised (nothing to download).
@@ -22,10 +22,14 @@ No accounts, no build step, all audio synthesised (nothing to download).
 
 ## Features
 
-- **Real 3D, chase camera**: the camera follows your soldier (or tank, jeep, boat, helicopter) from behind and turns with the
-  mouse. The world is built from cubes with real height — buildings, walls, crates, trees, water — with dynamic shadows;
-  soldiers and vehicles are voxel models. Rendered with three.js (vendored in `src/client/vendor/three`, no build step).
-  Look up and down to raise or lower the camera; hold right mouse to zoom over the shoulder or through a scope.
+- **Real first person**: you see through your soldier's eyes with an animated weapon in your hands — voxel guns built from your
+  loadout (optic, muzzle device, grip, magazine), walk bob, sprint pose, aim-down-sights with proper zoom and scopes, recoil
+  kick, reload and weapon-switch animations. In tanks, jeeps, boats and helicopters the camera chases from behind. The
+  world is built from cubes with real height and dynamic shadows, drawn with three.js (vendored in `src/client/vendor/three`,
+  no build step).
+- **Real height in the simulation**: look up and down, jump onto sandbags and crates, crouch behind cover. Bullets fly through the
+  3D world — cover only stops them below its top edge, so you can shoot over sandbags, hit crouching enemies low, and
+  land **headshots** (2x damage). Aircraft can be shot at only by aiming up at them.
 - **Full destruction**: every wall, house, sandbag and crate has hit points. Tank shells, rockets, C4, grenades and
   exploding barrels punch holes layer by layer (rubble and debris stay behind). Late joiners receive the changes.
 - **Game modes**
@@ -74,24 +78,25 @@ Keep it at a single instance — all rooms live in that process's memory. Env va
 
 | Key | Action |
 | --- | --- |
-| `W A S D` | Move relative to where you look (W walks toward the crosshair, A/D strafe). Ground vehicles: throttle / steer; helicopter: forward / strafe toward the view |
-| `Shift` | Sprint |
-| `C` | Walk (quieter, more accurate) |
-| Mouse | Look and aim (click the screen once to capture the mouse; `Esc` releases it and opens the menu). Vertical movement tilts the camera. Wheeled-vehicle drivers just glance around: the view swings back behind the vehicle |
+| `W A S D` | Move relative to where you look (in vehicles: throttle / steer; helicopter: forward / strafe toward the view) |
+| Mouse | Look and aim (click the screen once to capture the mouse; `Esc` releases it and opens the menu) |
 | Left click | Fire |
-| Right click (hold) | Aim down sights / zoom (scoped movement is slower). With C4: detonate |
+| Right click (hold, or toggle in the menu) | Aim down sights / scope (slower, much more accurate); with C4: detonate |
+| `Shift` | Sprint (only forward; you cannot shoot while sprinting) |
+| `Space` | Jump — hop onto low cover; brake in wheeled vehicles |
+| `C` | Crouch (hold): smaller target, slower, steadier aim |
 | `R` | Reload |
 | `F` | Toggle alternate fire (grenade launcher / masterkey) |
-| `E` | Use: enter / exit vehicle, revive, arm / disarm M-COM (hold), capture context actions |
-| `1`–`6` | Primary, sidearm, gadget 1, gadget 2, grenade (again to cycle), knife · `X` last weapon · mouse wheel |
+| `E` | Use: enter / exit vehicle, revive, arm / disarm M-COM (hold) |
+| `1`–`6` | Primary, sidearm, gadget 1, gadget 2, grenade (again to cycle), knife · mouse wheel cycles |
 | Vehicle: `1`–`4` / `E` | Switch seat / exit |
-| `Space` | Brake (vehicles) |
 | `Q` | Spot an enemy or point (shown to the team) |
+| `V` / middle click | Ping a location |
 | `L` | Open the loadout editor (applied on next deploy) |
 | `Tab` | Scoreboard · `M` big map |
 | `Enter` / `U` | Team chat · `Y` all chat |
-| `Esc` | Menu (team, volume, leave) |
-| Dead / spectating | Click cycles players · `G` free camera (`WASD` fly, `Space`/`C` up/down) · `N` toggle the team-sight filter |
+| `Esc` | Menu: team, squad, volume, sensitivity, field of view, invert Y, toggle aim |
+| Dead / spectating | Click cycles players (you see through their eyes) · `G` free camera (`WASD` fly, `Space`/`C` up/down) · `N` toggle the team-sight filter |
 
 ## Project layout
 
@@ -110,7 +115,7 @@ src/
     vehicles.js  projectiles.js gadgets.js grenades.js world.js (explosions, tile damage)
     snapshot.js  bot/{brain,nav}.js
   client/      plain ES modules, no build step
-    js/game/     prediction, camera + mouse-look, three.js renderer (render.js world3d.js models3d.js fx3d.js overlay.js), minimap, input
+    js/game/     prediction, mouse-look + recoil, three.js renderer (render.js world3d.js models3d.js fx3d.js overlay.js), first-person viewmodel (viewmodel.js), minimap, input
     js/ui/       home, lobby, deploy / loadout, HUD
 tools/         validation, simulation, fuzz, integration and browser (Playwright) helpers
 ```

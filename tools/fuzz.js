@@ -34,7 +34,7 @@ function run(map, mode, humans, teamSize, seconds) {
     for (const p of room.humans()) {
       if (tick % 2 === 0) {
         const cmds = [];
-        for (let k = 0; k < 1 + rand(3); k++) cmds.push([seq++, rand(1024), Math.random() * 6.28 - 3.14, room.game ? room.game.time - 0.1 : 0, rand(900)]);
+        for (let k = 0; k < 1 + rand(3); k++) cmds.push([seq++, rand(4096), Math.random() * 6.28 - 3.14, room.game ? room.game.time - 0.1 : 0, rand(900), Math.random() * 3 - 1.5]);
         room.handle(p, { t: 'in', c: cmds });
       }
       const r = rand(90);
@@ -57,7 +57,8 @@ function run(map, mode, humans, teamSize, seconds) {
     if (!g) { if (tick > 60 * 5) break; continue; }
     if (tick % 30 === 0) {
       for (const p of g.players.values()) {
-        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) fail(`NaN pos ${p.name}`);
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || !Number.isFinite(p.pitch)) fail(`NaN pos ${p.name}`);
+        if (p.z < -0.01 || p.z > 80 || p.cf < 0 || p.cf > 1) fail(`bad body state z=${p.z} cf=${p.cf} ${p.name}`);
         if (p.alive && (p.x < 0 || p.y < 0 || p.x > g.map.width || p.y > g.map.height)) fail(`out of map ${p.name} ${p.x},${p.y}`);
         if (p.alive && !p.veh && g.map.isBlockedAt(p.x, p.y)) fail(`${p.name} inside an obstacle at ${p.x.toFixed(1)},${p.y.toFixed(1)}`);
         if (p.hp > 100.01 || (p.alive && p.hp <= 0)) fail(`hp ${p.hp} alive=${p.alive}`);

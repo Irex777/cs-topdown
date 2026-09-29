@@ -1,4 +1,4 @@
-import { PLAYER_R, SPEC, GREN_ORDER, GRENADE } from '../shared/constants.js';
+import { PLAYER_R, SPEC, GREN_ORDER, GRENADE, EYE_H, EYE_H_CROUCH, BODY_H, BODY_H_CROUCH } from '../shared/constants.js';
 import {
   WEAPONS, resolveWeapon, defaultLoadout, sanitizeLoadout, GADGETS, GADGET_LIST, CLASSES, ALT, HELD_GREN_BASE, HELD_GADGET_BASE,
 } from '../shared/weapons.js';
@@ -33,6 +33,7 @@ export class Player {
   resetSim() {
     this.alive = false;
     this.x = 0; this.y = 0; this.vx = 0; this.vy = 0; this.angle = 0;
+    this.z = 0; this.vz = 0; this.cf = 0; this.pitch = 0;      // feet height, vertical speed, crouch factor 0..1, look pitch (up +)
     this.hp = 100;
     this.veh = 0; this.seat = 0;
     this.cls = this.loadout ? this.loadout.cls : 'assault';
@@ -59,27 +60,32 @@ export class Player {
     this.reviveProg = 0; this.repairAcc = 0; this.healAcc = 0;
     this.pendingSpawn = null;
     this.killedBy = 0;
-    this.hx = new Float32Array(HIST); this.hy = new Float32Array(HIST); this.ha = new Uint8Array(HIST); this.ht = new Float64Array(HIST);
+    this.hx = new Float32Array(HIST); this.hy = new Float32Array(HIST); this.hz = new Float32Array(HIST); this.hc = new Float32Array(HIST); this.ha = new Uint8Array(HIST); this.ht = new Float64Array(HIST);
     this.streak = 0;
   }
 
   get speed() { return Math.hypot(this.vx, this.vy); }
   get radius() { return PLAYER_R; }
   get onFoot() { return this.alive && !this.veh; }
+  /** height of the eyes / hit box above the ground for the current stance */
+  get eyeZ() { return this.z + EYE_H + (EYE_H_CROUCH - EYE_H) * this.cf; }
+  get bodyH() { return BODY_H + (BODY_H_CROUCH - BODY_H) * this.cf; }
 
   record(tick) {
     const i = tick % HIST;
-    this.hx[i] = this.x; this.hy[i] = this.y; this.ha[i] = this.alive && !this.veh ? 1 : 0; this.ht[i] = tick;
+    this.hx[i] = this.x; this.hy[i] = this.y; this.hz[i] = this.z; this.hc[i] = this.cf; this.ha[i] = this.alive && !this.veh ? 1 : 0; this.ht[i] = tick;
   }
 
   /** Position at fractional tick tf (lag compensation). Falls back to the current position. */
   rewound(tf, out) {
     const i0 = Math.floor(tf), i1 = i0 + 1;
     const a = i0 % HIST, b = i1 % HIST;
-    if (i0 < 1 || this.ht[a] !== i0 || this.ht[b] !== i1) { out.x = this.x; out.y = this.y; out.alive = this.alive && !this.veh; return out; }
+    if (i0 < 1 || this.ht[a] !== i0 || this.ht[b] !== i1) { out.x = this.x; out.y = this.y; out.z = this.z; out.cf = this.cf; out.alive = this.alive && !this.veh; return out; }
     const k = tf - i0;
     out.x = this.hx[a] + (this.hx[b] - this.hx[a]) * k;
     out.y = this.hy[a] + (this.hy[b] - this.hy[a]) * k;
+    out.z = this.hz[a] + (this.hz[b] - this.hz[a]) * k;
+    out.cf = this.hc[a] + (this.hc[b] - this.hc[a]) * k;
     out.alive = this.ha[a] === 1 && this.ha[b] === 1;
     return out;
   }

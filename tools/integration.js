@@ -102,7 +102,7 @@ try {
   check(snap.al === 1 && snap.me && snap.me.own === 1 && snap.me.hp === 100, 'deploying spawns the player');
   check(snap.me.cls === 'recon' && snap.me.pw >= 0, 'the chosen class and weapon are applied');
   check(snap.me.mv && snap.me.mv[1] === 3, 'a 12x scope reports scope level 3 (movement profile)');
-  check(snap.p.length >= 1 && snap.p.every((t) => t.length === 9), 'player tuples well-formed');
+  check(snap.p.length >= 1 && snap.p.every((t) => t.length === 12), 'player tuples well-formed');
   check(a.msgs.some((m) => m.t === 'kit' && m.lo.primary.id === 'sv98'), 'server confirms the applied loadout');
 
   // movement, sprint is faster than walking

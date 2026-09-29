@@ -2,7 +2,7 @@
 //
 // The world is a grid of 32 px tiles. Logic is 2D; the client builds the solid tiles into 3D voxel blocks.
 // Solid tiles have hit points and can be destroyed by explosives, turning into walkable rubble.
-import { TILE } from './constants.js';
+import { TILE, STEP_H } from './constants.js';
 import { VEHICLES } from './vehicles.js';
 
 /**
@@ -15,15 +15,15 @@ import { VEHICLES } from './vehicles.js';
  *  zones:   t  red spawn zone   c  blue spawn zone   (walkable floor)
  */
 export const TILES = {
-  '#': { solid: 1, opaque: 1, hp: 0,   h: 46, name: 'Rock' },
-  'B': { solid: 1, opaque: 1, hp: 520, h: 34, name: 'Wall', debris: 'r' },
-  'M': { solid: 1, opaque: 1, hp: 900, h: 26, name: 'Container', debris: 'd' },
-  'X': { solid: 1, opaque: 1, hp: 90,  h: 18, name: 'Crate', debris: 'd' },
-  'o': { solid: 1, opaque: 1, hp: 26,  h: 16, name: 'Barrel', debris: 'd', explosive: 1 },
-  '=': { solid: 1, opaque: 0, hp: 24,  h: 11, name: 'Fence', debris: '.' },
-  'L': { solid: 1, opaque: 0, hp: 160, h: 12, name: 'Sandbags', debris: 'd' },
-  'G': { solid: 1, opaque: 0, hp: 22,  h: 34, name: 'Window', debris: ';' },
-  'T': { solid: 1, opaque: 0, hp: 150, h: 46, name: 'Tree', debris: 'd' },
+  '#': { solid: 1, opaque: 1, hp: 0,   h: 46, h3: 64, name: 'Rock' },
+  'B': { solid: 1, opaque: 1, hp: 520, h: 34, h3: 52, name: 'Wall', debris: 'r' },
+  'M': { solid: 1, opaque: 1, hp: 900, h: 26, h3: 42, name: 'Container', debris: 'd' },
+  'X': { solid: 1, opaque: 0, hp: 90,  h: 18, h3: 20, name: 'Crate', debris: 'd' },
+  'o': { solid: 1, opaque: 0, hp: 26,  h: 16, h3: 18, name: 'Barrel', debris: 'd', explosive: 1 },
+  '=': { solid: 1, opaque: 0, hp: 24,  h: 11, h3: 16, name: 'Fence', debris: '.', pass: 1 },
+  'L': { solid: 1, opaque: 0, hp: 160, h: 12, h3: 14, name: 'Sandbags', debris: 'd' },
+  'G': { solid: 1, opaque: 0, hp: 22,  h: 34, h3: 52, name: 'Window', debris: ';' },
+  'T': { solid: 1, opaque: 0, hp: 150, h: 46, h3: 72, name: 'Tree', debris: 'd', pass: 1 },
   '.': {}, ',': {}, '_': {}, ';': {}, ':': {}, 'r': {}, 'd': {},
   '~': { water: 2 }, 'w': { water: 1 },
   't': {}, 'c': {},
@@ -51,6 +51,8 @@ export class GameMap {
     this.water = new Uint8Array(n);       // 0 land, 1 shallow, 2 deep
     this.blockInf = new Uint8Array(n);    // soldiers and ground vehicles cannot enter
     this.blockBoat = new Uint8Array(n);   // boats cannot enter
+    this.top = new Float32Array(n);       // height of a solid tile above the ground (px); 0 for open ground and water
+    this.bstop = new Uint8Array(n);       // stops bullets that are lower than the tile's top (fences and trees let them through)
     this.hp = new Uint16Array(n);
     this.zone = new Uint8Array(n);        // 0 none, 1 = red spawn zone, 2 = blue spawn zone
     this.changes = new Map();             // tile index -> char, for everything destroyed since the start
@@ -81,6 +83,8 @@ export class GameMap {
     this.hp[i] = t.hp || 0;
     this.blockInf[i] = (t.solid || t.water === 2) ? 1 : 0;
     this.blockBoat[i] = (t.solid || !t.water) ? 1 : 0;
+    this.top[i] = t.solid ? t.h3 : 0;
+    this.bstop[i] = t.solid && !t.pass ? 1 : 0;
   }
 
   charAt(tx, ty) { return this.chars[ty * this.w + tx]; }
@@ -342,7 +346,7 @@ export class GameMap {
    * Moves a circle by (dx,dy), sliding along blocked tiles. Result in the returned scratch object.
    * mask: blockInf (default: soldiers, ground vehicles), blockBoat, or null for aircraft (only the map edge stops them).
    */
-  moveCircle(x, y, dx, dy, r, mask = this.blockInf) {
+  moveCircle(x, y, dx, dy, r, mask = this.blockInf, z = -1e9) {
     x += dx; y += dy;
     if (mask === null) {
       this._out.x = clamp(x, r, this.width - r); this._out.y = clamp(y, r, this.height - r);
@@ -355,7 +359,13 @@ export class GameMap {
       const ty0 = Math.floor((y - r) / TILE), ty1 = Math.floor((y + r) / TILE);
       for (let ty = ty0; ty <= ty1; ty++) {
         for (let tx = tx0; tx <= tx1; tx++) {
-          if (!(tx < 0 || ty < 0 || tx >= w || ty >= h || mask[ty * w + tx])) continue;
+          if (!(tx < 0 || ty < 0 || tx >= w || ty >= h)) {
+            const ti = ty * w + tx;
+            if (!mask[ti]) continue;
+            // a soldier whose feet are above a low tile (jumped onto sandbags) is not blocked by it; deep water always blocks
+            const top = this.top[ti];
+            if (top > 0 && top <= z + STEP_H) continue;
+          }
           const minX = tx * TILE, minY = ty * TILE;
           const cx = clamp(x, minX, minX + TILE), cy = clamp(y, minY, minY + TILE);
           const ddx = x - cx, ddy = y - cy;
@@ -378,6 +388,54 @@ export class GameMap {
     }
     this._out.x = x; this._out.y = y;
     return this._out;
+  }
+
+  /** Height of the floor under a soldier at (x,y) whose feet are at height z: the tallest low tile they can stand on, else 0. */
+  groundAt(x, y, r, z) {
+    const w = this.w;
+    const fr = r * 0.6;
+    const tx0 = Math.floor((x - fr) / TILE), tx1 = Math.floor((x + fr) / TILE);
+    const ty0 = Math.floor((y - fr) / TILE), ty1 = Math.floor((y + fr) / TILE);
+    let best = 0;
+    for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
+      if (tx < 0 || ty < 0 || tx >= w || ty >= this.h) continue;
+      const top = this.top[ty * w + tx];
+      if (top > best && top <= z + STEP_H) best = top;
+    }
+    return best;
+  }
+
+  /**
+   * Casts a bullet through the 2.5D world from height oz, rising `slope` px per horizontal px. Tiles stop it while it is lower
+   * than their top. Returns the scratch object {d (horizontal distance travelled), tx, ty (the tile hit or -1), top (true when
+   * the bullet came down onto the top of a low wall)}.
+   */
+  castBullet(ox, oy, oz, dx, dy, slope, maxD) {
+    const r = this._bh || (this._bh = { d: 0, tx: -1, ty: -1, top: false });
+    r.d = maxD; r.tx = -1; r.ty = -1; r.top = false;
+    let tx = Math.floor(ox / TILE), ty = Math.floor(oy / TILE);
+    const stepX = dx > 0 ? 1 : -1, stepY = dy > 0 ? 1 : -1;
+    const tDeltaX = dx !== 0 ? Math.abs(TILE / dx) : Infinity;
+    const tDeltaY = dy !== 0 ? Math.abs(TILE / dy) : Infinity;
+    let tMaxX = dx > 0 ? ((tx + 1) * TILE - ox) / dx : dx < 0 ? (tx * TILE - ox) / dx : Infinity;
+    let tMaxY = dy > 0 ? ((ty + 1) * TILE - oy) / dy : dy < 0 ? (ty * TILE - oy) / dy : Infinity;
+    let tEnter = 0;
+    for (;;) {
+      if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) { r.d = tEnter; r.tx = tx; r.ty = ty; return r; }
+      const i = ty * this.w + tx;
+      if (this.bstop[i]) {
+        const tExit = Math.min(tMaxX, tMaxY, maxD);
+        const top = this.top[i];
+        const zIn = oz + slope * tEnter, zOut = oz + slope * tExit;
+        if (Math.min(zIn, zOut) < top) {
+          r.tx = tx; r.ty = ty;
+          if (zIn >= top && slope < 0) { r.d = Math.min(maxD, (top - oz) / slope); r.top = true; } else r.d = tEnter;
+          return r;
+        }
+      }
+      if (tMaxX < tMaxY) { tEnter = tMaxX; tx += stepX; tMaxX += tDeltaX; } else { tEnter = tMaxY; ty += stepY; tMaxY += tDeltaY; }
+      if (tEnter >= maxD) return r;
+    }
   }
 
   /** Nearest free tile-centre to a point (for safety when spawning/dropping items). */

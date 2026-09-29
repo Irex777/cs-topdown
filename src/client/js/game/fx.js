@@ -63,17 +63,17 @@ export class FX {
   }
 
   // ------------------------------------------------------------------ spawners
-  tracer(x0, y0, x1, y1, own, big, z = 14) {
-    this.tracers.push({ x0, y0, z0: z, x1, y1, z1: z * 0.7, t: 0, life: big ? 0.16 : 0.09, own, big });
+  tracer(x0, y0, z0, x1, y1, z1, own, big) {
+    this.tracers.push({ x0, y0, z0, x1, y1, z1, t: 0, life: big ? 0.16 : 0.09, own, big });
     if (this.tracers.length > 160) this.tracers.shift();
   }
 
   cube(o) { this.parts.push(Object.assign({ z: 0, vx: 0, vy: 0, vz: 0, t: 0, life: 0.5, r: 3, k: 'cube', g: 0, col: '#fff', drag: 0 }, o)); }
 
-  blood(x, y, dir, n = 8) {
+  blood(x, y, dir, n = 8, z = 10) {
     for (let i = 0; i < n; i++) {
       const a = dir + (rnd() - 0.5) * 1.1, sp = 60 + rnd() * 200;
-      this.cube({ x, y, z: 10, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 40 + rnd() * 90, g: 700, life: 0.3 + rnd() * 0.3, r: 1.5 + rnd() * 1.8, col: rnd() < 0.5 ? '#a3121a' : '#7a0d12', drag: 3 });
+      this.cube({ x, y, z, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 40 + rnd() * 90, g: 700, life: 0.3 + rnd() * 0.3, r: 1.5 + rnd() * 1.8, col: rnd() < 0.5 ? '#a3121a' : '#7a0d12', drag: 3 });
     }
     this.splat(x, y, dir, 3 + Math.floor(rnd() * 3));
   }
@@ -116,9 +116,9 @@ export class FX {
     this.cube({ x, y, z, life: 0.35, r: 3, k: 'puff', col: '#bdb6a8', a0: 0.3, grow: 10, vz: 20 });
   }
 
-  casing(x, y, ang) {
+  casing(x, y, ang, z = 12) {
     const a = ang + Math.PI / 2 + (rnd() - 0.5) * 0.6, sp = 90 + rnd() * 70;
-    this.cube({ x, y, z: 12, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 90, g: 600, life: 0.5, r: 1.3, col: '#d7b14a', drag: 3 });
+    this.cube({ x, y, z, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, vz: 90, g: 600, life: 0.5, r: 1.3, col: '#d7b14a', drag: 3 });
   }
 
   muzzle(x, y, ang, z = 11) {

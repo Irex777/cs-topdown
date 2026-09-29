@@ -7,9 +7,8 @@ import { hash2 } from './terrain.js';
 import { VoxelModel, mixc } from './voxel.js';
 import { voxelGeometry, linear } from './models3d.js';
 
-/** how much taller blocks are drawn than their gameplay height (soldiers are ~28 px, walls read as walls) */
-export const HS = 1.5;
-export const tileHeight = (ch) => (TILES[ch] && TILES[ch].solid ? TILES[ch].h * HS : 0);
+/** how tall a solid tile stands (px above the ground) — the same value the simulation uses for cover and bullets */
+export const tileHeight = (ch) => (TILES[ch] && TILES[ch].solid ? TILES[ch].h3 : 0);
 
 const rgb = (c, k = 1) => `rgb(${Math.max(0, Math.min(255, Math.round(c[0] * k)))},${Math.max(0, Math.min(255, Math.round(c[1] * k)))},${Math.max(0, Math.min(255, Math.round(c[2] * k)))})`;
 

@@ -84,7 +84,7 @@ export function updateVehicles(game, dt) {
       const p = game.players.get(pid);
       if (p) { p.x = v.x; p.y = v.y; p.vx = v.vx; p.vy = v.vy; }
     }
-    if (v.speed > 95 && v.def.kind !== 'air') crushSoldiers(game, v);
+    if (v.speed > 70 && v.def.kind !== 'air') crushSoldiers(game, v);
   }
   collideVehicles(game);
 }
@@ -97,7 +97,7 @@ function crushSoldiers(game, v) {
     if (Math.hypot(p.x - v.x, p.y - v.y) > v.def.r + PLAYER_R - 3) continue;
     if (driver && driver.team === p.team && !game.ff) continue;
     if (!driver && v.team === p.team) continue;
-    const dmg = v.speed > 150 ? 999 : v.speed * 0.7;
+    const dmg = v.speed > 105 ? 999 : v.speed * 1.0;
     const owner = driver || game.players.get(v.lastAttacker) || null;
     damagePlayer(game, p, owner, dmg, 'vehicle', { expl: true, roadkill: true });
   }
@@ -208,9 +208,9 @@ export function vehicleCmd(game, p, keys, angle, vt, aimDist) {
   if (seat === 0) {
     const before = stepVehicle(game.map, v, v.def, keys, angle);
     const after = v.def.kind === 'air' ? Math.hypot(v.vx, v.vy) : Math.abs(v.vx * Math.cos(v.a) + v.vy * Math.sin(v.a));
-    if (v.def.kind !== 'air' && Math.abs(before) - after > 150 && game.time - (v.lastWall || 0) > 0.25) {
+    if (v.def.kind !== 'air' && Math.abs(before) - after > 105 && game.time - (v.lastWall || 0) > 0.25) {
       v.lastWall = game.time;
-      damageVehicle(game, v, (Math.abs(before) - after - 150) * 0.32, null, 'crash', 'crash');
+      damageVehicle(game, v, (Math.abs(before) - after - 105) * 0.45, null, 'crash', 'crash');
       game.emit(['crash', v.id], v.x, v.y, 900);
     }
     if (sd.aim === 'turret') v.ta = slew(v.ta, angle, sd.turn * DT);
@@ -244,7 +244,9 @@ export function vehicleFire(game, v, seat, p, fire, vt) {
   // hitscan machine gun
   const spread = (wp.spread * Math.PI / 180);
   const a2 = ang + (Math.random() + Math.random() - 1) * spread;
-  const r = castRay(game, ox, oy, a2, { range: wp.range, shooter: p, ignoreVeh: v, tf: 0, air: v.def.kind === 'air' });
+  // machine guns shoot level from the vehicle's gun height
+  const gz = v.def.kind === 'air' ? 44 : (v.def.zr ? v.def.zr[1] : 24);
+  const r = castRay(game, ox, oy, gz, a2, 0, { range: wp.range, shooter: p, ignoreVeh: v, tf: 0, air: v.def.kind === 'air' });
   let kind = r.tile ? 1 : 0;
   if (r.target) {
     kind = 2;

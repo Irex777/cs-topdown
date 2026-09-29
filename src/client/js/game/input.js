@@ -13,6 +13,7 @@ export class Input {
     this.locked = false;            // pointer lock held
     this.lockDenied = false;        // the browser refused pointer lock: fall back to plain mouse movement
     this.releasing = false;         // we let go on purpose (menu opened): don't treat it as Esc
+    this.adsToggle = false;         // right mouse toggles aiming instead of holding
     this.wantLock = () => false;    // game callback: should a click capture the mouse right now?
     this.enabled = false;        // false while a menu / chat box is capturing input
     this.handlers = {};          // name -> fn (edge-triggered actions)
@@ -31,9 +32,11 @@ export class Input {
     document.addEventListener('pointerlockchange', () => {
       const was = this.locked;
       this.locked = document.pointerLockElement === this.canvas;
+      if (this.locked) this.lockErrors = 0;
       if (was && !this.locked) { if (this.releasing) this.releasing = false; else this.fire('unlock'); }
     });
-    document.addEventListener('pointerlockerror', () => { this.lockDenied = true; });
+    // a refusal right after leaving lock with Esc is normal; only give up after repeated failures
+    document.addEventListener('pointerlockerror', () => { this.lockErrors = (this.lockErrors || 0) + 1; if (this.lockErrors >= 4) this.lockDenied = true; });
     window.addEventListener('mousedown', (e) => this.onMouse(e, true));
     window.addEventListener('mouseup', (e) => this.onMouse(e, false));
     window.addEventListener('contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
@@ -47,7 +50,7 @@ export class Input {
 
   requestLock() {
     if (this.locked || this.lockDenied || !this.canvas.requestPointerLock) return;
-    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { this.lockDenied = true; }); } catch { this.lockDenied = true; }
+    try { const p = this.canvas.requestPointerLock(); if (p && p.catch) p.catch(() => { this.lockErrors = (this.lockErrors || 0) + 1; if (this.lockErrors >= 4) this.lockDenied = true; }); } catch { this.lockDenied = true; }
   }
 
   releaseLock() {
@@ -84,13 +87,17 @@ export class Input {
 
   onMouse(e, down) {
     if (e.target !== this.canvas && !(e.target.closest && e.target.closest('#hud'))) {
-      if (!down) { if (e.button === 0) this.left = false; if (e.button === 2) this.right = false; }
+      if (!down) { if (e.button === 0) this.left = false; if (e.button === 2 && !this.adsToggle) this.right = false; }
       return;
     }
     // the click that captures the mouse is not a shot
     if (down && this.enabled && !this.locked && !this.lockDenied && this.wantLock()) { this.requestLock(); return; }
     if (e.button === 0) { this.left = down; if (down && this.enabled) { this.pending |= KEY.FIRE; this.fire('click'); } }
-    else if (e.button === 2) { this.right = down; if (down && this.enabled) this.pending |= KEY.SCOPE; }
+    else if (e.button === 2) {
+      // aim down sights: hold, or click to toggle
+      if (this.adsToggle) { if (down) this.right = !this.right; } else this.right = down;
+      if (down && this.enabled && this.right) this.pending |= KEY.SCOPE;
+    }
     else if (e.button === 1 && down && this.enabled) { e.preventDefault(); this.fire('ping'); }
   }
 
@@ -103,9 +110,9 @@ export class Input {
     if (d.has('KeyS') || d.has('ArrowDown')) k |= KEY.DOWN;
     if (d.has('KeyA') || d.has('ArrowLeft')) k |= KEY.LEFT;
     if (d.has('KeyD') || d.has('ArrowRight')) k |= KEY.RIGHT;
-    if (d.has('KeyC') || d.has('ControlLeft')) k |= KEY.WALK;
+    if (d.has('KeyC') || d.has('ControlLeft')) k |= KEY.CROUCH;
     if (d.has('ShiftLeft') || d.has('ShiftRight')) k |= KEY.SPRINT;
-    if (d.has('Space')) k |= KEY.BRAKE;
+    if (d.has('Space')) k |= KEY.BRAKE | KEY.JUMP;
     if (d.has('KeyE')) k |= KEY.USE;
     if (this.left) k |= KEY.FIRE;
     if (this.right) k |= KEY.SCOPE;

@@ -68,6 +68,82 @@ console.log('view-relative controls (third-person camera)');
   } else check(false, 'the pilot could board the helicopter');
 }
 
+console.log('vertical play: jumping, cover, headshots');
+{
+  const { g, ps, hold, tick, spawn } = setup({ friendlyFire: true }, 2);
+  const s = open(g, 40 * 32, 40 * 32);
+  const tx = Math.floor(s.x / TILE), ty = Math.floor(s.y / TILE);
+  // a flat test yard: clear a strip 14 tiles long, put sandbags 2 tiles to the east
+  for (let dx = -1; dx <= 14; dx++) for (let dy = -2; dy <= 2; dy++) g.map.setTile(tx + dx, ty + dy, '.');
+  spawn(ps[0], lo('assault', 'm416', ['defib', 'medkit']), (tx + 0.5) * TILE, (ty + 0.5) * TILE);
+  g.map.setTile(tx + 2, ty, 'L');
+  const p = ps[0];
+  // jump toward the sandbags and land on top
+  let maxZ = 0, onTop = false;
+  for (let i = 0; i < 100; i++) {
+    g.applyCmd(p, KEY.UP | KEY.JUMP, 0, 0, 0);
+    tick();
+    maxZ = Math.max(maxZ, p.z);
+    if (p.x > (tx + 2) * TILE + 6 && p.z > 12) onTop = true;
+  }
+  const jz = (() => { const q = ps[1]; if (!q.alive) { q.loadout = lo('assault', 'm416', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); } q.x = (tx + 10.5) * TILE; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; let m = 0; for (let i = 0; i < 40; i++) { g.applyCmd(q, KEY.JUMP, 0, 0, 0); tick(); m = Math.max(m, q.z); } return m; })();
+  check(jz > 18 && jz < 26, `a jump on open ground lifts the soldier ~${jz.toFixed(0)} px`);
+  void maxZ;
+  check(onTop, 'a jump gets onto low sandbags');
+  // a crate is not a wall: but a brick wall stops the jumper
+  g.map.setTile(tx + 8, ty, 'B');
+  spawn(p, lo('assault', 'm416', ['defib', 'medkit']), (tx + 6.5) * TILE, (ty + 0.5) * TILE);
+  for (let i = 0; i < 90; i++) { g.applyCmd(p, KEY.UP | KEY.JUMP, 0, 0, 0); tick(); }
+  check(p.x < (tx + 8) * TILE, 'a brick wall cannot be climbed');
+
+  // shooting: shooter at the west end, target 200 px east
+  const shooter = ps[0], target = ps[1];
+  const setup2 = () => {
+    for (let dx = 0; dx <= 14; dx++) g.map.setTile(tx + dx, ty, '.');
+    for (const [q, x] of [[shooter, (tx + 0.5) * TILE], [target, (tx + 0.5) * TILE + 200]]) {
+      if (!q.alive) { q.loadout = lo('assault', 'm416', ['defib', 'medkit']); q.respawnAt = 0; g.spawnPlayer(q, { k: 'base', id: 0 }); }
+      q.x = x; q.y = (ty + 0.5) * TILE; q.z = 0; q.vz = 0; q.cf = 0; q.vx = q.vy = 0; q.hp = 100; q.spawnProt = 0;
+    }
+    shooter.fireCd = 0; shooter.drawT = 0; shooter.burst = 0; shooter.reloadT = 0;
+  };
+  const shoot = (pitchAim) => {
+    const before = target.hp;
+    shooter.fireCd = 0; shooter.prevFire = false; shooter.clickBuf = 0;
+    g.applyCmd(shooter, KEY.FIRE | KEY.SCOPE, 0, 0, 200, undefined, undefined, pitchAim);
+    if (process.env.DBG) console.log('shoot', shooter.x | 0, shooter.y | 0, shooter.z, 'target', target.x | 0, target.y | 0, target.z, target.cf, 'hp', target.hp, 'alive', target.alive, 'team', shooter.team, target.team, JSON.stringify(g.events.filter((e) => e.p[0] === 'shot').map((e) => e.p)));
+    return before - target.hp;
+  };
+  setup2();
+  const eye = shooter.eyeZ;
+  const dHead = shoot(Math.atan2(26 - eye, 200));
+  setup2();
+  const dBody = shoot(Math.atan2(14 - eye, 200));
+  check(dBody > 20 && dHead > dBody * 1.7, `headshots hurt more than body shots (body ${dBody.toFixed(0)}, head ${dHead.toFixed(0)})`);
+  setup2();
+  const dOver = shoot(Math.atan2(50 - eye, 200));
+  check(dOver === 0, 'a shot aimed above the target misses');
+  setup2();
+  target.cf = 1;                       // crouched: only 19 px tall
+  const dCrouchHigh = shoot(Math.atan2(26 - eye, 200));
+  check(dCrouchHigh === 0, 'a crouching target is missed by a shot at standing head height');
+  setup2();
+  target.cf = 1;
+  const dCrouchLow = shoot(Math.atan2(10 - eye, 200));
+  check(dCrouchLow > 0, 'a crouching target can be hit lower down');
+  // cover: sandbags (14 px) between the two
+  setup2();
+  g.map.setTile(tx + 4, ty, 'L');
+  const dLowShot = shoot(Math.atan2(4 - eye, 200));       // aimed at the legs: the sandbags in front stop it
+  setup2();
+  g.map.setTile(tx + 4, ty, 'L');
+  const dOverCover = shoot(Math.atan2(26 - eye, 200));    // aimed at the head: passes over the sandbags
+  check(dLowShot === 0 && dOverCover > 0, `sandbags stop chest shots but not head shots (${dLowShot.toFixed(0)} / ${dOverCover.toFixed(0)})`);
+  setup2();
+  g.map.setTile(tx + 4, ty, 'B');
+  check(shoot(Math.atan2(20 - eye, 200)) === 0, 'a brick wall stops every bullet');
+  void hold;
+}
+
 console.log('ticket bleed and match end');
 {
   const { g, tick } = setup();
@@ -123,7 +199,7 @@ console.log('revive');
   ps[1].angle = Math.PI;
   ps[1].fireCd = 0;
   const wasAlive = victim.alive;
-  hold(ps[1], KEY.FIRE, Math.PI, 3);
+  hold(ps[1], KEY.FIRE | KEY.SCOPE, Math.PI, 3);
   tick(3);
   check(wasAlive && !victim.alive, 'the victim is killed by a rifle shot');
   check(g.corpses.some((c) => c.pid === victim.id), 'a revivable body is left behind');

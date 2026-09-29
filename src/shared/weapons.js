@@ -259,15 +259,22 @@ export function canUseGadget(cls, id) { return CLASSES[cls].gadgets.some((l) => 
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-/** Current inaccuracy half-angle (radians). */
-export function weaponSpread(w, speed, burst, scoped) {
+/**
+ * Current inaccuracy half-angle (radians). First person: hip fire is loose, aiming down sights tightens it a lot, moving,
+ * jumping and sustained fire open it up, crouching (cf 0..1) steadies it. Recoil itself is a camera kick handled by the client.
+ */
+export function weaponSpread(w, speed, burst, scoped, cf = 0, air = false) {
   if (w.kind === 'knife') return 0;
   const s = scoped && w.scope > 0;
   const maxV = BASE_SPEED * w.speed;
-  const mf = clamp((speed / maxV - 0.35) / 0.65, 0, 1);
-  // aiming down sights: scoped optics use their scoped spread, iron sights tighten by ~40%
-  const base = s ? w.scopedSpread : scoped ? w.spread * 0.6 * w.adsSpread : w.spread;
-  const deg = base + w.moveSpread * mf * (s ? 1.4 : scoped ? 0.7 : 1) + w.burst * Math.min(burst, w.burstMax) * (scoped && !s ? 0.7 : 1);
+  const mf = clamp((speed / maxV - 0.3) / 0.7, 0, 1);
+  const hip = 2.3;
+  let deg;
+  if (s) deg = w.scopedSpread + w.moveSpread * mf * 1.2 + w.burst * Math.min(burst, w.burstMax) * 0.35;
+  else if (scoped) deg = w.spread * 0.6 * w.adsSpread + w.moveSpread * mf * 0.5 + w.burst * Math.min(burst, w.burstMax) * 0.3;
+  else deg = w.spread * hip + w.moveSpread * mf * 1.1 + w.burst * Math.min(burst, w.burstMax) * 0.45;
+  deg *= 1 - 0.32 * cf;
+  if (air) deg = deg * 1.8 + 2.5;
   return deg * Math.PI / 180;
 }
 

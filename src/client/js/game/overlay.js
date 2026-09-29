@@ -201,9 +201,10 @@ export class Overlay {
       gr.addColorStop(0, 'rgba(160,0,0,0)'); gr.addColorStop(1, `rgba(160,0,0,${a + 0.25})`);
       ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
     }
-    if (viewer && viewer.scoped && g.alive) {
-      const gr = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.7);
-      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, viewer.scopeLvl ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.2)');
+    if (viewer && viewer.scoped && g.alive && (viewer.scopeLvl || 0) >= 1) this.scope(ctx, viewer, r.scopeK);
+    else if (viewer && viewer.scoped && g.alive) {
+      const gr = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.34, W / 2, H / 2, Math.max(W, H) * 0.72);
+      gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.32)');
       ctx.fillStyle = gr; ctx.fillRect(0, 0, W, H);
     }
     const el = (now - g.flashRecv) / 1000;
@@ -212,6 +213,31 @@ export class Overlay {
       const a = full > 0 ? 1 : clamp(left / Math.max(0.6, g.flashLeft - g.flashFull), 0, 1) * 0.95;
       ctx.fillStyle = `rgba(255,255,255,${a})`; ctx.fillRect(0, 0, W, H);
     }
+  }
+
+  /** looking through a 4x-12x scope: a black frame around a round lens with a fine reticle */
+  scope(ctx, viewer, k) {
+    const r = this.r, W = r.W, H = r.H;
+    if (k < 0.55) return;
+    const a = clamp((k - 0.55) / 0.35, 0, 1);
+    const R = Math.min(W, H) * 0.47, cx = W / 2, cy = H / 2;
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.rect(0, 0, W, H); ctx.arc(cx, cy, R, 0, TAU, true); ctx.fill('evenodd');
+    // lens shading
+    const gr = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R);
+    gr.addColorStop(0, 'rgba(0,0,0,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.6)');
+    ctx.fillStyle = gr; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(20,20,22,0.95)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
+    // reticle: thick outer posts, thin cross, mil dots
+    ctx.strokeStyle = 'rgba(0,0,0,0.92)'; ctx.fillStyle = 'rgba(0,0,0,0.92)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx - 10, cy); ctx.moveTo(cx + 10, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy - 10); ctx.moveTo(cx, cy + 10); ctx.lineTo(cx, cy + R); ctx.stroke();
+    ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(cx - R, cy); ctx.lineTo(cx - R * 0.5, cy); ctx.moveTo(cx + R * 0.5, cy); ctx.lineTo(cx + R, cy); ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy - R * 0.5); ctx.moveTo(cx, cy + R * 0.5); ctx.lineTo(cx, cy + R); ctx.stroke();
+    for (let i = 1; i <= 5; i++) { const d = i * R * 0.09; for (const [x, y] of [[cx + d, cy], [cx - d, cy], [cx, cy + d]]) ctx.fillRect(x - 1.5, y - 1.5, 3, 3); }
+    ctx.restore();
   }
 
   // ------------------------------------------------------------------ crosshair & aiming aids
@@ -266,7 +292,8 @@ export class Overlay {
       const pt = this.ground(viewer, g.angle, d);
       if (pt) this.landing(ctx, pt, ALT.ugl.radius * pt.k, 'rgba(255,150,70,0.85)');
     }
-    const gap = clamp(Math.tan(me.sp || 0) * r.focal * 0.9, 5, 160);
+    const aimingDown = !!(viewer && viewer.scoped);
+    const gap = clamp(Math.tan(me.sp || 0) * r.focal * 0.9, 4, 160);
     g._gap = g._gap === undefined ? gap : g._gap + (gap - g._gap) * 0.35;
     const gp = g._gap;
     ctx.save(); ctx.translate(mx, my);
@@ -279,9 +306,9 @@ export class Overlay {
       ctx.moveTo(0, gp); ctx.lineTo(0, gp + len); ctx.moveTo(0, -gp); ctx.lineTo(0, -gp - len); ctx.stroke();
     };
     const gadget = held >= HELD_GADGET_BASE;
-    if (!gadget && (!w || w.kind !== 'knife')) { ticks('rgba(0,0,0,0.6)', 4); ticks(col, 2); }
-    ctx.fillStyle = col; ctx.fillRect(-1.5, -1.5, 3, 3);
-    if (hm) { ctx.strokeStyle = g.hitKill ? '#ff453a' : '#fff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-9, -9); ctx.lineTo(-4, -4); ctx.moveTo(9, -9); ctx.lineTo(4, -4); ctx.moveTo(-9, 9); ctx.lineTo(-4, 4); ctx.moveTo(9, 9); ctx.lineTo(4, 4); ctx.stroke(); }
+    if (!gadget && !aimingDown && (!w || w.kind !== 'knife')) { ticks('rgba(0,0,0,0.6)', 4); ticks(col, 2); }
+    if (!aimingDown) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-2.5, -2.5, 5, 5); ctx.fillStyle = col; ctx.fillRect(-1.5, -1.5, 3, 3); }
+    if (hm) { const hd = g.hitHead ? 1.5 : 1; ctx.strokeStyle = g.hitKill || g.hitHead ? '#ff453a' : '#fff'; ctx.lineWidth = g.hitHead ? 3 : 2; ctx.beginPath(); ctx.moveTo(-9 * hd, -9 * hd); ctx.lineTo(-4, -4); ctx.moveTo(9 * hd, -9 * hd); ctx.lineTo(4, -4); ctx.moveTo(-9 * hd, 9 * hd); ctx.lineTo(-4, 4); ctx.moveTo(9 * hd, 9 * hd); ctx.lineTo(4, 4); ctx.stroke(); }
     if (me.rel > 0) {
       ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(0, 0, gp + 16, 0, TAU); ctx.stroke();
       ctx.strokeStyle = '#fff'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(0, 0, gp + 16, -Math.PI / 2, -Math.PI / 2 + TAU * me.rel); ctx.stroke();
