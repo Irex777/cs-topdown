@@ -71,7 +71,7 @@ export function buildSnapshot(game, p) {
   }
 
   const snap = {
-    t: 's', tk: game.tick, ack: p.lastSeq, ph: game.phase, rt: Math.max(0, Math.round(game.timer * 10) / 10),
+    t: 's', tk: game.tick, ack: p.lastSeq, fe: Math.round(game.freezeEnd * 1000) / 1000, ph: game.phase, rt: Math.max(0, Math.round(game.timer * 10) / 10),
     p: players,
   };
 

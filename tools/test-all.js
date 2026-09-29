@@ -8,6 +8,7 @@ const steps = [
   ['map validation', ['tools/preview-maps.js']],
   ['bot simulation (dust, 5v5)', ['tools/sim.js', 'dust', '300', '5']],
   ['fuzz / invariants', ['tools/fuzz.js']],
+  ['lag compensation', ['tools/lagcomp.js']],
   ['integration (real server)', ['tools/integration.js']],
 ];
 let failed = 0;

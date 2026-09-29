@@ -38,7 +38,7 @@ export class ClientGame {
   reset() {
     this.map = null; this.art = null;
     this.mode = 'defuse';
-    this.phase = PHASE.FREEZE; this.timer = 0; this.timerRecv = 0;
+    this.phase = PHASE.FREEZE; this.timer = 0; this.timerRecv = 0; this.freezeEnd = 0;
     this.round = 0; this.score = [0, 0]; this.target = 9;
     this.snaps.length = 0;
     this.me = null;                   // latest server-side own (or spectated) state
@@ -122,6 +122,7 @@ export class ClientGame {
     if (!this.haveOffset) { this.offset = sample; this.haveOffset = true; }
     else this.offset = sample > this.offset ? this.offset + (sample - this.offset) * 0.5 : this.offset + (sample - this.offset) * 0.02;
     this.phase = s.ph;
+    this.freezeEnd = s.fe || 0;
     this.respawnIn = s.rs !== undefined ? s.rs : -1;
     if (s.sc) this.score = s.sc;
     this.timer = s.rt; this.timerRecv = now;
@@ -169,9 +170,9 @@ export class ClientGame {
     this.shots.fired = this.shots.fired.filter((q) => q > s.ack);
     const st = { x: me.x, y: me.y, vx: me.vx, vy: me.vy };
     const w = me.held < HELD_GREN_BASE ? WEAPON_LIST[me.held] : null;
-    const frozen = this.phase === PHASE.FREEZE && this.mode === 'defuse';
     for (const c of this.pending) {
       const keys = c[1];
+      const frozen = this.isFrozenAt(c[3]);
       const scoped = !!(keys & KEY.SCOPE) && !!w && w.scope > 0;
       stepMovement(this.map, st, keys, maxSpeedFor(w, !!(keys & KEY.WALK), scoped), frozen);
     }
@@ -179,6 +180,12 @@ export class ClientGame {
     if (Math.hypot(ex, ey) > 70) { this.errX = this.errY = 0; }
     else { this.errX += ex; this.errY += ey; }
     this.pred.x = st.x; this.pred.y = st.y; this.pred.vx = st.vx; this.pred.vy = st.vy;
+  }
+
+  /** Same rule the server applies to a command stamped `vt` (render time): movement is locked until freezeEnd. */
+  isFrozenAt(vt) {
+    if (this.mode !== 'defuse' || !this.freezeEnd) return false;
+    return Math.round((vt + 0.1) * 1000) / 1000 < this.freezeEnd;
   }
 
   onRespawn() {
@@ -399,14 +406,14 @@ export class ClientGame {
       const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist)];
       const w = this.me.held < HELD_GREN_BASE ? WEAPON_LIST[this.me.held] : null;
       const scoped = !!(keys & KEY.SCOPE) && !!w && w.scope > 0;
-      const frozen = this.phase === PHASE.FREEZE && this.mode === 'defuse';
+      const frozen = this.isFrozenAt(cmd[3]);
       stepMovement(this.map, this.pred, keys, maxSpeedFor(w, !!(keys & KEY.WALK), scoped), frozen);
       this.pending.push(cmd);
       batch.push(cmd);
       this.predictFire(keys, w, seq);
     }
     if (batch.length) this.net.send({ t: 'in', c: batch });
-    if (this.alive && this.predValid && this.map && (this.pred.vx || this.pred.vy) && !(this.phase === PHASE.FREEZE && this.mode === 'defuse')) {
+    if (this.alive && this.predValid && this.map && (this.pred.vx || this.pred.vy) && !this.isFrozenAt(this.renderTime())) {
       const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11);
       this.ext = { x: r.x - this.pred.x, y: r.y - this.pred.y };
     } else this.ext = null;

@@ -10,6 +10,19 @@ export class Net {
     this.wantReconnect = true;
     this.retry = 0;
     this._pingTimer = 0;
+    // developer aid: ?lag=80&jitter=20 adds artificial one-way latency to test prediction / lag compensation
+    const q = new URLSearchParams(location.search);
+    this.lag = Math.max(0, Number(q.get('lag')) || 0);
+    this.jitter = Math.max(0, Number(q.get('jitter')) || 0);
+    this._lastOut = 0; this._lastIn = 0;
+  }
+
+  _delay(kind) {
+    // delayed but never reordered (TCP semantics)
+    const now = performance.now();
+    const at = Math.max(now + this.lag + Math.random() * this.jitter, kind === 'in' ? this._lastIn : this._lastOut);
+    if (kind === 'in') this._lastIn = at; else this._lastOut = at;
+    return at - now;
   }
 
   on(type, fn) { (this.handlers.get(type) || this.handlers.set(type, []).get(type)).push(fn); return this; }
@@ -33,6 +46,10 @@ export class Net {
         if (!settled) { settled = true; resolve(); }
       };
       ws.onmessage = (e) => {
+        if (this.lag) { setTimeout(() => this._onMessage(e), this._delay('in')); return; }
+        this._onMessage(e);
+      };
+      this._onMessage = (e) => {
         let m;
         try { m = JSON.parse(e.data); } catch { return; }
         if (m.t === 'pong') { this.rtt = performance.now() - m.ts; this.send({ t: 'rtt', ms: Math.round(this.rtt) }); this.emit('rtt', this.rtt); return; }
@@ -57,7 +74,7 @@ export class Net {
 
   send(obj) {
     const s = JSON.stringify(obj);
-    if (this.open && this.ws.readyState === 1) this.ws.send(s);
+    if (this.open && this.ws.readyState === 1) { if (this.lag) setTimeout(() => this.ws.readyState === 1 && this.ws.send(s), this._delay('out')); else this.ws.send(s); }
     else if (obj.t !== 'in' && obj.t !== 'pong' && obj.t !== 'rtt') this.queue.push(s);
   }
 }

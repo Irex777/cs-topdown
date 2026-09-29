@@ -7,7 +7,7 @@ const seconds = Number(process.argv[2]) || 120;
 const map = process.argv[3] || 'pit';
 const mode = process.argv[4] || 'defuse';
 const { browser, page, errors } = await launch({ w: 1280, h: 720 });
-await page.goto(url + '/');
+await page.goto(url + (process.env.CS_QUERY || '/'));
 await page.fill('#nameInput', 'Auto');
 await page.click('#createBtn');
 await page.waitForTimeout(600);

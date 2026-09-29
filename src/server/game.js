@@ -45,6 +45,7 @@ export class Game {
     this.mvp = 0;
     this.matchWinner = -1;
     this.roundStartedAt = 0;
+    this.freezeEnd = 0;            // server time at which movement unlocks (clients use it to predict the unfreeze exactly)
   }
 
   get players() { return this.room.players; }
@@ -101,7 +102,9 @@ export class Game {
       }
       this.phase = PHASE.FREEZE;
       this.timer = RULES.freezeTime;
+      this.freezeEnd = this.time + RULES.freezeTime;
     } else {
+      this.freezeEnd = 0;
       this.phase = PHASE.LIVE;
       this.timer = RULES.dmTime;
     }
@@ -247,7 +250,7 @@ export class Game {
     // phase timers
     if (this.mode === 'defuse') {
       this.timer -= dt;
-      if (this.phase === PHASE.FREEZE && this.timer <= 0) { this.phase = PHASE.LIVE; this.timer = RULES.roundTime; this.roundStartedAt = this.time; this.broadcast({ t: 'live' }); }
+      if (this.phase === PHASE.FREEZE && this.time >= this.freezeEnd) { this.phase = PHASE.LIVE; this.timer = RULES.roundTime; this.roundStartedAt = this.time; this.broadcast({ t: 'live' }); }
       else if (this.phase === PHASE.POST && this.timer <= 0) this.nextRoundOrFinish();
       else if (this.phase === PHASE.OVER && this.timer <= 0) { this.room.endMatch(); return; }
     } else {
@@ -300,6 +303,12 @@ export class Game {
     }
   }
 
+  /** Server time a command was issued at: the client's clock estimate (render time + interpolation delay), clamped to something plausible. */
+  cmdTime(vt) {
+    if (!(vt > 0)) return this.time;
+    return Math.max(this.time - 0.4, Math.min(this.time, Math.round((vt + 0.1) * 1000) / 1000));
+  }
+
   applyCmd(p, keys, angle, vt, aimDist, ax, ay) {
     p.angle = angle;
     p.lastKeys = keys;
@@ -307,7 +316,8 @@ export class Game {
     const wantScope = (keys & KEY.SCOPE) !== 0 && !!w && w.scope > 0;
     p.scoped = wantScope;
     p.walking = (keys & KEY.WALK) !== 0;
-    const frozen = this.phase === PHASE.FREEZE && this.mode === 'defuse';
+    // frozen is decided by the command's own timestamp, exactly as the client's prediction does
+    const frozen = this.mode === 'defuse' && this.cmdTime(vt) < this.freezeEnd;
     stepMovement(this.map, p, keys, maxSpeedFor(w, p.walking, p.scoped), frozen, ax, ay);
     // footsteps
     const sp = p.speed;
