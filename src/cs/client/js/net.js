@@ -37,12 +37,16 @@ export class Net {
       let settled = false;
       ws.onopen = () => {
         this.open = true; this.retry = 0;
-        for (const m of this.queue) ws.send(m);
-        this.queue.length = 0;
         clearInterval(this._pingTimer);
         this._pingTimer = setInterval(() => this.ping(), 2000);
         this.ping();
+        // emit 'open' BEFORE flushing the queue: the app's open-handler sends
+        // its hello first, so the server always answers welcome before any
+        // queued create/join. Flushing earlier caused the welcome-race where a
+        // slow handshake made the client drop a just-created room back to menu.
         this.emit('open', {});
+        for (const m of this.queue) ws.send(m);
+        this.queue.length = 0;
         if (!settled) { settled = true; resolve(); }
       };
       ws.onmessage = (e) => {
