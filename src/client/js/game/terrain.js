@@ -44,6 +44,7 @@ export class Terrain {
     this.dirtyCount = 0;
     this.shadows = opts.shadows !== false;    // baked fake shadows; the 3D renderer uses real ones
     this.thumb = null;
+    this.detailImages = null;
     if (opts.listen !== false) map.onChange((tx, ty, old, ch) => this.tileChanged(tx, ty, ch));
   }
 
@@ -56,12 +57,19 @@ export class Terrain {
   }
 
   // ------------------------------------------------------------------ ground chunks
+  setDetailImages(images) {
+    if (this.detailImages === images) return;
+    this.detailImages = images;
+    // Recreate canvases at the selected detail resolution; Ground retires their old textures.
+    this.chunks.clear();
+  }
+
   chunkCanvas(cx, cy) {
     const key = cy * this.cw + cx;
     let c = this.chunks.get(key);
     if (!c) {
       const canvas = document.createElement('canvas');
-      canvas.width = CPX; canvas.height = CPX;
+      canvas.width = canvas.height = CPX * (this.detailImages ? 2 : 1);
       c = { canvas, dirty: true, used: 0, cx, cy };
       this.chunks.set(key, c);
       if (this.chunks.size > MAX_CHUNKS) this.evict();
@@ -88,6 +96,8 @@ export class Terrain {
   bake(c) {
     const map = this.map, th = this.th, k = th.c;
     const ctx = c.canvas.getContext('2d');
+    const scale = c.canvas.width / CPX;
+    ctx.setTransform(scale, 0, 0, scale, 0, 0);
     const tx0 = c.cx * CHUNK, ty0 = c.cy * CHUNK;
     ctx.clearRect(0, 0, CPX, CPX);
     const chAt = (x, y) => (map.inBounds(x, y) ? map.chars[y * map.w + x] : '#');
@@ -120,6 +130,15 @@ export class Terrain {
         else if (f === ',' && h > 0.96) col = rgb([230, 210, 90], 1);
         ctx.fillStyle = col;
         ctx.fillRect(px + cx * CELL, py + cy * CELL, CELL, CELL);
+      }
+      // Generated surfaces repeat in world coordinates, including across chunk boundaries.
+      const image = this.detailImages && ((f === '.' || f === ',' || f === 'd') ? this.detailImages.grass : (f === ';' || f === 't' || f === 'c') ? this.detailImages.concrete : null);
+      if (image) {
+        const span = 128, sx = (tx * TILE % span) * image.width / span, sy = (ty * TILE % span) * image.height / span;
+        ctx.drawImage(image, sx, sy, TILE * image.width / span, TILE * image.height / span, px, py, TILE, TILE);
+        ctx.globalAlpha = f === 'd' ? 0.3 : 0.12;
+        ctx.fillStyle = rgb(base); ctx.fillRect(px, py, TILE, TILE);
+        ctx.globalAlpha = 1;
       }
       // per-type details
       if (f === ';' || f === 't' || f === 'c') {

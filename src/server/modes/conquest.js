@@ -1,6 +1,16 @@
 // Conquest: hold more than half of the flags to bleed the enemy's tickets; every death costs a ticket.
 import { T, CT, SPEC, RULES, otherTeam } from '../../shared/constants.js';
 
+// Check current positions at deployment time; cached capture state can be one tick old.
+export function flagHasEnemy(g, f, team) {
+  for (const p of g.players.values()) {
+    if (!p.alive || p.team === SPEC || p.team === team) continue;
+    if (p.veh && g.vehicleById(p.veh)?.def.kind === 'air') continue;
+    if (Math.hypot(p.x - f.x, p.y - f.y) <= f.r) return true;
+  }
+  return false;
+}
+
 export const conquest = {
   id: 'conquest',
 
@@ -66,8 +76,9 @@ export const conquest = {
     const c = g.map.spawnCenter[p.team];
     const opts = [{ k: 'base', id: 0, name: 'Main Base', x: c.x, y: c.y, ok: true, why: '' }];
     for (const f of g.flags) {
-      const ok = f.owner === p.team && !f.contested;
-      opts.push({ k: 'flag', id: f.id, name: f.name, x: f.x, y: f.y, r: f.r, ok, why: f.owner !== p.team ? 'Not captured' : f.contested ? 'Contested' : '' });
+      const contested = f.contested || flagHasEnemy(g, f, p.team);
+      const ok = f.owner === p.team && !contested;
+      opts.push({ k: 'flag', id: f.id, name: f.name, x: f.x, y: f.y, r: f.r, contested, ok, why: f.owner !== p.team ? 'Not captured' : contested ? 'Contested' : '' });
     }
     return opts;
   },

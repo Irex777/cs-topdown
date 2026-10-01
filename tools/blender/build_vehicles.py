@@ -15,7 +15,7 @@ want = [a for a in sys.argv[1:] if not a.startswith('--')] or ['tank', 'jeep', '
 
 def materials():
     return dict(
-        paint=mat('paint', srgb('#5d6650'), 0.15, 0.62), paint2=mat('paint_dark', srgb('#454c3b'), 0.15, 0.7),
+        paint=image_mat('paint', 'skins/field-metal-runtime.jpg', srgb('#7a8169'), 0.15, 0.72), paint2=image_mat('paint_dark', 'skins/field-metal-runtime.jpg', srgb('#59614d'), 0.15, 0.8),
         rubber=mat('tire', srgb('#131417'), 0.0, 0.92), metal=mat('metal_dark', srgb('#3a3e45'), 0.9, 0.45), steel=mat('steel_bright', srgb('#9aa0a9'), 1.0, 0.3),
         glass=mat('glass', srgb('#5a7f95'), 0.0, 0.05, alpha=0.5), light=mat('light', srgb('#fff2b8'), 0.0, 0.2, emit=(1, 0.92, 0.6), emit_strength=5),
         tail=mat('tail_light', srgb('#ff2a1a'), 0.0, 0.3, emit=(1, 0.1, 0.05), emit_strength=3), seat=mat('seat', srgb('#2a2a2c'), 0.0, 0.85),
@@ -23,7 +23,18 @@ def materials():
     )
 
 
-def wheel(B, M, x, y, z, r, w, hub=True):
+WHEELS = []
+
+def wheel(B, M, x, y, z, r, w, hub=True, articulate=True):
+    if articulate:
+        axle = Builder('wheel_' + str(len(WHEELS)))
+        wheel(axle, M, 0, y, 0, r, w, hub, False)
+        obj = axle.finish()
+        for v in obj.data.vertices:
+            v.co.y -= y
+        obj.location = (x, y, z)
+        WHEELS.append(obj)
+        return
     B.cyl(M['rubber'], (x, y - w / 2, z), (x, y + w / 2, z), r, verts=28, bevel=0.03)
     if hub:
         s = 1 if y >= 0 else -1
@@ -41,7 +52,13 @@ def mg(M, name='gun', scale=1.0):
     B.box(M['gun'], (0.05, 0, 0.26), (0.34, 0.09, 0.12), bevel=0.02)
     B.cyl(M['gun'], (0.22, 0, 0.27), (0.75, 0, 0.27), 0.017, verts=10)
     B.cyl(M['steel'], (0.75, 0, 0.27), (0.82, 0, 0.27), 0.024, verts=10)
-    B.box(M['paint2'], (0.16, 0, 0.29), (0.05, 0.42, 0.34), bevel=0.02)                  # shield
+    # Separate the protective shield from the gun so the first-person sight
+    # can clear it without changing the vehicle other players see.
+    shield = Builder('gun_shield')
+    for side in (-1, 1):
+        shield.box(M['paint2'], (0.16, side * 0.165, 0.29), (0.05, 0.11, 0.34), bevel=0.012)
+    shield.box(M['paint2'], (0.16, 0, 0.15), (0.05, 0.22, 0.06), bevel=0.012)
+    B.children = [shield.finish()]
     B.box(M['gun'], (-0.18, 0, 0.22), (0.16, 0.06, 0.05), bevel=0.01)
     B.box(M['metal'], (0.02, 0.10, 0.20), (0.16, 0.07, 0.15), bevel=0.02)                # ammo box
     return B.finish()
@@ -56,9 +73,11 @@ def build_tank(M):
     for s in (1, -1):
         B.box(M['metal'], (0.0, s * 1.62, 0.78), (6.9, 0.62, 0.95), bevel=0.16)          # track belts
         B.box(M['paint2'], (0.15, s * 1.62, 1.06), (6.4, 0.66, 0.1), bevel=0.02)         # side skirts
+        for i in range(8):
+            B.box(M['paint'], (-2.65 + i * 0.75, s * 1.97, 1.12), (0.67, 0.09, 0.38), bevel=0.035, seg=1)
+            B.cyl(M['steel'], (-2.65 + i * 0.75, s * 2.019, 1.16), (-2.65 + i * 0.75, s * 2.025, 1.16), 0.025, verts=8)
         for i in range(7):
-            B.cyl(M['rubber'], (-2.7 + i * 0.9, s * 1.62, 0.42), (-2.7 + i * 0.9, s * 1.62 + s * 0.26, 0.42), 0.34, verts=22)
-            B.cyl(M['metal'], (-2.7 + i * 0.9, s * 1.62 + s * 0.25, 0.42), (-2.7 + i * 0.9, s * 1.62 + s * 0.29, 0.42), 0.2, verts=14)
+            wheel(B, M, -2.7 + i * .9, s * 1.75, .42, .34, .26)
         B.cyl(M['metal'], (-3.25, s * 1.62, 0.66), (-3.25, s * 1.62 + s * 0.3, 0.66), 0.4, verts=22)      # sprocket
         B.cyl(M['metal'], (3.3, s * 1.62, 0.6), (3.3, s * 1.62 + s * 0.3, 0.6), 0.42, verts=22)          # idler
         for i in range(3):
@@ -78,27 +97,32 @@ def build_tank(M):
         B.box(M['tail'], (-3.4, s * 1.0, 0.95), (0.05, 0.16, 0.08), bevel=0.01)
     B.cyl(M['paint2'], (-3.0, 0.9, 1.6), (-3.0, 0.9, 2.0), 0.16, verts=12)               # fuel drum
     B.cyl(M['paint2'], (-3.0, 0.5, 1.6), (-3.0, 0.5, 2.0), 0.16, verts=12)
-    B.empty('turret_mount', (0.0, 0, 1.5)); B.empty('gun_mount', (-0.2, 0.65, 2.2)); B.empty('ring', (0, 0, 1.5))
+    B.empty('cannon_mount', (2.2, 0, 1.92)); B.empty('turret_mount', (0.0, 0, 1.5)); B.empty('gun_mount', (-0.2, 0.65, 2.2)); B.empty('ring', (0, 0, 1.5))
     body = B.finish()
     T = Builder('tank_turret')
     tur = [((-2.0, 0, 0.55), 2.0, 0.85, 0.18), ((-1.2, 0, 0.5), 2.5, 1.0, 0.25), ((0.6, 0, 0.5), 2.45, 1.0, 0.22), ((1.6, 0, 0.42), 1.9, 0.8, 0.2), ((2.0, 0, 0.42), 1.5, 0.66, 0.15)]
     T.loft(M['paint'], tur)
     T.box(M['paint2'], (-2.2, 0, 0.55), (0.9, 2.0, 0.75), bevel=0.12)                    # bustle
     T.box(M['paint2'], (2.0, 0, 0.42), (0.5, 1.2, 0.6), bevel=0.1)                       # gun mantlet
-    T.cyl(M['gun'], (2.2, 0, 0.42), (6.6, 0, 0.42), 0.115, r2=0.095, verts=24)          # main gun
-    T.cyl(M['gun'], (4.2, 0, 0.42), (4.75, 0, 0.42), 0.16, verts=20)                     # fume extractor
-    T.cyl(M['steel'], (6.5, 0, 0.42), (6.7, 0, 0.42), 0.14, verts=20)
+    C = Builder('cannon')
+    C.cyl(M['gun'], (0, 0, 0), (4.4, 0, 0), 0.115, r2=0.095, verts=24)          # main gun
+    C.cyl(M['gun'], (2.0, 0, 0), (2.55, 0, 0), 0.16, verts=20)                     # fume extractor
+    C.cyl(M['steel'], (4.3, 0, 0), (4.5, 0, 0), 0.14, verts=20)
     T.box(M['metal'], (2.3, -0.28, 0.32), (0.4, 0.13, 0.13), bevel=0.03)                # coax MG housing
     T.cyl(M['paint2'], (-0.3, 0.6, 1.0), (-0.3, 0.6, 1.16), 0.42, verts=24)              # commander cupola
     T.cyl(M['glass'], (-0.3, 0.6, 1.12), (-0.3, 0.6, 1.16), 0.34, verts=20)
     T.box(M['paint2'], (0.5, -0.6, 1.02), (0.7, 0.7, 0.08), bevel=0.02)                  # loader hatch
+    for s in (-1, 1):
+        for i in range(4):
+            T.box(M['paint2'], (-0.8 + i * 0.6, s * 1.23, 0.65), (0.48, 0.12, 0.36), bevel=0.035, rot=(0, 0, s * -10))
+    T.box(M['glass'], (0.65, -0.45, 1.1), (0.18, 0.2, 0.12), bevel=0.02)
     for s in (1, -1):
         for i in range(3):
             T.cyl(M['metal'], (1.15, s * 1.3, 0.6 + i * 0.13), (1.3, s * 1.4, 0.6 + i * 0.13), 0.05, verts=8, )
     T.cyl(M['metal'], (-1.9, -0.8, 1.0), (-1.9, -0.8, 2.6), 0.014, verts=6)              # antenna
     T.box(M['steel'], (0.9, 0.85, 1.05), (0.25, 0.22, 0.2), bevel=0.04)                  # sight
     turret = T.finish()
-    return [body, turret, mg(M)]
+    return [body, turret, mg(M), C.finish()]
 
 
 # ------------------------------------------------------------------------------------------------ jeep
@@ -135,7 +159,9 @@ def build_jeep(M):
         wheel(B, M, x, y * 1.02, 0.44, 0.44, 0.32)
     B.cyl(M['metal'], (-2.2, 0.55, 0.45), (-2.5, 0.55, 0.45), 0.04, verts=8)                # exhaust
     B.cyl(M['metal'], (-1.5, -0.9, 1.75), (-1.5, -0.9, 2.9), 0.012, verts=6)                # antenna
-    B.empty('gun_mount', (-1.2, 0, 1.15)); B.empty('turret_mount', (0, 0, 1.2))
+    B.cyl(M['metal'], (-1.2, 0, 1.0), (-1.2, 0, 1.9), .075, verts=16)
+    B.box(M['metal'], (-1.2, 0, 1.88), (.28, .28, .08), bevel=.02)
+    B.empty('gun_mount', (-1.2, 0, 1.9)); B.empty('turret_mount', (0, 0, 1.2))
     return [B.finish(), mg(M)]
 
 
@@ -179,17 +205,18 @@ def build_apc(M):
     for i in range(4):
         B.cyl(M['metal'], (2.5, -0.8 + i * 0.5, 1.7), (2.62, -0.8 + i * 0.5, 1.78), 0.06, verts=8)     # smoke launchers
     B.cyl(M['metal'], (-3.0, -1.0, 2.34), (-3.0, -1.0, 3.6), 0.012, verts=6)
-    B.empty('turret_mount', (0.3, 0, 2.34)); B.empty('gun_mount', (-1.0, 0.9, 2.5))
+    B.empty('cannon_mount', (1.4, 0, 2.66)); B.empty('turret_mount', (0.3, 0, 2.34)); B.empty('gun_mount', (-1.0, 0.9, 2.5))
     body = B.finish()
     T = Builder('apc_turret')
     T.loft(M['paint'], [((-0.9, 0, 0.35), 1.3, 0.55, 0.14), ((0.0, 0, 0.36), 1.6, 0.7, 0.2), ((0.8, 0, 0.33), 1.3, 0.55, 0.16)])
     T.box(M['paint2'], (1.0, 0, 0.32), (0.45, 0.8, 0.45), bevel=0.08)
-    T.cyl(M['gun'], (1.1, 0, 0.32), (3.4, 0, 0.32), 0.055, verts=16)                          # autocannon
-    T.cyl(M['steel'], (3.3, 0, 0.32), (3.5, 0, 0.32), 0.075, verts=16)
+    C = Builder('cannon')
+    C.cyl(M['gun'], (0, 0, 0), (2.3, 0, 0), 0.055, verts=16)                          # autocannon
+    C.cyl(M['steel'], (2.2, 0, 0), (2.4, 0, 0), 0.075, verts=16)
     T.box(M['metal'], (0.6, -0.5, 0.22), (0.5, 0.14, 0.18), bevel=0.04)
     T.cyl(M['metal'], (-0.3, 0.35, 0.62), (-0.3, 0.35, 0.7), 0.24, verts=18)
     T.box(M['steel'], (0.25, -0.45, 0.66), (0.2, 0.22, 0.16), bevel=0.04)
-    return [body, T.finish(), mg(M)]
+    return [body, T.finish(), mg(M), C.finish()]
 
 
 # ------------------------------------------------------------------------------------------------ attack helicopter
@@ -259,23 +286,31 @@ def build_boat(M):
 BUILD = {'tank': build_tank, 'jeep': build_jeep, 'apc': build_apc, 'quad': build_quad, 'heli': build_heli, 'boat': build_boat}
 SCENES = {'tank': ((14, -13, 6), (0.5, 0, 1.3)), 'jeep': ((8, -8, 3.5), (0, 0, 1.0)), 'apc': ((12, -11, 5), (0, 0, 1.3)), 'quad': ((4, -4.5, 2.2), (0, 0, 0.6)),
           'heli': ((16, -16, 8), (-1.2, 0, 2.0)), 'boat': ((14, -14, 6), (0, 0, 1.2))}
-for name in want:
-    reset()
-    M = materials()
-    parts = BUILD[name](M)
-    names = {'tank': ['body', 'turret', 'gun'], 'jeep': ['body', 'gun'], 'apc': ['body', 'turret', 'gun'], 'quad': ['body'], 'heli': ['body', 'rotor', 'gun'], 'boat': ['body', 'gun']}[name]
-    for o, n in zip(parts, names):
-        o.name = n
-    if name == 'heli':
-        parts[1].location = (0, 0, 3.05)
-    if name == 'tank':
-        parts[1].location = (0, 0, 1.5)
-    if name == 'apc':
-        parts[1].location = (0.3, 0, 2.34)
-    root = group(name, parts)
-    if prev:
-        cam, tgt = SCENES[name]
-        preview(name, cam, tgt, w=900, h=560, lens=45, samples=20)
-        for o in [o for o in bpy.data.objects if o.type in ('CAMERA', 'LIGHT')]:
-            bpy.data.objects.remove(o)
-    export(os.path.join(OUT, 'vehicles', name + '.glb'), [root] + list(root.children_recursive))
+def main():
+    for name in want:
+        reset()
+        M = materials()
+        WHEELS.clear()
+        parts = BUILD[name](M)
+        names = {'tank': ['body', 'turret', 'gun', 'cannon'], 'jeep': ['body', 'gun'], 'apc': ['body', 'turret', 'gun', 'cannon'], 'quad': ['body'], 'heli': ['body', 'rotor', 'gun'], 'boat': ['body', 'gun']}[name]
+        for o, n in zip(parts, names):
+            o.name = n
+        if name == 'heli':
+            parts[1].location = (0, 0, 3.05)
+        if name == 'tank':
+            parts[1].location = (0, 0, 1.5)
+            parts[3].location = (2.2, 0, 1.92)
+        if name == 'apc':
+            parts[1].location = (0.3, 0, 2.34)
+            parts[3].location = (1.4, 0, 2.66)
+        root = group(name, parts + WHEELS)
+        if prev:
+            cam, tgt = SCENES[name]
+            preview(name, cam, tgt, w=900, h=560, lens=45, samples=20)
+            for o in [o for o in bpy.data.objects if o.type in ('CAMERA', 'LIGHT')]:
+                bpy.data.objects.remove(o)
+        export(os.path.join(OUT, 'vehicles', name + '.glb'), [root] + list(root.children_recursive))
+
+
+if __name__ == "__main__":
+    main()

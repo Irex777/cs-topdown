@@ -23,10 +23,10 @@ BRASS = srgb('#b58a3c')
 
 def M():
     return dict(
-        tan=mat('cerakote_tan', TAN, 0.35, 0.5), tan_d=mat('cerakote_tan_dark', TAN_D, 0.35, 0.55),
+        tan=image_mat('cerakote_tan', 'skins/field-metal-runtime.jpg', TAN, 0.25, 0.64), tan_d=image_mat('cerakote_tan_dark', 'skins/field-metal-runtime.jpg', TAN_D, 0.25, 0.68),
         poly=mat('polymer_black', POLY, 0.0, 0.62), poly_l=mat('polymer_grey', POLY_L, 0.0, 0.58),
-        steel=mat('steel', STEEL, 1.0, 0.28), gunm=mat('gunmetal', GUNM, 1.0, 0.38), rubber=mat('rubber', RUBBER, 0.0, 0.9),
-        olive=mat('cerakote_olive', OLIVE, 0.35, 0.55), olive_d=mat('cerakote_olive_dark', OLIVE_D, 0.35, 0.6),
+        steel=mat('steel', STEEL, 1.0, 0.28), gunm=image_mat('gunmetal', 'skins/field-metal-runtime.jpg', GUNM, 0.85, 0.46), rubber=mat('rubber', RUBBER, 0.0, 0.9),
+        olive=image_mat('cerakote_olive', 'skins/field-metal-runtime.jpg', OLIVE, 0.25, 0.65), olive_d=image_mat('cerakote_olive_dark', 'skins/field-metal-runtime.jpg', OLIVE_D, 0.25, 0.7),
         wood=mat('wood', WOOD, 0.0, 0.55), brass=mat('brass', BRASS, 1.0, 0.3),
         slot=mat('slot', (0.008, 0.008, 0.009), 0.0, 0.9), red=mat('red_dot', (1.0, 0.05, 0.03), 0.0, 0.3, emit=(1, 0.05, 0.03), emit_strength=6),
     )
@@ -51,39 +51,46 @@ def mlok(B, slot, x0, x1, y, z, n=4, length=0.026, height=0.0065):
 
 
 def grip(B, m, m_ridge, top, length, depth, width, tilt, ridges=7):
-    """slanted pistol grip hanging from `top` (x,y,z); tilt degrees about Y (positive leans the bottom rearwards)"""
+    """slanted pistol grip hanging from `top` (x,y,z); tilt degrees about Y (positive leans the bottom rearwards).
+    Swept with a bowed backstrap, a front finger swell and a flared base instead of a slab."""
     t = math.radians(tilt)
-    cx = top[0] - math.sin(t) * length / 2
-    cz = top[2] - math.cos(t) * length / 2
-    B.box(m, (cx, top[1], cz), (depth, width, length), bevel=0.0055, rot=(0, tilt, 0))
-    for i in range(ridges):
-        f = (i + 0.7) / (ridges + 0.4)
-        zz = top[2] - length * f
-        xx = top[0] - math.sin(t) * length * f
-        B.box(m_ridge, (xx + math.cos(t) * depth * 0.5, top[1], zz), (0.0022, width * 0.82, length / (ridges * 2.0)), bevel=0.0007, rot=(0, tilt, 0), seg=1)
-    bx = top[0] - math.sin(t) * length
-    bz = top[2] - math.cos(t) * length
-    B.box(m, (bx, top[1], bz - 0.003), (depth + 0.004, width + 0.004, 0.008), bevel=0.003, rot=(0, tilt, 0))
+    dx, dz = -math.sin(t), -math.cos(t)
+    pts, radii = [], []
+    for f, sw in ((0.0, 0.94), (0.2, 1.0), (0.45, 1.06), (0.72, 1.02), (1.0, 1.0)):
+        pts.append((top[0] + dx * length * f + math.sin(math.pi * f) * 0.0035, top[1], top[2] + dz * length * f))
+        radii.append(width / 2 * sw)
+    B.sweep(m, pts, radii, n=18, squash=(1.0, depth / width), p=3.0, round_ends=(False, False))
+    for i in range(ridges):                                                           # finger-grooves / front strap texture
+        f = (i + 0.9) / (ridges + 0.6)
+        zz = top[2] + dz * length * f
+        xx = top[0] + dx * length * f + math.sin(math.pi * f) * 0.0035
+        B.box(m_ridge, (xx + math.cos(t) * depth * 0.52, top[1], zz), (0.0018, width * 0.72, length / (ridges * 2.4)), bevel=0.0006, rot=(0, tilt, 0), seg=1)
+    bx = top[0] + dx * length
+    bz = top[2] + dz * length
+    B.box(m, (bx, top[1], bz - 0.002), (depth + 0.006, width + 0.006, 0.010), bevel=0.0035, rot=(0, tilt, 0))
 
 
 def curved_mag(B, m, m2, top, length, depth, width, curve_deg, n=8, base=True):
-    """magazine hanging from `top` (x,y,z of its top centre); curve_deg = total forward bend"""
+    """magazine hanging from `top` (x,y,z of its top centre); curve_deg = total forward bend. One smooth swept body with
+    side ribs, feed lips and a floorplate."""
     x, z = top[0], top[2]
     seg = length / n
     ang = 0.0
+    pts = [(x, top[1], z)]
     for i in range(n):
-        a0 = math.radians(ang)
+        am = math.radians(ang + curve_deg / n / 2)
         ang += curve_deg / n
-        a1 = math.radians(ang)
-        am = (a0 + a1) / 2
-        cx = x + math.sin(am) * seg / 2
-        cz = z - math.cos(am) * seg / 2
-        B.box(m, (cx, top[1], cz), (depth, width, seg * 1.06), bevel=0.0018, rot=(0, math.degrees(am), 0), seg=1)
-        if i % 2 == 1:
-            B.box(m2, (cx, top[1] + width / 2 + 0.0003, cz), (depth * 0.7, 0.0012, seg * 0.6), bevel=0.0004, rot=(0, math.degrees(am), 0), seg=1)
-            B.box(m2, (cx, top[1] - width / 2 - 0.0003, cz), (depth * 0.7, 0.0012, seg * 0.6), bevel=0.0004, rot=(0, math.degrees(am), 0), seg=1)
         x += math.sin(am) * seg
         z -= math.cos(am) * seg
+        pts.append((x, top[1], z))
+    B.sweep(m, pts, [width / 2] * len(pts), n=20, squash=(1.0, depth / width), p=3.6, round_ends=(False, False))
+    for i in range(1, n):
+        px, py, pz = pts[i]
+        am = math.radians(curve_deg * (i - 0.5) / n)
+        B.box(m2, (px + math.cos(am) * depth * 0.5, py, pz), (0.0022, width * 0.62, seg * 0.32), bevel=0.0007, rot=(0, math.degrees(am), 0), seg=1)    # front ribs
+        B.box(m2, (px, py + width * 0.5 + 0.0003, pz), (depth * 0.6, 0.0012, seg * 0.5), bevel=0.0004, rot=(0, math.degrees(am), 0), seg=1)
+        B.box(m2, (px, py - width * 0.5 - 0.0003, pz), (depth * 0.6, 0.0012, seg * 0.5), bevel=0.0004, rot=(0, math.degrees(am), 0), seg=1)
+    B.box(m2, (top[0] + 0.0, top[1], top[2] + 0.002), (depth + 0.002, width + 0.002, 0.008), bevel=0.0015)                     # feed lips
     if base:
         B.box(m2, (x + 0.001, top[1], z - 0.004), (depth + 0.008, width + 0.006, 0.010), bevel=0.003, rot=(0, curve_deg, 0))
     return x, z
@@ -107,14 +114,27 @@ def muzzle_device(B, mm, x0, kind, r=0.0108):
 
 
 def sights(B, mm, x_rear, x_front, z_rail, front_h=0.034, aperture=True):
-    gunm, steel, slot = mm['gunm'], mm['steel'], mm['slot']
-    B.box(gunm, (x_rear, 0, z_rail + 0.011), (0.016, 0.024, 0.018), bevel=0.002)
+    # Separate foldable sights with an actual opening, aligned above the receiver.
+    S = Builder('iron_sights')
+    gunm, steel = mm['gunm'], mm['steel']
+    aim_z = z_rail + 0.036
+    S.box(gunm, (x_rear, 0, z_rail + 0.010), (0.016, 0.020, 0.018), bevel=0.0015)
     if aperture:
-        B.cyl(steel, (x_rear - 0.008, 0, z_rail + 0.0195), (x_rear + 0.008, 0, z_rail + 0.0195), 0.0055, verts=16)
-        B.cyl(slot, (x_rear - 0.009, 0, z_rail + 0.0195), (x_rear + 0.009, 0, z_rail + 0.0195), 0.0028, verts=12)
-    B.box(gunm, (x_front, 0, z_rail + front_h / 2 + 0.003), (0.012, 0.008, front_h), bevel=0.0015)
-    B.box(steel, (x_front, 0, z_rail + front_h + 0.006), (0.003, 0.0028, 0.012), bevel=0.0005, seg=1)
-    return z_rail + 0.0195
+        for i in range(20):
+            a, b = i * math.tau / 20, (i + 1) * math.tau / 20
+            S.cyl(gunm, (x_rear, math.cos(a) * 0.0075, aim_z - 0.001 + math.sin(a) * 0.0075),
+                  (x_rear, math.cos(b) * 0.0075, aim_z - 0.001 + math.sin(b) * 0.0075), 0.0011, verts=8)
+        S.box(gunm, (x_rear, 0, aim_z - 0.014), (0.012, 0.010, 0.012), bevel=0.001)
+    else:
+        for side in [-1, 1]:
+            S.box(gunm, (x_rear, side * 0.007, aim_z - 0.003), (0.009, 0.004, 0.010), bevel=0.0008)
+    h = aim_z - z_rail - 0.0015
+    S.box(gunm, (x_front, 0, z_rail + h / 2), (0.009, 0.003, h), bevel=0.0006)
+    S.box(steel, (x_front, 0, aim_z - 0.002), (0.004, 0.0015, 0.002), bevel=0.0003)
+    if not hasattr(B, 'children'):
+        B.children = []
+    B.children.append(S.finish())
+    return aim_z
 
 
 def add_empties(B, muzzle_x, ads, mount_optic, mount_under, grip_r, grip_l, eject=(0.03, -0.02, 0.02)):
@@ -155,10 +175,15 @@ def build_rifle(name, mm, P):
     up_x1 = up_x0 + up_len
     zc = 0.014
     # ---- receivers with a sloped rear and chamfered front
-    B.box(rec, ((up_x0 + up_x1) / 2 + 0.005, 0, zc), (up_len, 0.032, up_h), bevel=0.0045)
-    B.box(rec_d, (-0.012, 0, -0.030), (0.175, 0.031, 0.052), bevel=0.0045)
-    B.box(rec, (0.052, 0, -0.078), (0.056, 0.034, 0.058), bevel=0.004)                       # magwell
+    B.loft(rec, [((up_x0, 0, zc + 0.004), 0.027, up_h - 0.010, 0.008), ((up_x0 + 0.03, 0, zc + 0.002), 0.031, up_h - 0.003, 0.010),
+                 ((up_x0 + up_len * 0.55, 0, zc), 0.033, up_h, 0.011), ((up_x1 - 0.012, 0, zc), 0.033, up_h, 0.011),
+                 ((up_x1 + 0.012, 0, zc - 0.002), 0.030, up_h - 0.008, 0.009)])            # sculpted upper receiver
+    B.loft(rec_d, [((-0.10, 0, -0.030), 0.028, 0.044, 0.008), ((-0.05, 0, -0.029), 0.030, 0.050, 0.009),
+                   ((0.04, 0, -0.030), 0.031, 0.052, 0.009), ((0.080, 0, -0.031), 0.029, 0.046, 0.008)])   # lower receiver
+    B.loft(rec, [((0.022, 0, -0.076), 0.030, 0.056, 0.007), ((0.052, 0, -0.078), 0.034, 0.058, 0.007), ((0.082, 0, -0.078), 0.034, 0.058, 0.007)])   # flared magwell
+    B.box(rec_d, (0.087, 0, -0.012), (0.012, 0.024, 0.030), bevel=0.004)                     # upper/lower blend
     B.box(slot, (0.03, -0.0166, 0.020), (0.052, 0.0012, 0.021), bevel=0.003)                 # ejection port
+    B.box(rec_d, (0.004, -0.0183, 0.020), (0.010, 0.004, 0.024), bevel=0.0015)               # brass deflector
     B.box(rec, (0.03, -0.0176, 0.020), (0.052, 0.0012, 0.004), bevel=0.001, seg=1)
     B.cyl(gunm, (0.055, -0.0165, 0.006), (0.055, -0.0225, 0.006), 0.0055, verts=14, bevel=0.001)   # forward assist
     B.box(furn, (-0.103, 0, 0.038), (0.024, 0.02, 0.012), bevel=0.002)                       # charging handle
@@ -167,9 +192,9 @@ def build_rifle(name, mm, P):
     rail(B, rec, up_x0, rail_end, 0.0435, w=0.022)
     ads_z = sights(B, mm, -0.085, rail_end - 0.012, 0.0435, front_h=P.get('front_h', 0.034))
     # ---- trigger group
-    B.box(furn, (0.0, 0, -0.064), (0.10, 0.0035, 0.004), bevel=0.001, seg=1)
-    B.box(furn, (0.048, 0, -0.052), (0.005, 0.0035, 0.024), bevel=0.001, seg=1)
-    B.box(gunm, (-0.006, 0, -0.049), (0.006, 0.006, 0.02), bevel=0.001, rot=(0, -18, 0), seg=1)
+    B.sweep(furn, [(0.052, 0, -0.046), (0.054, 0, -0.063), (0.040, 0, -0.071), (0.0, 0, -0.072), (-0.032, 0, -0.066), (-0.05, 0, -0.053)], [0.0030] * 6,
+            n=10, squash=(1.4, 1.0), round_ends=(False, False))                              # trigger guard
+    B.box(gunm, (-0.006, 0, -0.052), (0.006, 0.006, 0.02), bevel=0.001, rot=(0, -18, 0), seg=1)
     B.cyl(steel, (-0.045, 0.0165, -0.022), (-0.045, 0.0235, -0.022), 0.0045, verts=12)
     B.box(steel, (-0.045, 0.0225, -0.018), (0.016, 0.003, 0.004), bevel=0.0008, seg=1)
     B.cyl(steel, (0.045, -0.0172, -0.062), (0.045, -0.0225, -0.062), 0.0045, verts=12)
@@ -178,11 +203,13 @@ def build_rifle(name, mm, P):
     # ---- handguard
     hg_x0 = up_x1 - 0.01
     hg_cx = hg_x0 + hg_len / 2
-    B.box(furn, (hg_cx, 0, 0.0), (hg_len, hg_h + 0.002, hg_h), bevel=0.0075)
-    B.box(furn, (hg_x0 + 0.012, 0, 0.0), (0.028, hg_h + 0.008, hg_h + 0.006), bevel=0.004)
-    B.box(gunm, (hg_x0 + hg_len - 0.004, 0, 0.0), (0.014, hg_h + 0.004, hg_h + 0.002), bevel=0.003)
+    hz, hh = (0.0405 - hg_h / 2) / 2, 0.0405 + hg_h / 2                           # top of the handguard runs flush with the rail
+    B.loft(furn, [((hg_x0, 0, hz), hg_h + 0.008, hh + 0.004, 0.011), ((hg_x0 + 0.03, 0, hz), hg_h + 0.002, hh, 0.010),
+                  ((hg_cx, 0, hz), hg_h + 0.002, hh, 0.010), ((hg_x0 + hg_len - 0.014, 0, hz), hg_h - 0.002, hh - 0.003, 0.010)])
+    B.loft(furn, [((hg_x0 - 0.002, 0, hz), hg_h + 0.010, hh + 0.006, 0.012), ((hg_x0 + 0.020, 0, hz), hg_h + 0.010, hh + 0.006, 0.012)])   # receiver collar
+    B.loft(gunm, [((hg_x0 + hg_len - 0.012, 0, hz), hg_h + 0.003, hh + 0.001, 0.010), ((hg_x0 + hg_len + 0.002, 0, hz), hg_h + 0.003, hh + 0.001, 0.010)])  # end cap
     n = max(3, int(hg_len / 0.05))
-    for zz in (0.013, -0.013):
+    for zz in (hz + 0.015, hz - 0.012):
         mlok(B, slot, hg_x0 + 0.03, hg_x0 + hg_len - 0.02, hg_h / 2 + 0.001, zz, n)
         mlok(B, slot, hg_x0 + 0.03, hg_x0 + hg_len - 0.02, -(hg_h / 2 + 0.001), zz, n)
     for i in range(n):
@@ -195,25 +222,30 @@ def build_rifle(name, mm, P):
         for k in range(6):
             a = k * math.pi / 3
             B.box(slot, (bx0 + 0.02 + b_len * 0.4, 0.0078 * math.cos(a), 0.0078 * math.sin(a)), (b_len * 0.6, 0.0016, 0.0016), bevel=0.0004, rot=(math.degrees(a), 0, 0), seg=1)
-    B.box(gunm, (bx0 - 0.014, 0, 0.0), (0.03, 0.02, 0.022), bevel=0.003)
+    B.cyl(gunm, (bx0 - 0.028, 0, 0), (bx0 + 0.004, 0, 0), 0.0122, verts=20, bevel=0.0015)        # gas block
+    B.cyl(steel, (bx0 + 0.006, 0, 0), (bx0 + 0.012, 0, 0), 0.0098, verts=20)                      # barrel nut / crush washer
     mx = muzzle_device(B, mm, bx0 + b_len, P['muzzle'], r=P.get('muzzle_r', 0.0108))
     # ---- stock
     st = P['stock']
     if st == 'coll':
         S.cyl(furn, (-0.112, 0, 0.004), (-0.262, 0, 0.004), 0.0155, verts=20)
-        S.box(furn, (-0.245, 0, -0.004), (0.16, 0.040, 0.066), bevel=0.008)
-        S.box(furn, (-0.245, 0, 0.032), (0.14, 0.03, 0.006), bevel=0.002)
-        S.box(furn, (-0.337, 0, -0.008), (0.024, 0.042, 0.098), bevel=0.006, rot=(0, -6, 0))
-        S.box(rubber, (-0.351, 0, -0.008), (0.006, 0.040, 0.094), bevel=0.002, rot=(0, -6, 0), seg=1)
-        S.box(steel, (-0.19, 0, -0.03), (0.02, 0.006, 0.012), bevel=0.002)
+        S.loft(furn, [((-0.165, 0, 0.002), 0.030, 0.050, 0.010), ((-0.22, 0, 0.0), 0.037, 0.064, 0.012), ((-0.28, 0, -0.004), 0.040, 0.078, 0.013),
+                      ((-0.328, 0, -0.011), 0.040, 0.092, 0.012)])                            # collapsible stock body
+        S.loft(furn, [((-0.19, 0, 0.032), 0.026, 0.010, 0.004), ((-0.30, 0, 0.040), 0.028, 0.012, 0.005)])                              # cheek riser
+        S.box(furn, (-0.337, 0, -0.011), (0.020, 0.042, 0.098), bevel=0.007, rot=(0, -6, 0))
+        S.box(rubber, (-0.349, 0, -0.011), (0.008, 0.040, 0.094), bevel=0.003, rot=(0, -6, 0), seg=1)
+        S.box(steel, (-0.19, 0, -0.03), (0.02, 0.006, 0.012), bevel=0.002)                   # adjustment latch
+        for k in range(4):
+            S.box(mm['poly_l'], (-0.215 - k * 0.022, 0, -0.038 - k * 0.0015), (0.010, 0.030, 0.003), bevel=0.001, seg=1)             # adjustment ribs
         stock_end = -0.354
-    else:   # fixed / sniper style: chunky one-piece stock with a raised cheek
+    else:   # fixed / sniper style: one-piece stock with a raised cheek and a hooked butt
         L = P.get('stock_len', 0.27)
-        S.box(furn, (-0.105 - L / 2 - 0.01, 0, -0.012), (L, 0.038, 0.074), bevel=0.009, rot=(0, -3, 0))
-        S.box(furn, (-0.105 - L / 2 - 0.01, 0, 0.024), (L * 0.85, 0.032, 0.026), bevel=0.008)
-        S.box(furn, (-0.105 - L + 0.004, 0, -0.030), (0.03, 0.04, 0.11), bevel=0.008, rot=(0, -10, 0))
-        S.box(rubber, (-0.105 - L - 0.012, 0, -0.030), (0.008, 0.041, 0.106), bevel=0.003, rot=(0, -10, 0), seg=1)
-        stock_end = -0.105 - L - 0.016
+        xe = -0.105 - L
+        S.loft(furn, [((-0.115, 0, -0.004), 0.030, 0.058, 0.010), ((-0.16, 0, -0.010), 0.033, 0.064, 0.012), ((-0.205, 0, -0.012), 0.038, 0.072, 0.013),
+                      ((xe * 0.72 + -0.105 * 0.28, 0, -0.016), 0.040, 0.084, 0.014), ((xe + 0.012, 0, -0.026), 0.042, 0.106, 0.015)])
+        S.loft(furn, [((-0.15, 0, 0.030), 0.028, 0.012, 0.005), ((xe * 0.7, 0, 0.040), 0.032, 0.016, 0.006), ((xe + 0.03, 0, 0.040), 0.030, 0.012, 0.005)])      # cheek piece
+        S.box(rubber, (xe - 0.004, 0, -0.028), (0.008, 0.043, 0.106), bevel=0.003, rot=(0, -10, 0), seg=1)
+        stock_end = xe - 0.008
     B.cyl(steel, (-0.06, 0.0, -0.058), (-0.06, 0.0, -0.062), 0.006, verts=12)
     add_empties(B, mx, (-0.085, 0, ads_z), (0.02, 0, 0.0465), (hg_x0 + hg_len * 0.75, 0, -hg_h / 2 - 0.002), (-0.086, 0, -0.095), (hg_x0 + hg_len * 0.62, 0, -hg_h / 2))
     body = B.finish()
@@ -258,13 +290,13 @@ def build_vx9(mm):
     B = Builder('vx9_body')
     S = Builder('vx9_stock')
     poly, poly_l, tan, tan_d, steel, gunm, slot, rubber = mm['poly'], mm['poly_l'], mm['tan'], mm['tan_d'], mm['steel'], mm['gunm'], mm['slot'], mm['rubber']
-    B.box(poly, (0.0, 0, 0.004), (0.215, 0.036, 0.062), bevel=0.006)                    # receiver
-    B.box(poly_l, (-0.02, 0, -0.03), (0.15, 0.034, 0.03), bevel=0.005)
+    B.loft(poly, [((-0.108, 0, 0.006), 0.030, 0.052, 0.009), ((-0.06, 0, 0.005), 0.034, 0.060, 0.011), ((0.0, 0, 0.004), 0.036, 0.062, 0.011), ((0.108, 0, 0.003), 0.034, 0.058, 0.010)])    # receiver
+    B.loft(poly_l, [((-0.095, 0, -0.030), 0.029, 0.028, 0.008), ((-0.02, 0, -0.03), 0.034, 0.032, 0.009), ((0.055, 0, -0.031), 0.031, 0.030, 0.008)])
     B.box(slot, (0.015, -0.0186, 0.012), (0.05, 0.0012, 0.02), bevel=0.003)
     rail(B, poly_l, -0.105, 0.21, 0.0385, w=0.02)
     ads_z = sights(B, mm, -0.09, 0.19, 0.0385, front_h=0.026)
     # tan handguard shroud with vents
-    B.box(tan, (0.155, 0, 0.0), (0.115, 0.048, 0.056), bevel=0.008)
+    B.loft(tan, [((0.098, 0, 0.0), 0.046, 0.054, 0.011), ((0.155, 0, 0.0), 0.049, 0.058, 0.012), ((0.212, 0, 0.0), 0.046, 0.054, 0.011)])
     for i in range(5):
         for s in (1, -1):
             B.cyl(slot, (0.115 + i * 0.02, s * 0.0242, 0.006), (0.115 + i * 0.02, s * 0.0234, 0.006), 0.0052, verts=12)
@@ -280,13 +312,13 @@ def build_vx9(mm):
     B.box(gunm, (-0.005, 0, -0.043), (0.006, 0.006, 0.018), bevel=0.001, rot=(0, -18, 0), seg=1)
     grip(B, tan, tan_d, (-0.06, 0, -0.04), 0.1, 0.034, 0.034, 14, 7)
     B.cyl(steel, (-0.04, 0.018, -0.02), (-0.04, 0.024, -0.02), 0.004, verts=12)
-    B.box(tan, (0.045, 0, -0.07), (0.05, 0.036, 0.05), bevel=0.004)                     # magwell
+    B.loft(tan, [((0.02, 0, -0.07), 0.034, 0.048, 0.007), ((0.045, 0, -0.07), 0.037, 0.052, 0.007), ((0.07, 0, -0.07), 0.034, 0.048, 0.007)])                     # magwell
     # folding skeleton stock
     for s in (1, -1):
-        S.box(tan, (-0.2, s * 0.016, 0.005), (0.19, 0.006, 0.008), bevel=0.002)
-        S.box(tan, (-0.2, s * 0.016, -0.048), (0.19, 0.006, 0.008), bevel=0.002)
-        S.box(tan, (-0.295, s * 0.016, -0.02), (0.008, 0.006, 0.06), bevel=0.002)
-    S.box(rubber, (-0.303, 0, -0.02), (0.012, 0.04, 0.08), bevel=0.003, rot=(0, -5, 0))
+        S.sweep(tan, [(-0.105, s * 0.016, 0.005), (-0.2, s * 0.016, 0.005), (-0.29, s * 0.016, -0.002)], [0.0042] * 3, n=10, squash=(0.8, 1.2), p=3.5, round_ends=(False, False))
+        S.sweep(tan, [(-0.125, s * 0.016, -0.048), (-0.2, s * 0.016, -0.05), (-0.295, s * 0.016, -0.046)], [0.0042] * 3, n=10, squash=(0.8, 1.2), p=3.5, round_ends=(False, False))
+        S.sweep(tan, [(-0.293, s * 0.016, 0.0), (-0.297, s * 0.016, -0.045)], [0.0045] * 2, n=10, squash=(0.8, 1.3), p=3.5, round_ends=(False, False))
+    S.box(rubber, (-0.303, 0, -0.022), (0.012, 0.04, 0.082), bevel=0.004, rot=(0, -5, 0))
     S.box(gunm, (-0.11, 0, 0.005), (0.02, 0.036, 0.024), bevel=0.003)
     B.cyl(steel, (-0.06, 0.0, -0.057), (-0.06, 0.0, -0.061), 0.006, verts=12)
     add_empties(B, 0.298, (-0.09, 0, ads_z), (0.03, 0, 0.041), (0.16, 0, -0.03), (-0.064, 0, -0.085), (0.14, 0, -0.03))
@@ -310,13 +342,13 @@ def build_sg4(mm):
     B = Builder('sg4_body')
     S = Builder('sg4_stock')
     poly, poly_l, tan, tan_d, steel, gunm, slot, rubber = mm['poly'], mm['poly_l'], mm['tan'], mm['tan_d'], mm['steel'], mm['gunm'], mm['slot'], mm['rubber']
-    B.box(gunm, (0.0, 0, 0.006), (0.22, 0.036, 0.058), bevel=0.006)                      # receiver
-    B.box(poly_l, (-0.02, 0, -0.03), (0.16, 0.034, 0.03), bevel=0.005)
+    B.loft(gunm, [((-0.11, 0, 0.008), 0.030, 0.050, 0.009), ((-0.06, 0, 0.007), 0.034, 0.057, 0.011), ((0.03, 0, 0.006), 0.036, 0.058, 0.011), ((0.11, 0, 0.004), 0.033, 0.052, 0.010)])   # receiver
+    B.loft(poly_l, [((-0.10, 0, -0.030), 0.029, 0.028, 0.008), ((-0.02, 0, -0.03), 0.034, 0.032, 0.009), ((0.06, 0, -0.031), 0.031, 0.030, 0.008)])
     B.box(slot, (0.03, -0.0186, 0.014), (0.05, 0.0012, 0.02), bevel=0.003)               # ejection port
     B.box(slot, (0.05, 0.0, -0.018), (0.045, 0.026, 0.001), bevel=0.001, seg=1)          # loading port
     rail(B, gunm, -0.09, 0.14, 0.0385, w=0.02)
     B.box(steel, (-0.02, 0.0186, 0.018), (0.022, 0.004, 0.02), bevel=0.001, seg=1)       # safety
-    ads_z = 0.05
+    ads_z = sights(B, mm, -0.05, 0.64, 0.0385)
     # barrel + magazine tube + heat shield
     B.cyl(gunm, (0.11, 0, 0.012), (0.66, 0, 0.012), 0.0095, verts=20)
     B.cyl(gunm, (0.11, 0, -0.02), (0.6, 0, -0.02), 0.0115, verts=20)
@@ -327,7 +359,7 @@ def build_sg4(mm):
     B.box(steel, (0.655, 0, 0.026), (0.008, 0.005, 0.02), bevel=0.0015)                  # bead sight
     B.cyl(steel, (0.66, 0, 0.012), (0.668, 0, 0.012), 0.0102, verts=20)
     # pump forend
-    B.box(tan, (0.27, 0, -0.02), (0.15, 0.05, 0.05), bevel=0.01)
+    B.loft(tan, [((0.195, 0, -0.02), 0.042, 0.042, 0.012), ((0.23, 0, -0.02), 0.050, 0.050, 0.014), ((0.31, 0, -0.02), 0.050, 0.050, 0.014), ((0.345, 0, -0.02), 0.043, 0.043, 0.012)])
     for i in range(7):
         B.box(tan_d, (0.21 + i * 0.02, 0, -0.0462), (0.006, 0.048, 0.003), bevel=0.001, seg=1)
     B.box(gunm, (0.36, 0, -0.02), (0.012, 0.042, 0.042), bevel=0.003)
@@ -336,8 +368,8 @@ def build_sg4(mm):
     B.box(poly, (0.043, 0, -0.048), (0.005, 0.0035, 0.024), bevel=0.001, seg=1)
     B.box(gunm, (-0.005, 0, -0.046), (0.006, 0.006, 0.018), bevel=0.001, rot=(0, -18, 0), seg=1)
     grip(B, tan, tan_d, (-0.07, 0, -0.045), 0.1, 0.034, 0.034, 15, 7)
-    S.box(tan, (-0.2, 0, -0.012), (0.24, 0.04, 0.078), bevel=0.01, rot=(0, -4, 0))
-    S.box(tan, (-0.2, 0, 0.026), (0.2, 0.03, 0.02), bevel=0.008)
+    S.loft(tan, [((-0.085, 0, -0.004), 0.030, 0.058, 0.010), ((-0.15, 0, -0.012), 0.036, 0.066, 0.012), ((-0.23, 0, -0.018), 0.040, 0.076, 0.013), ((-0.308, 0, -0.026), 0.042, 0.100, 0.013)])
+    S.loft(tan, [((-0.12, 0, 0.030), 0.026, 0.010, 0.004), ((-0.21, 0, 0.036), 0.030, 0.016, 0.006), ((-0.29, 0, 0.030), 0.028, 0.012, 0.005)])
     S.box(tan_d, (-0.32, 0, -0.026), (0.03, 0.042, 0.11), bevel=0.008, rot=(0, -10, 0))
     S.box(rubber, (-0.335, 0, -0.026), (0.008, 0.043, 0.108), bevel=0.003, rot=(0, -10, 0), seg=1)
     B.cyl(steel, (-0.06, 0.0, -0.062), (-0.06, 0.0, -0.066), 0.006, verts=12)
@@ -352,9 +384,9 @@ def build_mg60(mm):
     B = Builder('mg60_body')
     S = Builder('mg60_stock')
     olive, olive_d, poly, poly_l, steel, gunm, slot, rubber = mm['olive'], mm['olive_d'], mm['poly'], mm['poly_l'], mm['steel'], mm['gunm'], mm['slot'], mm['rubber']
-    B.box(olive, (0.02, 0, 0.012), (0.28, 0.06, 0.07), bevel=0.008)                      # boxy receiver
-    B.box(olive_d, (0.0, 0, -0.036), (0.24, 0.056, 0.04), bevel=0.006)
-    B.box(olive, (0.02, 0, 0.056), (0.2, 0.05, 0.022), bevel=0.006)                      # feed tray cover
+    B.loft(olive, [((-0.12, 0, 0.012), 0.050, 0.062, 0.012), ((-0.05, 0, 0.012), 0.058, 0.070, 0.014), ((0.06, 0, 0.012), 0.060, 0.070, 0.014), ((0.16, 0, 0.010), 0.056, 0.066, 0.013)])   # receiver
+    B.loft(olive_d, [((-0.11, 0, -0.036), 0.046, 0.036, 0.010), ((0.0, 0, -0.036), 0.056, 0.042, 0.011), ((0.12, 0, -0.036), 0.052, 0.038, 0.010)])
+    B.loft(olive, [((-0.08, 0, 0.054), 0.044, 0.018, 0.007), ((0.02, 0, 0.058), 0.050, 0.024, 0.009), ((0.12, 0, 0.054), 0.044, 0.018, 0.007)])                      # feed tray cover
     B.box(slot, (0.05, -0.0304, 0.02), (0.06, 0.0012, 0.024), bevel=0.003)
     B.cyl(steel, (0.0, 0.0, 0.068), (0.0, 0.0, 0.074), 0.012, verts=16)
     rail(B, olive, -0.11, 0.16, 0.0685, w=0.022, h=0.006) if False else None
@@ -362,10 +394,7 @@ def build_mg60(mm):
     for xx in (-0.06, 0.06):
         B.box(poly, (xx, 0, 0.069), (0.014, 0.014, 0.014), bevel=0.003)
     rail(B, olive_d, -0.12, 0.17, 0.0665, w=0.022) if False else None
-    sights_z = 0.09
-    B.box(gunm, (-0.1, 0, 0.086), (0.016, 0.024, 0.02), bevel=0.002)
-    B.cyl(steel, (-0.108, 0, 0.0965), (-0.092, 0, 0.0965), 0.0055, verts=16)
-    B.cyl(slot, (-0.109, 0, 0.0965), (-0.091, 0, 0.0965), 0.0028, verts=12)
+    sights_z = sights(B, mm, -0.1, 0.575, 0.0705)
     # heat shroud with perforations, barrel
     B.cyl(olive_d, (0.16, 0, 0.004), (0.46, 0, 0.004), 0.034, verts=28, bevel=0.002)
     for i in range(8):
@@ -374,7 +403,7 @@ def build_mg60(mm):
             B.cyl(slot, (0.19 + i * 0.033, 0.034 * math.cos(a) * 0.98, 0.004 + 0.034 * math.sin(a) * 0.98), (0.19 + i * 0.033, 0.034 * math.cos(a) * 1.01, 0.004 + 0.034 * math.sin(a) * 1.01), 0.0052, verts=8)
     B.cyl(gunm, (0.46, 0, 0.004), (0.62, 0, 0.004), 0.0125, verts=20)
     B.box(gunm, (0.605, 0, 0.004), (0.008, 0.008, 0.06), bevel=0.001, seg=1) if False else None
-    B.box(gunm, (0.575, 0, 0.03), (0.014, 0.01, 0.05), bevel=0.002)                     # front sight
+    # front sight is part of the foldable iron_sights node                     # front sight
     muzzle_device(B, mm, 0.62, 'hider', r=0.014)
     # bipod folded under the shroud
     for s in (1, -1):
@@ -386,11 +415,11 @@ def build_mg60(mm):
     B.box(poly, (0.05, 0, -0.056), (0.005, 0.0035, 0.024), bevel=0.001, seg=1)
     B.box(gunm, (-0.005, 0, -0.056), (0.006, 0.006, 0.02), bevel=0.001, rot=(0, -18, 0), seg=1)
     grip(B, poly, poly_l, (-0.075, 0, -0.06), 0.105, 0.036, 0.036, 15, 7)
-    S.box(poly, (-0.22, 0, 0.0), (0.24, 0.046, 0.086), bevel=0.01, rot=(0, -3, 0))
-    S.box(poly, (-0.22, 0, 0.038), (0.2, 0.034, 0.02), bevel=0.008)
+    S.loft(poly, [((-0.11, 0, 0.004), 0.040, 0.070, 0.012), ((-0.2, 0, 0.0), 0.046, 0.082, 0.014), ((-0.3, 0, -0.006), 0.048, 0.094, 0.014), ((-0.338, 0, -0.010), 0.048, 0.104, 0.013)])
+    S.loft(poly, [((-0.14, 0, 0.040), 0.030, 0.014, 0.005), ((-0.23, 0, 0.046), 0.034, 0.018, 0.007), ((-0.31, 0, 0.040), 0.030, 0.012, 0.005)])
     S.box(rubber, (-0.352, 0, -0.012), (0.03, 0.05, 0.12), bevel=0.006, rot=(0, -8, 0))
     B.box(steel, (0.1, 0.031, 0.03), (0.03, 0.004, 0.012), bevel=0.001, seg=1)          # charging handle
-    add_empties(B, 0.634, (-0.1, 0, 0.0965), (0.0, 0, 0.0725), (0.36, 0, -0.03), (-0.078, 0, -0.105), (0.34, 0, -0.03), eject=(0.05, -0.032, 0.02))
+    add_empties(B, 0.634, (-0.1, 0, sights_z), (0.0, 0, 0.0725), (0.36, 0, -0.03), (-0.078, 0, -0.105), (0.34, 0, -0.03), eject=(0.05, -0.032, 0.02))
     body = B.finish()
     stock = S.finish()
 
@@ -418,8 +447,8 @@ def build_sr50(mm):
     B = Builder('sr50_body')
     S = Builder('sr50_stock')
     olive, olive_d, poly, poly_l, steel, gunm, slot, rubber = mm['olive'], mm['olive_d'], mm['poly'], mm['poly_l'], mm['steel'], mm['gunm'], mm['slot'], mm['rubber']
-    B.box(olive, (0.0, 0, 0.012), (0.3, 0.034, 0.05), bevel=0.005)                       # long action
-    B.box(olive_d, (-0.01, 0, -0.026), (0.25, 0.034, 0.05), bevel=0.005)
+    B.loft(olive, [((-0.15, 0, 0.012), 0.030, 0.044, 0.008), ((-0.05, 0, 0.012), 0.034, 0.050, 0.010), ((0.1, 0, 0.012), 0.034, 0.050, 0.010), ((0.152, 0, 0.010), 0.030, 0.046, 0.008)])   # long action
+    B.loft(olive_d, [((-0.135, 0, -0.026), 0.030, 0.046, 0.008), ((-0.04, 0, -0.026), 0.034, 0.052, 0.010), ((0.11, 0, -0.026), 0.033, 0.050, 0.010)])
     rail(B, olive, -0.13, 0.20, 0.0415, w=0.022)
     B.box(slot, (0.02, -0.0176, 0.016), (0.06, 0.0012, 0.014), bevel=0.003)
     # bolt handle on the right side with a knob
@@ -427,7 +456,7 @@ def build_sr50(mm):
     B.sphere(steel, (-0.05, -0.052, 0.004), 0.011, 14)
     B.box(steel, (-0.05, 0, 0.016), (0.06, 0.02, 0.014), bevel=0.003)
     # chassis fore-end + free-floated heavy barrel
-    B.box(poly, (0.26, 0, -0.01), (0.22, 0.05, 0.05), bevel=0.008)
+    B.loft(poly, [((0.15, 0, -0.008), 0.040, 0.046, 0.012), ((0.22, 0, -0.010), 0.050, 0.050, 0.013), ((0.37, 0, -0.010), 0.050, 0.050, 0.013)])
     mlok(B, slot, 0.17, 0.35, 0.0255, -0.008, 4, 0.024, 0.006)
     mlok(B, slot, 0.17, 0.35, -0.0255, -0.008, 4, 0.024, 0.006)
     B.cyl(gunm, (0.14, 0, 0.0), (0.86, 0, 0.0), 0.0115, verts=24)
@@ -440,11 +469,10 @@ def build_sr50(mm):
         B.cyl(steel, (0.34, s * 0.02, -0.03), (0.28, s * 0.03, -0.06), 0.0045, verts=10)
     B.box(poly_l, (0.345, 0, -0.03), (0.024, 0.05, 0.016), bevel=0.003)
     # sniper stock: thumbhole style with adjustable cheek
-    S.box(poly, (-0.245, 0, -0.008), (0.29, 0.04, 0.08), bevel=0.01, rot=(0, -3, 0))
-    S.box(poly_l, (-0.21, 0, 0.034), (0.16, 0.034, 0.03), bevel=0.008)
+    S.loft(poly, [((-0.10, 0, -0.002), 0.034, 0.070, 0.011), ((-0.18, 0, -0.010), 0.040, 0.078, 0.012), ((-0.3, 0, -0.016), 0.042, 0.090, 0.013), ((-0.385, 0, -0.024), 0.042, 0.108, 0.013)])
+    S.loft(poly_l, [((-0.13, 0, 0.030), 0.030, 0.020, 0.008), ((-0.22, 0, 0.038), 0.034, 0.028, 0.010), ((-0.29, 0, 0.034), 0.030, 0.020, 0.008)])
     S.box(steel, (-0.21, 0, 0.018), (0.03, 0.006, 0.014), bevel=0.002)
     S.box(rubber, (-0.4, 0, -0.03), (0.03, 0.044, 0.13), bevel=0.006, rot=(0, -10, 0))
-    B.box(poly, (-0.2, 0, -0.078), (0.16, 0.036, 0.03), bevel=0.008)                     # lower rail
     grip(B, poly, poly_l, (-0.08, 0, -0.04), 0.1, 0.034, 0.034, 20, 6)
     B.box(poly, (0.0, 0, -0.056), (0.09, 0.0035, 0.004), bevel=0.001, seg=1)
     B.box(poly, (0.043, 0, -0.048), (0.005, 0.0035, 0.024), bevel=0.001, seg=1)
@@ -468,12 +496,12 @@ def build_sr50(mm):
 def build_p18(mm):
     B = Builder('p18_body')
     poly, poly_l, tan, tan_d, steel, gunm, slot = mm['poly'], mm['poly_l'], mm['tan'], mm['tan_d'], mm['steel'], mm['gunm'], mm['slot']
-    B.box(gunm, (0.055, 0, 0.026), (0.196, 0.026, 0.034), bevel=0.004)                   # slide
+    B.loft(gunm, [((-0.043, 0, 0.026), 0.024, 0.032, 0.006), ((0.0, 0, 0.026), 0.026, 0.034, 0.007), ((0.12, 0, 0.026), 0.026, 0.034, 0.007), ((0.153, 0, 0.025), 0.021, 0.030, 0.007)])                   # slide
     for i in range(7):                                                                    # rear serrations
         for s in (1, -1):
             B.box(slot, (-0.0235 + i * 0.0072, s * 0.0132, 0.026), (0.0034, 0.001, 0.028), bevel=0.0004, seg=1)
     B.box(slot, (0.075, -0.0132, 0.032), (0.05, 0.001, 0.008), bevel=0.002, seg=1)       # ejection port
-    B.box(poly, (0.045, 0, -0.002), (0.17, 0.026, 0.026), bevel=0.004)                   # frame
+    B.loft(poly, [((-0.04, 0, -0.002), 0.024, 0.024, 0.006), ((0.045, 0, -0.002), 0.026, 0.026, 0.007), ((0.130, 0, -0.004), 0.026, 0.024, 0.007)])                   # frame
     B.box(poly, (0.13, 0, -0.008), (0.05, 0.026, 0.02), bevel=0.003)                     # dust cover / accessory rail
     for i in range(3):
         B.box(slot, (0.12 + i * 0.014, 0, -0.019), (0.006, 0.024, 0.0014), bevel=0.0004, seg=1)
@@ -485,14 +513,10 @@ def build_p18(mm):
     grip(B, poly, tan_d, (0.0, 0, -0.008), 0.105, 0.05, 0.028, 12, 6)
     B.box(tan, (-0.0195, 0.0155, -0.062), (0.03, 0.002, 0.07), bevel=0.001, rot=(0, 12, 0), seg=1)
     B.box(tan, (-0.0195, -0.0155, -0.062), (0.03, 0.002, 0.07), bevel=0.001, rot=(0, 12, 0), seg=1)
-    # sights
-    B.box(gunm, (-0.036, 0, 0.0475), (0.012, 0.016, 0.008), bevel=0.001)
-    B.box(slot, (-0.036, 0, 0.0505), (0.0125, 0.004, 0.005), bevel=0.0005, seg=1)
-    B.box(gunm, (0.145, 0, 0.0475), (0.008, 0.005, 0.008), bevel=0.001)
-    B.box(steel, (0.145, 0, 0.0515), (0.003, 0.003, 0.004), bevel=0.0004, seg=1)
+    sight_z = sights(B, mm, -0.036, 0.145, 0.024, aperture=False)
     B.cyl(gunm, (0.145, 0, 0.026), (0.175, 0, 0.026), 0.0072, verts=16)                  # barrel tip
     B.cyl(slot, (0.1749, 0, 0.026), (0.1752, 0, 0.026), 0.0035, verts=10)
-    add_empties(B, 0.175, (-0.036, 0, 0.0505), (0.04, 0, 0.0435), (0.14, 0, -0.02), (-0.02, 0, -0.06), (0.06, 0, -0.05), eject=(0.075, -0.014, 0.032))
+    add_empties(B, 0.175, (-0.036, 0, sight_z), (0.04, 0, 0.0435), (0.14, 0, -0.02), (-0.02, 0, -0.06), (0.06, 0, -0.05), eject=(0.075, -0.014, 0.032))
     body = B.finish()
 
     def m_std(MB):
@@ -537,3 +561,27 @@ def build_rpg(mm):
 
 BUILDERS = {'ar7': build_ar7, 'br12': build_br12, 'vx9': build_vx9, 'sg4': build_sg4, 'mg60': build_mg60, 'dmr14': build_dmr14, 'sr50': build_sr50,
             'p18': build_p18, 'rpg': build_rpg}
+
+
+def build_stinger(mm):
+    B = Builder('stinger_body')
+    # Shoulder tube, replaceable canister, grip stock and battery/cooling unit.
+    B.cyl(mm['olive'], (-0.42, 0, 0), (0.68, 0, 0), 0.046, verts=32)
+    for x in [-0.38, -0.13, 0.29, 0.63]:
+        B.cyl(mm['olive_d'], (x, 0, 0), (x + 0.024, 0, 0), 0.052, verts=32, bevel=0.001)
+    B.cyl(mm['rubber'], (0.68, 0, 0), (0.695, 0, 0), 0.050, verts=32)
+    B.cyl(mm['slot'], (0.695, 0, 0), (0.696, 0, 0), 0.037, verts=24)
+    B.box(mm['poly'], (-0.08, 0, -0.064), (0.20, 0.075, 0.054), bevel=0.008)
+    grip(B, mm['poly'], mm['poly_l'], (-0.09, 0, -0.070), 0.105, 0.044, 0.040, 10, 6)
+    B.cyl(mm['gunm'], (-0.02, -0.043, -0.069), (0.14, -0.043, -0.069), 0.023, verts=24)
+    B.box(mm['rubber'], (-0.29, 0, -0.055), (0.18, 0.072, 0.027), bevel=0.008)
+    B.box(mm['poly'], (0.17, 0, -0.062), (0.055, 0.032, 0.046), bevel=0.004)
+    B.box(mm['tan'], (0.30, -0.047, 0.007), (0.13, 0.0015, 0.023), bevel=0.0003)
+    B.box(mm['poly'], (0, 0, 0.065), (0.085, 0.052, 0.018), bevel=0.003)
+    for side in [-1, 1]:
+        B.box(mm['poly'], (0, side * 0.025, 0.105), (0.052, 0.003, 0.060), bevel=0.001)
+    B.box(mm['poly'], (0, 0, 0.135), (0.052, 0.053, 0.003), bevel=0.001)
+    add_empties(B, 0.696, (-0.02, 0, 0.105), (0, 0, 0.065), (0.17, 0, -0.062), (-0.09, 0, -0.115), (0.17, 0, -0.073))
+    return group('stinger', [B.finish()])
+
+BUILDERS['stinger'] = build_stinger

@@ -5,6 +5,16 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const steps = [
+  ['rigid destruction, props, collapse, craters and stress', ['tools/physicscheck.mjs']],
+  ['anti-air locks, homing and helicopter flares', ['tools/airdefensecheck.mjs']],
+  ['contested deployment and stale requests', ['tools/contestedcheck.mjs']],
+  ['vehicle momentum, grip and steering', ['tools/handlingcheck.mjs']],
+  ['object heights and helicopter altitude', ['tools/verticalcheck.mjs']],
+  ['all-map elevation and height-aware physics', ['tools/elevationcheck.mjs']],
+  ['input focus and overlay regressions', ['tools/inputcheck.mjs']],
+  ['fresh spawns and consecutive match input', ['tools/spawncheck.mjs']],
+  ['vehicle driving and 3D targeting', ['tools/vehiclecontrols.mjs']],
+  ['building roofs and vehicle exits', ['tools/buildingcheck.mjs']],
   ['map validation', ['tools/preview-maps.js']],
   ['game mechanics', ['tools/mechanics.js']],
   ['bot simulation (riverside conquest, 8v8)', ['tools/sim.js', 'riverside', '300', '8']],

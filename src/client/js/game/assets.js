@@ -2,19 +2,21 @@
 // Loads the high-fidelity glTF models made in Blender (tools/blender/) and builds guns with their attachments from them.
 // Everything falls back to the procedural voxel models until a file has arrived (or if it fails to load).
 import * as THREE from '../../vendor/three/three.module.js';
+import { PX_PER_M } from '../../shared/constants.js';
 import { GLTFLoader } from '../../vendor/three/GLTFLoader.js';
 
 const BASE = new URL('../../assets/', import.meta.url).href;
 const loader = new GLTFLoader();
 
-export const assets = { weapons: {}, attachments: null, hands: null, soldier: null, vehicles: {}, props: null, tex: {}, ready: false, failed: 0, listeners: [] };
-const WEAPON_FILES = ['ar7', 'br12', 'vx9', 'sg4', 'mg60', 'dmr14', 'sr50', 'p18', 'rpg'];
+export const assets = { weapons: {}, attachments: null, hands: null, soldier: null, vehicles: {}, props: null, architecture: null, tex: {}, ready: false, failed: 0, listeners: [] };
+const WEAPON_FILES = ['ar7', 'br12', 'vx9', 'sg4', 'mg60', 'dmr14', 'sr50', 'p18', 'rpg', 'stinger'];
 const VEHICLE_FILES = ['tank', 'jeep', 'apc', 'quad', 'heli', 'boat'];
 // baked PBR sets (tools/blender/build_textures.py): c = albedo, n = tangent normal, r = roughness
-const TEX_FILES = ['brick_c', 'brick_n', 'brick_r', 'concrete_c', 'concrete_n', 'concrete_r', 'rock_c', 'rock_n', 'rock_r', 'metal_c', 'metal_n', 'metal_r', 'wood_c', 'wood_n', 'wood_r', 'sandbag_c', 'sandbag_n', 'sandbag_r', 'ground_n', 'ground_r'];
+const TEX_FILES = ['brick_c', 'brick_n', 'brick_r', 'concrete_c', 'concrete_n', 'concrete_r', 'rock_c', 'rock_n', 'rock_r', 'metal_c', 'metal_n', 'metal_r', 'wood_c', 'wood_n', 'wood_r', 'sandbag_c', 'sandbag_n', 'sandbag_r', 'ground_c', 'ground_n', 'ground_r', 'plaster_c', 'plaster_n', 'plaster_r', 'roof_c', 'roof_n', 'roof_r'];
+const GENERATED_TEX = { brick_c: 'brick-generated.jpg', brick_n: 'brick-generated-n.jpg', brick_r: 'brick-generated-r.jpg', concrete_c: 'concrete-generated.jpg', ground_c: 'grass-generated.jpg', sandbag_c: 'burlap-v2.jpg', sandbag_n: 'burlap-v2-n.jpg', sandbag_r: 'burlap-v2-r.jpg', plaster_c: 'plaster-v2.jpg', plaster_n: 'plaster-v2-n.jpg', plaster_r: 'plaster-v2-r.jpg', roof_c: 'roof-v2.jpg', roof_n: 'roof-v2-n.jpg', roof_r: 'roof-v2-r.jpg' };
 const texLoader = new THREE.TextureLoader();
 const loadTex = (name) => new Promise((resolve) => {
-  texLoader.load(`${BASE}tex/${name}.jpg`, (t) => {
+  texLoader.load(`${BASE}tex/${GENERATED_TEX[name] || name + '.jpg'}`, (t) => {
     t.wrapS = t.wrapT = THREE.RepeatWrapping;
     t.colorSpace = name.endsWith('_c') ? THREE.SRGBColorSpace : THREE.NoColorSpace;
     t.anisotropy = 8;
@@ -27,6 +29,7 @@ export function worldTex(name, kind, rx = 1, ry = 1) {
   const b = assets.tex[`${name}_${kind}`];
   if (!b) return null;
   const t = b.clone();
+  t.userData.frontlineTransient = true;
   t.needsUpdate = true;
   t.repeat.set(rx, ry);
   return t;
@@ -42,8 +45,8 @@ let started = null;
 export function loadAssets() {
   if (started) return started;
   started = (async () => {
-    const [att, hands, soldier, props, ...rest] = await Promise.all([load('attachments.glb'), load('hands.glb'), load('soldier.glb'), load('props.glb'), ...WEAPON_FILES.map((n) => load(`weapons/${n}.glb`)), ...VEHICLE_FILES.map((n) => load(`vehicles/${n}.glb`)), ...TEX_FILES.map(loadTex)]);
-    assets.attachments = att; assets.hands = hands; assets.soldier = soldier; assets.props = props;
+    const [att, hands, soldier, props, architecture, ...rest] = await Promise.all([load('attachments.glb'), load('hands.glb'), load('soldier.glb'), load('props.glb'), load('architecture.glb'), ...WEAPON_FILES.map((n) => load(`weapons/${n}.glb`)), ...VEHICLE_FILES.map((n) => load(`vehicles/${n}.glb`)), ...TEX_FILES.map(loadTex)]);
+    assets.attachments = att; assets.hands = hands; assets.soldier = soldier; assets.props = props; assets.architecture = architecture;
     const base = WEAPON_FILES.length + VEHICLE_FILES.length;
     TEX_FILES.forEach((n, i) => { if (rest[base + i]) assets.tex[n] = rest[base + i]; });
     WEAPON_FILES.forEach((n, i) => { if (rest[i]) assets.weapons[n] = rest[i]; });
@@ -57,8 +60,8 @@ export function loadAssets() {
 export const onAssets = (fn) => { if (assets.ready) fn(); else assets.listeners.push(fn); };
 
 /** metres -> viewmodel units per weapon (the models are life size; the first-person gun is drawn a bit smaller) */
-const SCALE = { ar7: 0.62, br12: 0.62, dmr14: 0.6, vx9: 0.7, sg4: 0.58, mg60: 0.56, sr50: 0.5, p18: 1.05, rpg: 0.5 };
-const MODEL_OF = { smaw: 'rpg', stinger: 'rpg' };
+const SCALE = { ar7: 0.62, br12: 0.62, dmr14: 0.6, vx9: 0.7, sg4: 0.58, mg60: 0.56, sr50: 0.5, p18: 1.05, rpg: 0.5, stinger: 0.5 };
+const MODEL_OF = { smaw: 'rpg' };
 
 export function hasGun(id) { return !!(assets.ready && assets.weapons[MODEL_OF[id] || id]); }
 
@@ -128,7 +131,7 @@ export function buildGun(id, att = {}) {
     a.position.copy(mount); a.rotation.set(0, 0, 0); a.scale.set(1, 1, 1);
     root.add(a);
     a.updateMatrixWorld(true);
-    if (slot === 'optic') { const s = posIn(a, 'sight'); if (s) meta.ads = s; }
+    if (slot === 'optic') { const s = posIn(a, 'sight'); if (s) meta.ads = s; root.traverse((o) => { if (o.name.startsWith('iron_sights')) o.visible = false; }); }
     if (slot === 'barrel') { const m = posIn(a, 'muzzle'); if (m) meta.muzzle = m; }
     if (slot === 'under' && att.under === 'flash') meta.light = true;
   }
@@ -137,9 +140,9 @@ export function buildGun(id, att = {}) {
 
 // ------------------------------------------------------------------------------------------------ soldiers
 const TEAM_LOOK = [   // visual team: 0 enemy (red), 1 friendly (blue), 2 neutral; uniform / helmet / vest
-  { uniform: '#8a4234', helmet: '#6a3026', vest: '#4a3a34' },
-  { uniform: '#3f6197', helmet: '#2f4a78', vest: '#37424f' },
-  { uniform: '#6a7466', helmet: '#525c4e', vest: '#42463f' },
+  { uniform: '#e2d4bf', helmet: '#6d6754', vest: '#6c5446', team_patch: '#ff6b52' },
+  { uniform: '#cbd8ca', helmet: '#535f52', vest: '#445750', team_patch: '#57afff' },
+  { uniform: '#ddd8c6', helmet: '#626a54', vest: '#505647', team_patch: '#bbc7a5' },
 ];
 const CLASS_HEX = { assault: '#e0703a', engineer: '#e0b93a', support: '#4aa8e0', recon: '#7fd35a' };
 const SOLDIER_SCALE = 16.3;      // px per metre: a 1.78 m soldier is the 29 px hit box
@@ -153,6 +156,7 @@ function tintedMats(team, cls) {
   set = new Map();
   const mk = (name, hex) => { const src = new THREE.MeshStandardMaterial(); src.name = name; src.color.set(hex); set.set(name, src); };
   mk('uniform', look.uniform); mk('helmet', look.helmet); mk('vest', look.vest); mk('accent', CLASS_HEX[cls] || '#e0703a');
+  mk('team_patch', look.team_patch);
   matSets.set(key, set);
   return set;
 }
@@ -175,7 +179,19 @@ export function makeSoldier(team, cls) {
   });
   root.scale.setScalar(SOLDIER_SCALE);
   const mount = root.getObjectByName('weapon');
-  return { root, legL: root.getObjectByName('legL'), legR: root.getObjectByName('legR'), mount: mount ? mount.position.clone() : new THREE.Vector3(0.43, -0.09, 1.33), gun: null, gunId: '' };
+  const armL = root.getObjectByName('armL'), reach = armL && armL.getObjectByName('armL_hand');
+  return { root, legL: root.getObjectByName('legL'), legR: root.getObjectByName('legR'), armL, armRest: reach ? reach.position.clone() : null, mount: mount ? mount.position.clone() : new THREE.Vector3(0.23, 1.27, 0.06), gun: null, gunId: '' };
+}
+
+/** swing and stretch the left arm (pivot at the shoulder) so its glove reaches `target`, a point in soldier space; null restores the rest pose */
+function reachLeft(soldier, target) {
+  const arm = soldier.armL;
+  if (!arm || !soldier.armRest) return;
+  if (!target) { arm.quaternion.identity(); arm.scale.setScalar(1); return; }
+  const v = target.clone().sub(arm.position), len = v.length();
+  if (len < 1e-4) return;
+  arm.quaternion.setFromUnitVectors(soldier.armRest.clone().normalize(), v.divideScalar(len));
+  arm.scale.setScalar(Math.min(1.12, Math.max(0.78, len / soldier.armRest.length())));
 }
 
 const gunTemplates = new Map();
@@ -184,24 +200,25 @@ export function soldierGun(soldier, id, defOptic) {
   if (soldier.gunId === id) return;
   if (soldier.gun) { soldier.root.remove(soldier.gun); soldier.gun = null; }
   soldier.gunId = id;
+  reachLeft(soldier, null);
   if (!id || !hasGun(id)) return;
   let t = gunTemplates.get(id);
   if (!t) { t = buildGun(id, defOptic && defOptic !== 'iron' ? { optic: defOptic } : {}); gunTemplates.set(id, t); }
   if (!t) return;
   const g = t.root.clone(true);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-  const rightHand = soldier.mount.clone().add(new THREE.Vector3(-0.086, 0, -0.095));
-  g.position.copy(rightHand).sub(t.gripR);
+  g.position.copy(soldier.mount).sub(t.gripR);       // the soldier's `weapon` node is where the right hand holds the pistol grip
   soldier.root.add(g);
   soldier.gun = g;
+  reachLeft(soldier, g.position.clone().add(t.gripL));
 }
 
 // ------------------------------------------------------------------------------------------------ vehicles
 const VEH_LOOK = [
-  { paint: '#8f4a3c', paint2: '#6a362d' }, { paint: '#4a6690', paint2: '#374e70' }, { paint: '#6f7a66', paint2: '#4a5344' },
+  { paint: '#a9aa8e', paint2: '#858b72' }, { paint: '#a0ad8b', paint2: '#7c8b70' }, { paint: '#a4ad96', paint2: '#818a76' },
 ];
 /** px per metre for each vehicle model (so the hull matches the size the simulation uses) */
-export const VEH_SCALE = { tank: 11.3, jeep: 13.5, apc: 9.9, quad: 15.4, heli: 7.6, boat: 9.4 };
+export const VEH_SCALE = { tank: PX_PER_M, jeep: PX_PER_M, apc: PX_PER_M, quad: PX_PER_M, heli: PX_PER_M, boat: PX_PER_M };
 const vehMats = new Map();
 
 export function hasVehicle(id) { return !!assets.vehicles[id]; }
@@ -217,11 +234,14 @@ export function makeVehicle(id, team) {
   let set = vehMats.get(key);
   if (!set) { set = new Map(); for (const n of ['paint', 'paint2']) { const m = new THREE.MeshStandardMaterial(); m.color.set(n === 'paint' ? look.paint : look.paint2); set.set(n === 'paint' ? 'paint' : 'paint_dark', m); } vehMats.set(key, set); }
   const parts = {};
-  for (const n of ['body', 'turret', 'gun', 'rotor']) {
+  const viewOccluders = [];
+  const wheelNodes = []; src.traverse((o) => { if (/^wheel_\d+$/.test(o.name)) wheelNodes.push(o); });
+  for (const n of ['body', 'turret', 'gun', 'rotor', 'cannon', ...wheelNodes.map((o) => o.name)]) {
     const node = src.getObjectByName(n);
     if (!node) continue;
     const c = node.clone(true);
     c.traverse((o) => {
+      if (o.name === 'gun_shield') viewOccluders.push(o);
       if (!o.isMesh) return;
       o.castShadow = true;
       const list = Array.isArray(o.material) ? o.material : [o.material];
@@ -234,11 +254,13 @@ export function makeVehicle(id, team) {
   const body = src.getObjectByName('body');
   const pos = (name) => { const o = body && body.getObjectByName(name); return o ? o.getWorldPosition(new THREE.Vector3()) : null; };
   // the body node sits at the model origin, so world == body-local for the empties
-  const tm = pos('turret_mount'), gm = pos('gun_mount'), rm = pos('rotor_mount');
+  const tm = pos('turret_mount'), gm = pos('gun_mount'), rm = pos('rotor_mount'), cm = pos('cannon_mount');
   const mount = {
+    tx: (tm?.x || 0) * sc, tz: (tm?.z || 0) * sc,
+    cx: (cm?.x || 0) * sc, cy: (cm?.y || 0) * sc, cz: (cm?.z || 0) * sc,
     ty: (tm ? tm.y : 1) * sc,
     gx: (gm ? gm.x : 0) * sc, gy: (gm ? gm.y : 1) * sc, gz: (gm ? gm.z : 0) * sc,
     ry: (rm ? rm.y : 3) * sc,
   };
-  return { parts, mount, scale: sc };
+  return { parts, mount, viewOccluders, scale: sc, wheels: wheelNodes.map((o) => { const p = o.getWorldPosition(new THREE.Vector3()); o.geometry?.computeBoundingBox(); const r = o.geometry ? (o.geometry.boundingBox.max.y - o.geometry.boundingBox.min.y) / 2 : .4; return { name: o.name, x: p.x * sc, y: p.y * sc, z: p.z * sc, radius: r * sc, front: id !== 'tank' && p.x > (id === 'apc' ? .7 : 0) }; }) };
 }

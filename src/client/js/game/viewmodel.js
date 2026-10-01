@@ -4,7 +4,6 @@
 import * as THREE from '../../vendor/three/three.module.js';
 import { VoxelModel } from './voxel.js';
 import { voxelGeometry, VOXEL_MAT } from './models3d.js';
-import { TEAM_PAL } from './voxel.js';
 import { assets, buildGun, hasGun, makeEnvironment } from './assets.js';
 
 const U = 0.0115;                 // view-model units per voxel
@@ -248,10 +247,10 @@ export class Viewmodel {
 
   /** the muzzle position in world coordinates (for tracers), or null when hidden */
   setTeam(team) {
-    const pal = TEAM_PAL[team] || TEAM_PAL[2];
-    this.armMats.sleeve.color.set(pal.dark).multiplyScalar(0.9);
+    const tint = ['#e2d4bf', '#cbd8ca', '#ddd8c6'][team] || '#ddd8c6';
+    this.armMats.sleeve.color.set('#626b54');
     this.team = team;
-    for (const m of this.sleeveMats) m.color.set(pal.dark).multiplyScalar(0.75);
+    for (const m of this.sleeveMats) m.color.set(tint);
   }
 
   clearGlb() {
@@ -355,11 +354,11 @@ export class Viewmodel {
     // ---- walking bob
     const moving = clamp(speed / 92, 0, 1.6) * (ctx.air ? 0 : 1);
     this.bobT += dt * (3 + moving * 5.5 * (ctx.sprint ? 1.25 : 1));
-    const bobA = moving * (ctx.sprint ? 1.5 : ctx.crouch ? 0.5 : 1) * (1 - this.ads * 0.85);
+    const bobA = moving * (ctx.sprint ? 1.5 : ctx.crouch ? 0.5 : 1) * (1 - this.ads * .99);
     const bx = Math.sin(this.bobT) * 0.007 * bobA, by = Math.abs(Math.cos(this.bobT)) * -0.008 * bobA;
     // ---- mouse sway: the gun lags behind quick turns
     const sk = 1 - Math.exp(-11 * dt);
-    const swayK = 1 - this.ads * 0.7;
+    const swayK = 1 - this.ads;
     this.sway.x += (clamp(-g.lookRate.y * 1.2, -0.012, 0.012) * swayK - this.sway.x) * sk;
     this.sway.y += (clamp(-g.lookRate.p * 1.2, -0.01, 0.01) * swayK - this.sway.y) * sk;
     this.roll += (clamp(ctx.strafe * 0.05, -0.05, 0.05) - this.roll) * sk;
@@ -396,7 +395,14 @@ export class Viewmodel {
     py += 0.02 * this.air;
     px += bx + this.sway.x; py += by + this.sway.y * 0.6;
     this.rig.position.set(px, py, pz);
-    this.rig.rotation.set(rx + this.sway.y * 0.6, ry + this.sway.x * 0.8, rz + this.roll, 'YXZ');
+    this.rig.rotation.set(rx + this.sway.y * 0.6, ry + this.sway.x * 0.8, rz + this.roll * (1 - this.ads), 'YXZ');
+    // Keep the optical axis at the actual shot direction through movement and animation.
+    if (mt?.glb) {
+      const anchor = new THREE.Vector3(mt.adsV.z, mt.adsV.y, -mt.adsV.x).applyEuler(this.rig.rotation);
+      const pin = Math.pow(this.ads, 4) * (1 - rs);
+      this.rig.position.x = lerp(this.rig.position.x, -anchor.x, pin);
+      this.rig.position.y = lerp(this.rig.position.y, -anchor.y, pin);
+    }
     // muzzle flash at the barrel tip
     this.flash.visible = this.flashT > 0 && this.meta && (this.meta.glb || this.meta.muzzle > 0);
     if (this.flash.visible) {

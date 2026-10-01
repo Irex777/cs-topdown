@@ -2,7 +2,7 @@
 import { VISION, PLAYER_R } from './constants.js';
 import { angleDiff } from './gamemap.js';
 
-/** {range, fov}: scoped/aiming = holding right mouse; scopeLevel 0 = plain iron sights (still a tighter, longer view). view.air = ignores walls */
+/** {range, fov}: scoped/aiming = holding right mouse; scopeLevel 0 = plain iron sights (still a tighter, longer view). Aircraft use the same height-aware sight lines as infantry */
 export function viewParams(scoped, scopeLevel) {
   if (scoped && scopeLevel >= 1) return VISION.scopes[Math.min(3, scopeLevel)];
   if (scoped) return { range: VISION.aimRange, fov: VISION.aimFov };
@@ -20,8 +20,8 @@ export function segHitsCircle(x0, y0, x1, y1, cx, cy, r) {
 }
 
 /** Wall + smoke line of sight. smokes: [{x,y,r}] */
-export function lineClear(map, smokes, x0, y0, x1, y1) {
-  if (!map.los(x0, y0, x1, y1)) return false;
+export function lineClear(map, smokes, x0, y0, x1, y1, z0, z1) {
+  if (!map.los(x0, y0, x1, y1, z0, z1)) return false;
   for (let i = 0; i < smokes.length; i++) {
     const s = smokes[i];
     if (segHitsCircle(x0, y0, x1, y1, s.x, s.y, s.r * 0.92)) {
@@ -37,7 +37,7 @@ export function lineClear(map, smokes, x0, y0, x1, y1) {
  * Can an observer at (ox,oy) facing `angle` see a circular target at (tx,ty)?
  * view = {range, fov}; pad widens the cone (server uses it to hide latency pop-in).
  */
-export function canSee(map, smokes, ox, oy, angle, view, tx, ty, pad = 0, radius = PLAYER_R) {
+export function canSee(map, smokes, ox, oy, angle, view, tx, ty, pad = 0, radius = PLAYER_R, oz, tz) {
   const dx = tx - ox, dy = ty - oy;
   const dist = Math.hypot(dx, dy);
   if (dist > view.range + radius) return false;
@@ -46,9 +46,8 @@ export function canSee(map, smokes, ox, oy, angle, view, tx, ty, pad = 0, radius
     const half = view.fov / 2 + pad + (dist > 1 ? Math.asin(Math.min(1, radius / dist)) : 0);
     if (ad > half) return false;
   }
-  if (view.air) return true;
-  if (lineClear(map, smokes, ox, oy, tx, ty)) return true;
+  if (lineClear(map, smokes, ox, oy, tx, ty, oz, tz)) return true;
   if (dist < 1) return true;
   const nx = -dy / dist * radius * 0.85, ny = dx / dist * radius * 0.85;
-  return lineClear(map, smokes, ox, oy, tx + nx, ty + ny) || lineClear(map, smokes, ox, oy, tx - nx, ty - ny);
+  return lineClear(map, smokes, ox, oy, tx + nx, ty + ny, oz, tz) || lineClear(map, smokes, ox, oy, tx - nx, ty - ny, oz, tz);
 }

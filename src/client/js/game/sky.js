@@ -3,12 +3,12 @@ import * as THREE from '../../vendor/three/three.module.js';
 
 export const MOODS = {
   sunset: {
-    top: '#28345f', mid: '#a5566a', low: '#f0894f', horizon: '#ffc27a', fog: '#e8a071', fogNear: 420, fogFar: 2200,
-    hemiSky: 0xffe0c8, hemiGround: 0x9a8474, hemi: 2.5, sun: 0xffb070, sunI: 2.6, sunDir: [-0.82, 0.46, -0.42], glow: '#ffd08a',
+    top: '#4e687f', mid: '#93a3ae', low: '#c6baa7', horizon: '#f1d1a2', fog: '#c5b9a2', fogNear: 520, fogFar: 2500,
+    hemiSky: 0xdbe5ed, hemiGround: 0x756d5b, hemi: 1.65, sun: 0xffd2a0, sunI: 3.0, sunDir: [-0.82, 0.46, -0.42], glow: '#ffda9d',
   },
   dusk: {
-    top: '#1b2246', mid: '#6b4a78', low: '#d0688a', horizon: '#ffae8a', fog: '#b98096', fogNear: 380, fogFar: 2000,
-    hemiSky: 0xe0d0ff, hemiGround: 0x84728a, hemi: 2.3, sun: 0xff9a7a, sunI: 2.3, sunDir: [0.7, 0.36, -0.5], glow: '#ffb59a',
+    top: '#263b55', mid: '#657e98', low: '#a5a5ad', horizon: '#d9b8a0', fog: '#9299a4', fogNear: 450, fogFar: 2300,
+    hemiSky: 0xc0d4ed, hemiGround: 0x625f62, hemi: 1.8, sun: 0xffc2a0, sunI: 2.5, sunDir: [0.7, 0.36, -0.5], glow: '#ffd0aa',
   },
   day: {
     top: '#4f86c8', mid: '#8dbbe6', low: '#bfdcf2', horizon: '#e6f0f5', fog: '#cfe0ec', fogNear: 650, fogFar: 2500,

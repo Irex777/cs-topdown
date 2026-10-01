@@ -1,9 +1,10 @@
 // Builds the per-client world snapshot: what this player is allowed to know right now.
-import { SPEC, VISION, GREN_ORDER, RULES, BASE_SPEED } from '../shared/constants.js';
-import { weaponSpread, GADGET_LIST, ALT } from '../shared/weapons.js';
+import { SPEC, VISION, GREN_ORDER, RULES, BASE_SPEED, PLAYER_R } from '../shared/constants.js';
+import { weaponSpread, GADGET_LIST, ALT, AIR_DEFENSE } from '../shared/weapons.js';
 import { VEHICLE_LIST, VWEAPONS } from '../shared/vehicles.js';
 import { canSee, viewParams } from '../shared/vision.js';
 import { PROJ_TYPES } from './projectiles.js';
+import { airThreat } from './air-defense.js';
 
 const r2 = (v) => Math.round(v * 100) / 100;
 const r1 = (v) => Math.round(v * 10) / 10;
@@ -13,10 +14,10 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 function eyes(game, m) {
   if (m.veh) {
     const v = game.vehicleById(m.veh);
-    if (v) return { x: v.x, y: v.y, a: m.angle, view: v.def.view, air: !!v.def.view.air };
+    if (v) return { x: v.x, y: v.y, z: v.z + 26, a: m.angle, view: v.def.view, air: !!v.def.view.air };
   }
   const w = m.weapon();
-  return { x: m.x, y: m.y, a: m.angle, view: viewParams(m.scoped, w && w.kind !== 'knife' ? w.scope : 0), air: false };
+  return { x: m.x, y: m.y, z: m.eyeZ, a: m.angle, view: viewParams(m.scoped, w && w.kind !== 'knife' ? w.scope : 0), air: false };
 }
 
 function teamVisibility(game, team) {
@@ -28,7 +29,7 @@ function teamVisibility(game, team) {
   for (const e of game.players.values()) {
     if (!e.alive || e.team === SPEC || e.team === team || e.veh) continue;
     for (const m of mates) {
-      if (canSee(game.map, game.smokes, m.x, m.y, m.a, m.view, e.x, e.y, VISION.serverFovPad)) { seenP.add(e.id); break; }
+      if (canSee(game.map, game.smokes, m.x, m.y, m.a, m.view, e.x, e.y, VISION.serverFovPad, PLAYER_R, m.z, e.eyeZ)) { seenP.add(e.id); break; }
     }
   }
   for (const v of game.vehicles) {
@@ -36,7 +37,7 @@ function teamVisibility(game, team) {
     const air = v.def.kind === 'air';
     for (const m of mates) {
       const view = air ? { range: m.view.range, fov: m.view.fov, air: true } : m.view;
-      if (canSee(game.map, game.smokes, m.x, m.y, m.a, view, v.x, v.y, VISION.serverFovPad, v.def.r)) { seenV.add(v.id); break; }
+      if (canSee(game.map, game.smokes, m.x, m.y, m.a, view, v.x, v.y, VISION.serverFovPad, v.def.r, m.z, v.z + (v.def.zr[0] + v.def.zr[1]) / 2)) { seenV.add(v.id); break; }
     }
   }
   game._vis.sets[team] = { p: seenP, v: seenV };
@@ -80,7 +81,7 @@ function playerTuple(q, full) {
 function vehicleTuple(v) {
   let occ = 0;
   for (let s = 0; s < v.seats.length; s++) if (v.seats[s]) occ |= 1 << s;
-  return [v.id, VEHICLE_LIST.indexOf(v.type), r1(v.x), r1(v.y), r3(v.a), r3(v.ta), r3(v.seatAim[1] === undefined ? v.a : v.seatAim[1]), Math.ceil(v.hp / v.def.hp * 100), v.team, occ, r1(v.speed)];
+  return [v.id, VEHICLE_LIST.indexOf(v.type), r1(v.x), r1(v.y), r3(v.a), r3(v.ta), r3(v.seatAim[1] === undefined ? v.a : v.seatAim[1]), Math.ceil(v.hp / v.def.hp * 100), v.team, occ, r1(v.speed), r3(v.seatPitch?.[0] || 0), r3(v.seatPitch?.[1] || 0), r2(v.z), r1(v.vz || 0), r3(v.steer || 0), r3(v.yawRate || 0), r3(v.throttle || 0)];
 }
 
 export function buildSnapshot(game, p) {
@@ -117,6 +118,10 @@ export function buildSnapshot(game, p) {
   };
   game.mode.snapshot(game, snap, p);
   if (veh.length) snap.v = veh;
+  const rb = game.physics.snapshot(tx, ty);
+  if (rb.length) snap.rb = rb;
+  if (game.map.terrainEdits?.size) snap.td = [...game.map.terrainEdits];
+  snap.bs = game.map.buildings.filter((b) => b.collapsed).map((b) => b.id);
   if (spotted.length) snap.sp = spotted;
 
   // own / followed player's detailed state
@@ -129,7 +134,7 @@ export function buildSnapshot(game, p) {
     let clip = am.clip, res = am.reserve;
     if (g && g.def.kind === 'launcher') { clip = g.loaded ? 1 : 0; res = g.charges; } else if (g) { clip = g.charges; res = 0; }
     snap.me = {
-      id: t.id, own: t === p ? 1 : 0,
+      id: t.id, own: t === p ? 1 : 0, hb: t.heldBody || 0,
       x: r1(t.x), y: r1(t.y), vx: r1(t.vx), vy: r1(t.vy), a: r3(t.angle), z: r2(t.z), vz: r1(t.vz), cf: Math.round(t.cf * 1000) / 1000, pt: r3(t.pitch),
       hp: Math.ceil(t.hp), ar: Math.ceil(t.armor || 0), cls: t.cls,
       pw: t.primaryW ? t.primaryW.idx : -1, sw: t.secondaryW ? t.secondaryW.idx : -1,
@@ -138,7 +143,7 @@ export function buildSnapshot(game, p) {
       clip, res, alt: t.altMode ? 1 : 0, altc: t.primaryW && t.primaryW.alt ? [t.am.alt.clip, t.am.alt.reserve] : null,
       rel: t.reloadT > 0 ? Math.round((1 - t.reloadT / (t.reloadTotal || 1)) * 100) / 100 : 0,
       sp: Math.round(weaponSpread(w || { kind: 'knife' }, t.speed, t.burst, t.scoped, t.cf, Math.abs(t.vz) > 1) * 10000) / 10000,
-      mv: gun ? [r1(w.speedPx), w.scope, Math.round((w.adsSpeed || 1) * 1000) / 1000, 1] : [BASE_SPEED, 0, 1, 0],
+      mv: gun ? [r1(w.speedPx), w.scope, Math.round((w.adsSpeed || 1) * 1000) / 1000, 1] : [BASE_SPEED, 0, 1, g?.def.kind === 'launcher' ? 1 : 0],
       pl: 0, plk: '',
       fl: Math.max(0, r1(t.flashUntil - game.time)), ff: Math.max(0, r1(t.flashFullUntil - game.time)),
       rc: t.respawnCounter, sc: t.scoped ? 1 : 0, spr: t.sprinting ? 1 : 0, sprot: t.spawnProt > 0 ? 1 : 0,
@@ -148,25 +153,27 @@ export function buildSnapshot(game, p) {
       const need = t.useKind === 'disarm' ? RULES.mcomDisarmTime : RULES.mcomArmTime;
       snap.me.pl = Math.round(t.useT / need * 100) / 100; snap.me.plk = t.useKind;
     }
-    if (t.lockTarget) snap.me.lk = [t.lockTarget, Math.min(1, Math.round(t.lockT / 1.4 * 100) / 100)];
+    if (t.lockTarget) snap.me.lk = [t.lockTarget, t.lockT >= AIR_DEFENSE.lockTime ? 1 : Math.min(.99, Math.round(t.lockT / AIR_DEFENSE.lockTime * 100) / 100)];
     if (t.veh) {
       const v = game.vehicleById(t.veh);
       if (v) {
         const sd = v.def.seats[t.seat], wp = sd.weapon ? VWEAPONS[sd.weapon] : null;
         snap.me.veh = {
-          id: v.id, ty: VEHICLE_LIST.indexOf(v.type), seat: t.seat, x: r1(v.x), y: r1(v.y), a: r3(v.a), vx: r1(v.vx), vy: r1(v.vy), ta: r3(v.ta),
+          id: v.id, ty: VEHICLE_LIST.indexOf(v.type), seat: t.seat, x: r1(v.x), y: r1(v.y), a: r3(v.a), vx: r1(v.vx), vy: r1(v.vy), z: r2(v.z), vz: r1(v.vz || 0), steer: r3(v.steer || 0), yawRate: r3(v.yawRate || 0), throttle: r3(v.throttle || 0), ta: r3(v.ta),
           hp: Math.ceil(v.hp), mhp: v.def.hp, seats: v.seats.slice(), wn: wp ? wp.name : '', ammo: v.ammo[t.seat] || 0,
           mag: wp && wp.mag ? wp.mag : 0, rel: v.rel[t.seat] > 0 ? Math.round((1 - v.rel[t.seat] / (wp.reload || 1)) * 100) / 100 : 0,
           cd: Math.max(0, Math.round(v.cd[t.seat] * 100) / 100), sa: r3(v.seatAim[t.seat] || 0),
         };
         snap.me.x = r1(v.x); snap.me.y = r1(v.y);
+        if (v.def.kind === 'air') { snap.me.veh.flares = [v.flareAmmo, Math.ceil(v.flareCd * 10) / 10, Math.max(0, r1(v.flareUntil - game.time))]; snap.me.veh.threat = airThreat(game, v); }
       }
     }
   }
   snap.al = p.alive ? 1 : 0;
   snap.spec = target ? target.id : 0;
   if (!p.alive && p.team !== SPEC) {
-    snap.rsp = Math.max(0, Math.round((p.respawnAt - game.time) * 10) / 10);
+    // Zero means deployment is actually allowed, including the final fraction of a tick.
+    snap.rsp = Math.max(0, Math.ceil((p.respawnAt - game.time) * 10) / 10);
     if (game.tick % 15 === 0 || p._needSp) {
       p._needSp = false;
       snap.sps = game.spawnOptions(p).map((o) => [o.k, o.id, o.name, Math.round(o.x), Math.round(o.y), o.ok ? 1 : 0, o.why || '', o.veh ? 1 : 0]);
@@ -176,18 +183,19 @@ export function buildSnapshot(game, p) {
   }
 
   // world entities
-  if (game.grenades.length) snap.g = game.grenades.map((g) => [g.id, GREN_ORDER.indexOf(g.type), r1(g.x), r1(g.y), g.team]);
+  if (game.flares.length) snap.cf = game.flares.filter((f) => pureSpec || Math.hypot(f.x - tx, f.y - ty) < 2600).map((f) => [f.id, r1(f.x), r1(f.y), r1(f.z), r1(f.vx), r1(f.vy), r1(f.vz), r2(f.life / AIR_DEFENSE.flareLife)]);
+  if (game.grenades.length) snap.g = game.grenades.map((g) => [g.id, GREN_ORDER.indexOf(g.type), r1(g.x), r1(g.y), g.team, r1(g.z), r1(g.vz)]);
   if (game.smokes.length) snap.sm = game.smokes.map((s) => [s.id, r1(s.x), r1(s.y), r1(s.r), r1(game.time - s.t0)]);
   if (game.fires.length) snap.fi = game.fires.map((f) => [f.id, r1(f.x), r1(f.y), f.r, r1(game.time - f.t0)]);
   if (game.projectiles.length) {
     const pj = [];
-    for (const q of game.projectiles) if (pureSpec || Math.hypot(q.x - tx, q.y - ty) < 1700 || q.team === viewTeam) pj.push([q.id, q.idx, r1(q.x), r1(q.y), r3(q.a)]);
+    for (const q of game.projectiles) if (pureSpec || Math.hypot(q.x - tx, q.y - ty) < 1700 || q.team === viewTeam) pj.push([q.id, q.idx, r1(q.x), r1(q.y), r3(q.a), r1(q.z ?? 17), r1(q.vz || 0), r1(Math.hypot(q.vx, q.vy))]);
     if (pj.length) snap.pj = pj;
   }
   if (game.gadgets.length) {
     const gd = [];
     for (const g of game.gadgets) {
-      if (g.team === viewTeam || pureSpec) gd.push([g.id, GADGET_LIST.findIndex((d) => d.id === g.type), r1(g.x), r1(g.y), r3(g.a), g.team, game.time - g.t0 >= g.arm ? 1 : 0, g.life ? Math.max(0, Math.round((1 - (game.time - g.t0) / g.life) * 100) / 100) : 1]);
+      if (g.team === viewTeam || pureSpec) gd.push([g.id, GADGET_LIST.findIndex((d) => d.id === g.type), r1(g.x), r1(g.y), r3(g.a), g.team, game.time - g.t0 >= g.arm ? 1 : 0, g.life ? Math.max(0, Math.round((1 - (game.time - g.t0) / g.life) * 100) / 100) : 1, r1(g.z ?? game.map.heightAt(g.x, g.y))]);
     }
     if (gd.length) snap.gd = gd;
   }

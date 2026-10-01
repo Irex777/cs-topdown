@@ -7,6 +7,8 @@ Conventions: metres, +X forward (muzzle), +Z up, +Y left. glTF export converts t
 import math
 import os
 import sys
+import json
+import struct
 
 import bpy
 import bmesh
@@ -18,7 +20,15 @@ PREVIEW = os.environ.get('BLENDER_PREVIEW_DIR', '/tmp/bl_preview')
 
 
 def reset():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    # Preserve the running MCP add-on and user preferences during batch builds.
+    if bpy.context.object and bpy.context.object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
+    for obj in list(bpy.data.objects):
+        bpy.data.objects.remove(obj, do_unlink=True)
+    for pool in (bpy.data.meshes, bpy.data.materials):
+        for item in list(pool):
+            if item.users == 0:
+                pool.remove(item)
     MATS.clear()
     for c in list(bpy.data.collections):
         bpy.data.collections.remove(c)
@@ -44,8 +54,31 @@ def mat(name, rgb, metal=0.0, rough=0.5, emit=None, emit_strength=1.0, alpha=1.0
         bsdf.inputs['Emission Strength'].default_value = emit_strength
     if alpha < 1.0:
         bsdf.inputs['Alpha'].default_value = alpha
-        m.blend_method = 'BLEND' if hasattr(m, 'blend_method') else None
+        if hasattr(m, 'surface_render_method'):
+            m.surface_render_method = 'DITHERED'
+        elif hasattr(m, 'blend_method'):
+            m.blend_method = 'BLEND'
     MATS[name] = m
+    return m
+
+
+def image_mat(name, image_path, tint=(1, 1, 1), metal=0.0, rough=0.8):
+    """Generated, UV-mapped base color; tint remains an editable glTF factor."""
+    m = mat(name, tint, metal, rough)
+    m['frontline_base_color_factor'] = [*tint, 1.0]
+    path = os.path.join(OUT, image_path)
+    if not os.path.isfile(path):
+        raise FileNotFoundError('Generate the skin first: ' + path)
+    nodes = m.node_tree.nodes
+    image = nodes.new('ShaderNodeTexImage')
+    image.image = bpy.data.images.load(path, check_existing=True)
+    image.interpolation = 'Linear'
+    mix = nodes.new('ShaderNodeMixRGB')
+    mix.blend_type = 'MULTIPLY'
+    mix.inputs[0].default_value = 1.0
+    mix.inputs[2].default_value = (*tint, 1.0)
+    m.node_tree.links.new(image.outputs['Color'], mix.inputs[1])
+    m.node_tree.links.new(mix.outputs[0], nodes['Principled BSDF'].inputs['Base Color'])
     return m
 
 
@@ -191,6 +224,92 @@ class Builder:
         _copy_into(self._target(m), t)
         t.free()
 
+    def stack(self, m, rings, n=28, cap_top=True, cap_bot=True):
+        """Organic vertical solid from superellipse cross-sections.
+        rings: list of (z, cx, cy, rx, ry, p) bottom -> top; p=2 is an ellipse, 3-4 a soft rounded box."""
+        t = bmesh.new()
+        layers = []
+        for (z, cx, cy, rx, ry, p) in rings:
+            e = 2.0 / p
+            layer = []
+            for k in range(n):
+                a = 2 * math.pi * k / n
+                c, s = math.cos(a), math.sin(a)
+                layer.append(t.verts.new((cx + rx * math.copysign(abs(c) ** e, c), cy + ry * math.copysign(abs(s) ** e, s), z)))
+            layers.append(layer)
+        for i in range(len(layers) - 1):
+            a, b = layers[i], layers[i + 1]
+            for k in range(n):
+                try:
+                    t.faces.new([a[k], a[(k + 1) % n], b[(k + 1) % n], b[k]])
+                except ValueError:
+                    pass
+        if cap_top:
+            try:
+                t.faces.new(layers[-1])
+            except ValueError:
+                pass
+        if cap_bot:
+            try:
+                t.faces.new(list(reversed(layers[0])))
+            except ValueError:
+                pass
+        _copy_into(self._target(m), t)
+        t.free()
+
+    def sweep(self, m, pts, radii, n=14, squash=(1.0, 1.0), ref=(0, 1, 0), round_ends=(True, True), p=2.0):
+        """Tapered tube along a polyline (limbs, straps, hoses). squash scales the (u, v) axes of each ring, u being the
+        component of `ref` perpendicular to the path; round_ends closes each end with a small dome; p is the superellipse
+        exponent of the cross-section (2 = ellipse, 4 = rounded rectangle)."""
+        pts = [Vector(p) for p in pts]
+        ref = Vector(ref).normalized()
+        k = len(pts)
+        tang = []
+        for i in range(k):
+            d = pts[min(i + 1, k - 1)] - pts[max(i - 1, 0)]
+            tang.append(d.normalized())
+
+        def frame(tn):
+            u = ref - tn * ref.dot(tn)
+            if u.length < 1e-4:
+                u = Vector((1, 0, 0)) - tn * tn.x
+            u.normalize()
+            return u, tn.cross(u).normalized()
+
+        # expand the ends into a few shrinking rings so the tube is closed with a dome
+        rings = [(pts[i], tang[i], radii[i]) for i in range(k)]
+        if round_ends[0]:
+            r0, t0 = radii[0], tang[0]
+            rings = [(pts[0] - t0 * r0 * f, t0, r0 * s) for f, s in ((0.85, 0.45), (0.5, 0.85))] + rings
+        if round_ends[1]:
+            r1, t1 = radii[-1], tang[-1]
+            rings = rings + [(pts[-1] + t1 * r1 * f, t1, r1 * s) for f, s in ((0.5, 0.85), (0.85, 0.45))]
+        t = bmesh.new()
+        layers = []
+        for (c, tn, r) in rings:
+            u, v = frame(tn)
+            e = 2.0 / p
+            ring = []
+            for j in range(n):
+                cj, sj = math.cos(2 * math.pi * j / n), math.sin(2 * math.pi * j / n)
+                ring.append(t.verts.new(c + u * (math.copysign(abs(cj) ** e, cj) * r * squash[0]) + v * (math.copysign(abs(sj) ** e, sj) * r * squash[1])))
+            layers.append(ring)
+        for i in range(len(layers) - 1):
+            a, b = layers[i], layers[i + 1]
+            for j in range(n):
+                try:
+                    t.faces.new([a[j], a[(j + 1) % n], b[(j + 1) % n], b[j]])
+                except ValueError:
+                    pass
+        for layer, flip in ((layers[0], True), (layers[-1], False)):
+            try:
+                t.faces.new(list(reversed(layer)) if flip else layer)
+            except ValueError:
+                pass
+        bmesh.ops.recalc_face_normals(t, faces=list(t.faces))
+        _copy_into(self._target(m), t)
+        t.free()
+
     def empty(self, name, loc, size=0.01):
         self.empties.append((name, Vector(loc), size))
 
@@ -241,6 +360,8 @@ class Builder:
             (collection or bpy.context.scene.collection).objects.link(e)
             e.parent = obj
             objs.append(e)
+        for child in getattr(self, 'children', []):
+            child.parent = obj
         return obj
 
 
@@ -292,10 +413,32 @@ def export(path, objs=None):
     bpy.ops.export_scene.gltf(filepath=path, export_format='GLB', use_selection=bool(objs), export_yup=True, export_apply=True,
                               export_cameras=False, export_lights=False, export_extras=False, export_image_format='AUTO',
                               export_vertex_color='ACTIVE', export_texcoords=True, export_normals=True)
+    # Blender 5.2 exports MixRGB image links without their constant multiplier.
+    # Store that authored tint as the standard glTF linear baseColorFactor.
+    with open(path, 'rb') as stream:
+        blob = stream.read()
+    json_size = struct.unpack_from('<I', blob, 12)[0]
+    doc = json.loads(blob[20:20 + json_size])
+    for material in doc.get('materials', []):
+        source = bpy.data.materials.get(material.get('name', ''))
+        if source and 'frontline_base_color_factor' in source:
+            material.setdefault('pbrMetallicRoughness', {})['baseColorFactor'] = list(source['frontline_base_color_factor'])
+        if source and 'frontline_alpha_cutoff' in source:
+            material['alphaMode'] = 'MASK'
+            material['alphaCutoff'] = source['frontline_alpha_cutoff']
+            material['doubleSided'] = True
+    encoded = json.dumps(doc, separators=(',', ':')).encode('utf8')
+    encoded += b' ' * (-len(encoded) % 4)
+    binary = blob[20 + json_size:]
+    with open(path, 'wb') as stream:
+        stream.write(struct.pack('<4sII', b'glTF', 2, 20 + len(encoded) + len(binary)))
+        stream.write(struct.pack('<II', len(encoded), 0x4E4F534A))
+        stream.write(encoded)
+        stream.write(binary)
     print('exported', path, os.path.getsize(path) // 1024, 'KB')
 
 
-def preview(name, cam_loc, target, w=900, h=420, samples=24, lens=50, ortho=None):
+def preview(name, cam_loc, target, w=900, h=420, samples=24, lens=50, ortho=None, light=1.0):
     """quick Cycles render of the current scene for eyeballing a model"""
     os.makedirs(PREVIEW, exist_ok=True)
     sc = bpy.context.scene
@@ -326,7 +469,7 @@ def preview(name, cam_loc, target, w=900, h=420, samples=24, lens=50, ortho=None
     sc.camera = cam
     for nm, loc, energy, size, col in (('key', (0.6, -1.4, 1.2), 260, 1.2, (1, 0.93, 0.82)), ('rim', (-1.2, 1.0, 0.8), 140, 1.0, (0.7, 0.8, 1)), ('fill', (0.2, -0.6, -0.9), 50, 1.5, (1, 1, 1))):
         ld = bpy.data.lights.new(nm, 'AREA')
-        ld.energy = energy; ld.size = size; ld.color = col
+        ld.energy = energy * light; ld.size = size; ld.color = col
         lo = bpy.data.objects.new(nm, ld)
         lo.location = Vector(target) + Vector(loc)
         lo.rotation_euler = (Vector(target) - lo.location).to_track_quat('-Z', 'Y').to_euler()

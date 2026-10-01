@@ -26,17 +26,19 @@ export class Lobby {
     const r = app.room;
     this.el.innerHTML = `
     <div class="lobby-wrap">
-      <div class="lobby-head">
-        <div class="room-code"><div><small>Room code</small><b>${esc(r.code)}</b></div></div>
-        <button class="btn" id="copyLink">Copy invite link</button>
-        <span style="color:var(--dim);font-size:12px" id="linkHint">Send this link to your friends — they join in one click.</span>
+      <header class="lobby-head">
+        <div class="room-code"><small>Room code</small><b>${esc(r.code)}</b></div>
+        <div class="invite"><button class="btn" id="copyLink">Copy invite link</button><span id="linkHint">Friends who open the link join this room in one click.</span></div>
         <div class="spacer"></div>
         <button class="btn danger" id="leaveLobby">Leave room</button>
+      </header>
+      <div class="lobby-main">
+        <section class="lb-card" id="settingsPanel" aria-label="Match settings"></section>
+        <section class="lb-card" id="teamsPanel" aria-label="Teams"></section>
+        <section class="lb-card chat-panel" aria-label="Chat"><div class="lb-head"><h3>Chat</h3></div><div class="chat-lines" id="lobbyChat"></div>
+          <form class="chat-form" id="lobbyChatForm"><input class="input" id="lobbyChatInput" maxlength="160" placeholder="Say something…" autocomplete="off" aria-label="Chat message"><button class="btn" type="submit">Send</button></form></section>
       </div>
-      <div class="card-panel panel" id="settingsPanel"></div>
-      <div class="card-panel panel" id="teamsPanel"></div>
-      <div class="card-panel panel chat-panel"><h3>Chat</h3><div class="chat-lines" id="lobbyChat"></div>
-        <form class="chat-form" id="lobbyChatForm"><input class="input" id="lobbyChatInput" maxlength="160" placeholder="Say something…" autocomplete="off" aria-label="Chat message"><button class="btn" type="submit">Send</button></form></div>
+      <footer class="lobby-foot" id="lobbyActions"></footer>
     </div>`;
     $('copyLink').onclick = async () => {
       const link = this.inviteLink();
@@ -73,25 +75,23 @@ export class Lobby {
 
   renderSettings() {
     const app = this.app, r = app.room, s = r.settings, host = app.isHost();
-    const seg = (key, opts, cur) => `<div class="seg" data-key="${key}" data-disabled="${host ? 0 : 1}">${opts.map(([v, l]) => `<button data-v="${esc(String(v))}" class="${String(cur) === String(v) ? 'on' : ''}">${esc(l)}</button>`).join('')}</div>`;
-    const tog = (key, label, on) => `<div class="toggle"><span>${label}</span><button class="switch ${on ? 'on' : ''}" data-tog="${key}" ${host ? '' : 'disabled'} role="switch" aria-checked="${on}" aria-label="${label}"></button></div>`;
+    const seg = (key, opts, cur) => `<div class="seg" data-key="${key}" data-disabled="${host ? 0 : 1}" role="group">${opts.map(([v, l]) => `<button data-v="${esc(String(v))}" class="${String(cur) === String(v) ? 'on' : ''}" aria-pressed="${String(cur) === String(v)}">${esc(l)}</button>`).join('')}</div>`;
+    const tog = (key, label, hint, on) => `<div class="toggle"><span><b>${label}</b><small>${hint}</small></span><button class="switch ${on ? 'on' : ''}" data-tog="${key}" ${host ? '' : 'disabled'} role="switch" aria-checked="${on}" aria-label="${label}"></button></div>`;
     const maps = app.maps || [];
     const p = $('settingsPanel');
-    const focused = document.activeElement && document.activeElement.id === 'roomName';
-    if (focused) return;
+    if (document.activeElement && document.activeElement.id === 'roomName') return;
+    const scroll = p.querySelector('.lb-scroll');
+    const keep = scroll ? scroll.scrollTop : 0;
     const modeNames = { conquest: 'Conquest', rush: 'Rush', tdm: 'Team DM' };
-    p.innerHTML = `<h3>Match settings ${host ? '' : '<span style="text-transform:none;letter-spacing:0;color:var(--dim)">(host only)</span>'}</h3>
-      <div class="setting"><span class="label">Mode</span>${seg('mode', Object.keys(MODES).map((m) => [m, modeNames[m]]), s.mode)}
-        <div style="color:var(--dim);font-size:11px;margin-top:6px;line-height:1.4">${esc(MODES[s.mode].desc)}</div></div>
-      <div class="setting"><span class="label">Map</span><div class="map-cards" data-disabled="${host ? 0 : 1}">${maps.map((m) => `<button class="map-card ${s.map === m.id ? 'on' : ''}" data-map="${m.id}"><canvas width="192" height="136"></canvas><div><b>${esc(m.name)}</b><small>${esc(m.desc)}</small><small style="color:var(--accent)">${esc(m.size)} · ${esc(m.best)} · ${m.modes.map((x) => modeNames[x]).join(' / ')}</small></div></button>`).join('')}</div></div>
-      <div class="setting"><span class="label">Players per team</span>${seg('teamSize', [1, 2, 4, 6, 8, 12, 16].map((n) => [n, n]), s.teamSize)}</div>
-      ${s.mode !== 'tdm' ? `<div class="setting"><span class="label">${s.mode === 'rush' ? 'Attacker reinforcements' : 'Tickets'}</span>${seg('tickets', RULES.ticketOptions.map((n) => [n, s.mode === 'rush' ? Math.round(n * 0.32) : n]), s.tickets)}</div>` : ''}
-      ${tog('vehicles', 'Vehicles (jeeps, tanks, helis, boats)', s.vehicles)}
-      ${tog('bots', 'Fill empty slots with bots', s.bots)}
-      ${s.bots ? `<div class="setting"><span class="label">Bot skill</span>${seg('difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['expert', 'Expert']], s.difficulty)}</div>` : ''}
-      ${tog('friendlyFire', 'Friendly fire', s.friendlyFire)}
-      ${tog('public', 'List in public rooms', s.public)}
-      <div class="setting" style="margin-top:8px"><label class="label" for="roomName">Room name</label><input class="input" id="roomName" maxlength="24" value="${esc(s.name)}" placeholder="Optional" ${host ? '' : 'disabled'} style="min-height:38px;padding:7px 10px;font-size:13px"></div>`;
+    p.innerHTML = `<div class="lb-head"><h3>Match settings</h3>${host ? '' : '<span class="pill">Only the host can change these</span>'}</div><div class="lb-scroll">
+      <div class="lb-group"><span class="label">Mode</span>${seg('mode', Object.keys(MODES).map((m) => [m, modeNames[m]]), s.mode)}<p class="lb-desc">${esc(MODES[s.mode].desc)}</p></div>
+      <div class="lb-group"><span class="label">Map</span><div class="map-cards" data-disabled="${host ? 0 : 1}">${maps.map((m) => `<button class="map-card ${s.map === m.id ? 'on' : ''}" data-map="${m.id}" aria-pressed="${s.map === m.id}"><canvas width="192" height="136"></canvas><span><b>${esc(m.name)}</b><small>${esc(m.size)} · ${esc(m.best)}</small><small>${m.modes.map((x) => modeNames[x]).join(' / ')}</small></span></button>`).join('')}</div></div>
+      <div class="lb-group"><span class="label">Players per team</span>${seg('teamSize', [1, 2, 4, 6, 8, 12, 16].map((n) => [n, n]), s.teamSize)}</div>
+      ${s.mode !== 'tdm' ? `<div class="lb-group"><span class="label">${s.mode === 'rush' ? 'Attacker reinforcements' : 'Tickets per team'}</span>${seg('tickets', RULES.ticketOptions.map((n) => [n, s.mode === 'rush' ? Math.round(n * 0.32) : n]), s.tickets)}</div>` : ''}
+      ${s.bots ? `<div class="lb-group"><span class="label">Bot skill</span>${seg('difficulty', [['easy', 'Easy'], ['normal', 'Normal'], ['hard', 'Hard'], ['expert', 'Expert']], s.difficulty)}</div>` : ''}
+      <div class="lb-group toggles">${tog('vehicles', 'Vehicles', 'Jeeps, tanks, helicopters and boats', s.vehicles)}${tog('bots', 'Fill with bots', 'Empty slots are played by bots', s.bots)}${tog('friendlyFire', 'Friendly fire', 'Your bullets can hurt teammates', s.friendlyFire)}${tog('public', 'List publicly', 'Show this room in the Play screen', s.public)}</div>
+      <div class="lb-group"><label class="label" for="roomName">Room name</label><input class="input" id="roomName" maxlength="24" value="${esc(s.name)}" placeholder="Optional" ${host ? '' : 'disabled'}></div></div>`;
+    const sc = p.querySelector('.lb-scroll'); if (sc) sc.scrollTop = keep;
     p.querySelectorAll('.map-card').forEach((b) => {
       const c = b.querySelector('canvas');
       c.getContext('2d').drawImage(this.thumb(b.dataset.map), 0, 0);
@@ -114,19 +114,23 @@ export class Lobby {
     const app = this.app, r = app.room, s = r.settings, host = app.isHost();
     const you = app.game.you;
     const byTeam = (t) => this.roster.filter((p) => p.tm === t);
-    const member = (p) => `<div class="member ${p.id === you ? 'me' : ''}"><span>${esc(p.n)}</span>${p.id === r.host ? '<span class="tag host">HOST</span>' : ''}${p.b ? '<span class="tag">BOT</span>' : ''}${p.dc ? '<span class="tag">DC</span>' : ''}<span class="ping">${p.b ? '' : p.pg + ' ms'}</span>${host && !p.b && p.id !== you ? `<button class="kick" data-kick="${p.id}" title="Kick" aria-label="Kick ${esc(p.n)}">✕</button>` : ''}</div>`;
+    const member = (p) => `<div class="member ${p.id === you ? 'me' : ''}"><span class="mname">${esc(p.n)}</span>${p.id === r.host ? '<span class="tag host">Host</span>' : ''}${p.b ? '<span class="tag">Bot</span>' : ''}${p.dc ? '<span class="tag">Offline</span>' : ''}<span class="ping">${p.b ? '' : p.pg + ' ms'}</span>${host && !p.b && p.id !== you ? `<button class="kick" data-kick="${p.id}" title="Remove from room" aria-label="Remove ${esc(p.n)} from the room">✕</button>` : ''}</div>`;
     const col = (t, cls, title) => {
       const list = byTeam(t);
       const empties = Math.min(12, Math.max(0, s.teamSize - list.length));
-      return `<div class="team-col ${cls}"><h4><span>${title}</span><small>${list.length}/${s.teamSize}</small></h4>${list.map(member).join('')}${Array.from({ length: empties }, () => '<div class="slot-empty">Open slot</div>').join('')}<div style="flex:1"></div><button class="btn small" data-team="${t}">Join ${title.split(' ')[0]}</button></div>`;
+      const mine = list.some((p) => p.id === you);
+      return `<div class="team-col ${cls}"><div class="team-head"><h4>${title}</h4><small>${list.length} / ${s.teamSize}</small><button class="btn small ${mine ? '' : 'primary'}" data-team="${t}" ${mine ? 'disabled' : ''}>${mine ? 'Your team' : 'Join'}</button></div><div class="team-list">${list.map(member).join('')}${Array.from({ length: empties }, () => '<div class="slot-empty">Open slot</div>').join('')}</div></div>`;
     };
     const specs = byTeam(SPEC);
     const playing = r.state === 'playing';
     const p = $('teamsPanel');
-    p.innerHTML = `<h3>Teams</h3><div class="teams">${col(T, 't', 'Vanguard')}${col(CT, 'ct', 'Bulwark')}</div>
-      <div class="spec-row"><button class="btn small" data-team="2">Spectate</button><div class="members">${specs.map((m) => `<span class="member" style="padding:4px 10px">${esc(m.n)}</span>`).join('') || '<span style="color:var(--dim);font-size:12px">No spectators</span>'}</div></div>
-      <div class="lobby-actions">${host ? `<button class="btn green big" id="startBtn">${playing ? 'Back to match' : '▶ Start match'}</button><button class="btn" id="shuffleBtn" title="Randomly split the players into two even teams">Shuffle teams</button>` : '<span class="hint">Waiting for the host to start the match…</span>'}<span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span></div>`;
-    p.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => app.net.send({ t: 'team', team: Number(b.dataset.team) }); });
+    p.innerHTML = `<div class="lb-head"><h3>Teams</h3><span class="pill">${this.roster.filter((m) => !m.b && m.tm !== SPEC).length} player${this.roster.filter((m) => !m.b && m.tm !== SPEC).length === 1 ? '' : 's'}</span></div>
+      <div class="teams">${col(T, 't', 'Vanguard')}${col(CT, 'ct', 'Bulwark')}</div>
+      <div class="spec-row"><button class="btn small" data-team="2">Spectate</button><div class="members">${specs.map((m) => `<span class="member">${esc(m.n)}</span>`).join('') || '<span class="hint">No spectators</span>'}</div></div>`;
+    $('lobbyActions').innerHTML = host
+      ? `<button class="btn primary big" id="startBtn">${playing ? 'Back to match' : '▶ Start match'}</button><button class="btn" id="shuffleBtn" title="Randomly split the players into two even teams">Shuffle teams</button><span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span>`
+      : `<span class="hint wait">Waiting for the host to start the match…</span><span class="hint">${s.bots ? 'Empty slots are filled with bots.' : 'Bots are off — only humans will play.'}</span>`;
+    document.querySelectorAll('#teamsPanel [data-team]').forEach((b) => { b.onclick = () => app.net.send({ t: 'team', team: Number(b.dataset.team) }); });
     p.querySelectorAll('[data-kick]').forEach((b) => { b.onclick = () => app.net.send({ t: 'kick', id: Number(b.dataset.kick) }); });
     const sb = $('startBtn'); if (sb) sb.onclick = () => app.net.send({ t: 'start' });
     const sh = $('shuffleBtn'); if (sh) sh.onclick = () => app.net.send({ t: 'shuffle' });

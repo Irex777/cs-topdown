@@ -1,0 +1,64 @@
+import assert from 'node:assert/strict';
+import { MAP_DEFS, createMap } from '../src/shared/maps/index.js';
+import { GameMap } from '../src/shared/gamemap.js';
+import { MapBuilder } from '../src/shared/maps/builder.js';
+import { VEHICLES, stepVehicle, vehicleShot } from '../src/shared/vehicles.js';
+import { stepMovement } from '../src/shared/movement.js';
+import { KEY, DT } from '../src/shared/constants.js';
+import { Room } from '../src/server/room.js';
+import { exitVehicle, enterVehicle, nearestVehicle } from '../src/server/vehicles.js';
+let count = 0;
+const check = (v, message) => { assert.ok(v, message); count++; console.log('ok', message); };
+for (const def of MAP_DEFS) {
+  const m = createMap(def.id), again = createMap(def.id);
+  for (const sp of m.vehSpawns.filter((v) => v.type === 'heli')) check(m.landingHeight(sp.x, sp.y, 22.4) - m.heightAt(sp.x, sp.y) < 16, def.id + ' helicopter pad has clear physical landing space');
+  check(m.top.every((h, i) => h === again.top[i]), def.id + ' object heights are deterministic');
+  check(m.buildings.every((b) => b.wallHeight === b.storeys * 52 && b.eave === b.base + b.wallHeight && b.supports.every((i) => m.top[i] === b.wallHeight)), def.id + ' walls, windows and roof heights agree');
+  const trees = m.top.filter((h, i) => m.chars[i] === 'T');
+  check(trees.every((h) => h >= 112 && h <= 176), def.id + ' tree collision matches authored height range');
+}
+const harbor = createMap('harbor');
+check(new Set(harbor.buildings.map((b) => b.storeys)).size >= 3, 'Harbor has two-, three- and four-storey buildings');
+const mb = new MapBuilder(40, 40, '.'); mb.house(7, 7, 8, 7, { storeys: 3, door: 'W', doorAt: 2, doorW: 2, windows: false }); mb.rect(1, 1, 2, 2, 't').rect(35, 35, 2, 2, 'c');
+const m = new GameMap({ id: 'vertical', ...mb.finish() }), roof = m.buildings[0];
+check(roof.storeys === 3 && roof.eave === 156, 'Explicit storeys work on custom maps');
+check(m.castBullet(170, 240, 120, 1, 0, 0, 250).d < 60, 'Upper-storey walls stop elevated shots');
+check(m.castBullet(170, 240, roof.ridge + 10, 1, 0, 0, 250).tx < 0, 'Shots above the roof pass');
+check(m.castBullet(170, 304, 26, 1, 0, 0, 150).d === 150 && m.castBullet(170, 304, 70, 1, 0, 0, 150).d < 60, 'Door opening admits infantry-height shots and stops shots through its header');
+const walk = { x: 240, y: 304, z: 0, vz: 0, vx: 0, vy: 0, cf: 0 }; let peak = 0;
+for (let i = 0; i < 60; i++) { stepMovement(m, walk, KEY.JUMP, 100, false, 0, 0); peak = Math.max(peak, walk.z); }
+check(peak <= 11.01, 'A jump cannot pass through the door lintel');
+const rooftop = { x: 330, y: 320, z: roof.ridge + 100, vz: 0, vx: 0, vy: 0, cf: 0 };
+for (let i = 0; i < 100; i++) stepMovement(m, rooftop, 0, 100, false, 0, 0);
+check(Math.abs(rooftop.z - m.surfaceAt(rooftop.x, rooftop.y)) < .01, 'Infantry can land and stand on a roof');
+const air = { x: 170, y: 250, a: 0, vx: 0, vy: 0, flightZ: 2, vz: 0 }, def = VEHICLES.heli;
+for (let i = 0; i < 60; i++) stepVehicle(m, air, def, 1, 0);
+check(air.x < 224 && air.flightZ < 10, 'Low aircraft cannot fly through upper-storey walls or teleport onto roofs');
+for (let i = 0; i < 180; i++) stepVehicle(m, air, def, KEY.SPRINT, 0);
+check(air.flightZ > roof.ridge + 10, 'Shift climbs above buildings');
+for (let i = 0; i < 90; i++) stepVehicle(m, air, def, 1, 0);
+check(air.x > 400 && Math.abs(air.flightZ - 224) < 20, 'High aircraft pass over roofs while preserving world altitude');
+air.x = 330; air.y = 320; air.vx = air.vy = 0; air.flightZ = roof.ridge + 100; air.vz = 0;
+for (let i = 0; i < 180; i++) stepVehicle(m, air, def, KEY.CROUCH, 0);
+check(Math.abs(air.flightZ - m.landingHeight(air.x, air.y, def.r * .7) - 2) < .01 && air.vz === 0, 'Ctrl/C descends and lands on the actual roof');
+const shot = vehicleShot({ ...air, z: air.flightZ, def, ta: 0 }, 0, 0, 400, 20);
+check(shot.z > air.flightZ - 20 && shot.z < air.flightZ + 40, 'Helicopter rockets launch from the current flight altitude');
+for (let i = 0; i < 900; i++) stepVehicle(m, air, def, KEY.SPRINT, 0);
+check(air.flightZ === def.ceiling && air.vz === 0, 'Aircraft respect their ceiling');
+const fake = () => ({ send() {}, sendRaw() {}, congested: () => false, leaveRoom() {} });
+const room = new Room('AltitudeQA', { map: 'riverside', mode: 'conquest', bots: false, teamSize: 1, vehicles: true }, null);
+const p = room.addHuman(fake(), 'Pilot'); room.assignTeam(p, 0); room.start(); const g = room.game; g.deploy(p, { k: 'base', id: 0 });
+const v = g.vehicles.find((v) => v.type === 'heli'); p.x = v.x; p.y = v.y; p.z = g.map.heightAt(p.x, p.y);
+check(nearestVehicle(g, p)?.id === v.id && v.z - p.z < 5, 'Helicopters start landed and can be boarded from their pad');
+enterVehicle(g, p, v, 0); const start = v.z;
+for (let i = 0; i < 120; i++) { g.applyCmd(p, KEY.SPRINT, 0, 0, 400); g.update(DT); }
+const snap = g.snapshotFor(p), tuple = snap.v.find((t) => t[0] === v.id);
+check(v.z > start + 100 && Math.abs(snap.me.veh.z - v.z) < .02 && Math.abs(tuple[13] - v.z) < .02 && tuple.length >= 15, 'Authoritative and remote snapshots carry dynamic altitude and vertical velocity');
+exitVehicle(g, p);
+check(p.z > g.map.heightAt(p.x, p.y) + 90, 'Exiting an airborne helicopter preserves height');
+check(nearestVehicle(g, { ...p, z: g.map.heightAt(p.x, p.y) })?.id !== v.id, 'A player on the ground cannot board an aircraft overhead');
+for (let i = 0; i < 120; i++) { g.applyCmd(p, 0, 0, 0, 0); g.update(DT); }
+check(Math.abs(p.z - g.map.groundAt(p.x, p.y, 11, p.z)) < .01, 'An airborne exit falls onto terrain or a roof');
+for (const i of roof.supports.slice(0, Math.ceil(roof.supports.length * .31))) m.setTile(i % m.w, Math.floor(i / m.w), 'r');
+check(!roof.active && m.surfaceAt(330, 320) < 5 && m.castBullet(170, 304, 70, 1, 0, 0, 150).d === 150, 'Destruction removes the raised roof and door header collision');
+console.log(count, 'vertical world and flight checks passed');

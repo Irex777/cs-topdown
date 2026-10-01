@@ -1,13 +1,17 @@
 // Tile map: collision, ray casting, destruction, objectives. Used by server, bots and client prediction.
 //
-// The world is a grid of 32 px tiles. Logic is 2D; the client builds the solid tiles into 3D voxel blocks.
+// The world is a grid of 32 px tiles above a continuous, shared terrain heightfield.
 // Solid tiles have hit points and can be destroyed by explosives, turning into walkable rubble.
-import { TILE, STEP_H } from './constants.js';
+import { TILE, STEP_H, BODY_H } from './constants.js';
 import { VEHICLES } from './vehicles.js';
+import { collectBuildings, updateBuildingSupports, roofHit } from './buildings.js';
+import { rayBody } from './rigid.js';
+import { treeHeight } from './heights.js';
+import { buildElevation, terrainHeight, terrainGradient } from './elevation.js';
 
 /**
  * Tile legend
- *  solid:   #  rock / cliff (indestructible)   B  building wall   X  crate   o  explosive barrel
+ *  solid:   #  rock / cliff   B  building wall   X  crate   o  explosive barrel
  *           =  chain-link fence (see-through)  L  sandbags / low barrier (see-through)
  *           G  window glass (see-through)      T  tree trunk (see-through)   M  steel container
  *  floor:   .  ,  grass       _  road      ;  concrete / interior   :  sand   r  rubble   d  debris
@@ -15,7 +19,7 @@ import { VEHICLES } from './vehicles.js';
  *  zones:   t  red spawn zone   c  blue spawn zone   (walkable floor)
  */
 export const TILES = {
-  '#': { solid: 1, opaque: 1, hp: 0,   h: 46, h3: 64, name: 'Rock' },
+  '#': { solid: 1, opaque: 1, hp: 1200, h: 46, h3: 64, name: 'Rock', debris: 'r' },
   'B': { solid: 1, opaque: 1, hp: 520, h: 34, h3: 52, name: 'Wall', debris: 'r' },
   'M': { solid: 1, opaque: 1, hp: 900, h: 26, h3: 42, name: 'Container', debris: 'd' },
   'X': { solid: 1, opaque: 0, hp: 90,  h: 18, h3: 20, name: 'Crate', debris: 'd' },
@@ -23,7 +27,7 @@ export const TILES = {
   '=': { solid: 1, opaque: 0, hp: 24,  h: 11, h3: 16, name: 'Fence', debris: '.', pass: 1 },
   'L': { solid: 1, opaque: 0, hp: 160, h: 12, h3: 14, name: 'Sandbags', debris: 'd' },
   'G': { solid: 1, opaque: 0, hp: 22,  h: 34, h3: 52, name: 'Window', debris: ';' },
-  'T': { solid: 1, opaque: 0, hp: 150, h: 46, h3: 72, name: 'Tree', debris: 'd', pass: 1 },
+  'T': { solid: 1, opaque: 0, hp: 150, h: 46, h3: 144, name: 'Tree', debris: 'd', pass: 1 },
   '.': {}, ',': {}, '_': {}, ';': {}, ':': {}, 'r': {}, 'd': {},
   '~': { water: 2 }, 'w': { water: 1 },
   't': {}, 'c': {},
@@ -52,9 +56,12 @@ export class GameMap {
     this.blockInf = new Uint8Array(n);    // ground vehicles cannot enter (walls, deep water)
     this.blockFoot = new Uint8Array(n);   // soldiers cannot enter (walls only: they can wade and swim)
     this.blockBoat = new Uint8Array(n);   // boats cannot enter
+    this.wallHeights = new Float32Array(n);
+    this.headerBottom = new Float32Array(n);
+    this.roofByTile = new Int16Array(n); this.roofByTile.fill(-1);
     this.top = new Float32Array(n);       // height of a solid tile above the ground (px); 0 for open ground and water
     this.bstop = new Uint8Array(n);       // stops bullets that are lower than the tile's top (fences and trees let them through)
-    this.hp = new Uint16Array(n);
+    this.hp = new Float32Array(n);
     this.zone = new Uint8Array(n);        // 0 none, 1 = red spawn zone, 2 = blue spawn zone
     this.changes = new Map();             // tile index -> char, for everything destroyed since the start
     this.listeners = [];
@@ -70,7 +77,16 @@ export class GameMap {
         if (ch === 'c') this.zone[i] = 2;
       }
     }
+    this.elevation = buildElevation(this, def.elevation);
     this._extractObjects();
+    this.buildings = collectBuildings(this);
+    for (const [index, b] of this.buildings.entries()) for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
+      const i = y * this.w + x, ch = this.chars[i]; this.roofByTile[i] = index;
+      if (ch === b.wall || ch === 'G') { this.wallHeights[i] = b.wallHeight; this.top[i] = b.wallHeight; }
+      else if ((x === b.x || x === b.x + b.w - 1 || y === b.y || y === b.y + b.h - 1) && !this.solid[i]) {
+        this.headerBottom[i] = 40; this.wallHeights[i] = b.wallHeight;
+      }
+    }
     this._extractSpawns();
     this._buildCorners();
     this._out = { x: 0, y: 0 };
@@ -85,11 +101,39 @@ export class GameMap {
     this.blockInf[i] = (t.solid || t.water === 2) ? 1 : 0;
     this.blockFoot[i] = t.solid ? 1 : 0;
     this.blockBoat[i] = (t.solid || !t.water) ? 1 : 0;
-    this.top[i] = t.solid ? t.h3 : 0;
+    this.top[i] = t.solid ? ch === 'T' ? treeHeight(i % this.w, Math.floor(i / this.w)) : ((ch === 'B' || ch === 'G' || ch === '#') && this.wallHeights[i]) || t.h3 : 0;
     this.bstop[i] = t.solid && !t.pass ? 1 : 0;
   }
 
   charAt(tx, ty) { return this.chars[ty * this.w + tx]; }
+  heightAt(x, y) { return terrainHeight(this, x, y); }
+  gradientAt(x, y) { return terrainGradient(this, x, y); }
+  tileBase(tx, ty) { return this.heightAt((tx + .5) * TILE, (ty + .5) * TILE); }
+  // Top surface of the object/roof at a point, used by landing and aircraft collision.
+  surfaceAt(x, y) {
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (!this.inBounds(tx, ty)) return this.heightAt(x, y);
+    const i = ty * this.w + tx, b = this.buildings[this.roofByTile[i]];
+    let top = this.heightAt(x, y);
+    if (this.solid[i]) top = Math.max(top, this.tileBase(tx, ty) + this.top[i]);
+    if (b?.active) {
+      const offset = b.axis === 'y' ? y - (b.y0 + b.y1) / 2 : x - (b.x0 + b.x1) / 2;
+      top = Math.max(top, b.ridge - Math.abs(offset) * b.slope);
+    }
+    return top;
+  }
+  ceilingAt(x, y, feet) {
+    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE), i = ty * this.w + tx;
+    const b = this.buildings[this.roofByTile[i]];
+    if (!b?.active || feet >= b.eave) return Infinity;
+    return this.headerBottom[i] ? b.base + this.headerBottom[i] : b.eave;
+  }
+  landingHeight(x, y, radius = 0) {
+    let top = this.surfaceAt(x, y);
+    for (let i = 0; radius && i < 8; i++) { const a = i * Math.PI / 4; top = Math.max(top, this.surfaceAt(x + Math.cos(a) * radius, y + Math.sin(a) * radius)); }
+    return top;
+  }
+  aircraftMask(z) { return (i, tx, ty) => this.surfaceAt((tx + .5) * TILE, (ty + .5) * TILE) > z + 2; }
   inBounds(tx, ty) { return tx >= 0 && ty >= 0 && tx < this.w && ty < this.h; }
   /** wall-like solid (blocks bullets that are not see-through, grenades, explosions' reach) */
   isSolidTile(tx, ty) { return tx < 0 || ty < 0 || tx >= this.w || ty >= this.h || this.solid[ty * this.w + tx] === 1; }
@@ -112,16 +156,17 @@ export class GameMap {
   // ------------------------------------------------------------------ destruction
   onChange(fn) { this.listeners.push(fn); }
 
-  setTile(tx, ty, ch) {
+  setTile(tx, ty, ch, reason = 'edit') {
     if (!this.inBounds(tx, ty)) return false;
     const i = ty * this.w + tx;
     const old = this.chars[i];
     if (old === ch) return false;
     this.chars[i] = ch;
     this._apply(i, ch);
+    updateBuildingSupports(this, tx, ty);
     for (let dj = 0; dj <= 1; dj++) for (let di = 0; di <= 1; di++) this._refreshVertex(tx + di, ty + dj);
     this.changes.set(i, ch);
-    for (const fn of this.listeners) fn(tx, ty, old, ch);
+    for (const fn of this.listeners) fn(tx, ty, old, ch, reason);
     return true;
   }
 
@@ -136,7 +181,7 @@ export class GameMap {
     this.hp[i] = Math.max(0, this.hp[i] - dmg);
     if (this.hp[i] > 0) return null;
     const to = t.debris || '.';
-    this.setTile(tx, ty, to);
+    this.setTile(tx, ty, to, 'damage');
     return to;
   }
 
@@ -154,9 +199,9 @@ export class GameMap {
     this.vehSpawns = (o.vehicles || []).map((v, i) => {
       const def = VEHICLES[v.type];
       let x = px(v.x), y = px(v.y);
-      if (def && def.kind !== 'air') {
+      if (def) {
         const mask = def.kind === 'boat' ? this.blockBoat : this.blockInf;
-        const clear = def.kind === 'tracked' ? 2 : def.kind === 'boat' ? 1 : 1;
+        const clear = def.kind === 'air' ? 3 : def.kind === 'tracked' ? 2 : 1;
         const s = this.nearestClear(x, y, mask, clear);
         x = s.x; y = s.y;
       }
@@ -321,11 +366,11 @@ export class GameMap {
   }
 
   /** Line of sight between two points (opaque tiles only; smoke is handled by callers). */
-  los(x0, y0, x1, y1) {
+  los(x0, y0, x1, y1, z0 = this.heightAt(x0, y0) + 26, z1 = this.heightAt(x1, y1) + 26) {
     const dx = x1 - x0, dy = y1 - y0;
     const d = Math.hypot(dx, dy);
     if (d < 1e-6) return true;
-    return this.castDist(x0, y0, dx / d, dy / d, d) >= d;
+    return this.castBullet(x0, y0, z0, dx / d, dy / d, (z1 - z0) / d, d, this.opaque).d >= d - 0.01;
   }
 
   /** Can something walk in a straight line (walls and deep water block)? */
@@ -365,10 +410,11 @@ export class GameMap {
         for (let tx = tx0; tx <= tx1; tx++) {
           if (!(tx < 0 || ty < 0 || tx >= w || ty >= h)) {
             const ti = ty * w + tx;
-            if (!mask[ti]) continue;
+            const header = mask === this.blockFoot && this.headerBottom[ti] && this.buildings[this.roofByTile[ti]]?.active && z + BODY_H > this.tileBase(tx, ty) + this.headerBottom[ti] && z < this.tileBase(tx, ty) + this.wallHeights[ti];
+            if (!(typeof mask === 'function' ? mask(ti, tx, ty) : mask[ti]) && !header) continue;
             // a soldier whose feet are above a low tile (jumped onto sandbags) is not blocked by it; deep water always blocks
             const top = this.top[ti];
-            if (top > 0 && top <= z + STEP_H) continue;
+            if (top > 0 && top + this.tileBase(tx, ty) <= z + STEP_H) continue;
           }
           const minX = tx * TILE, minY = ty * TILE;
           const cx = clamp(x, minX, minX + TILE), cy = clamp(y, minY, minY + TILE);
@@ -390,21 +436,65 @@ export class GameMap {
       }
       if (!moved) break;
     }
+    if (mask === this.blockFoot) for (const b of this.dynamicBodies || []) {
+      if (b.z1 <= z + STEP_H || b.z0 >= z + BODY_H || b.id === this.ignoreRigid) continue;
+      const cx = clamp(x, b.x0, b.x1), cy = clamp(y, b.y0, b.y1), ddx = x - cx, ddy = y - cy, d = Math.hypot(ddx, ddy);
+      if (d >= r) continue;
+      if (d > .001) { x += ddx / d * (r - d); y += ddy / d * (r - d); }
+    }
     this._out.x = x; this._out.y = y;
     return this._out;
   }
 
-  /** Height of the floor under a soldier at (x,y) whose feet are at height z: the tallest low tile they can stand on, else 0. */
+  /** Move an oriented vehicle hull against solid tiles, preserving contact normals. */
+  moveHull(x, y, dx, dy, length, width, angle, mask) {
+    // Separating-axis collision between the actual oriented hull and nearby tile volumes.
+    // Substeps stop fast vehicles tunnelling through thin obstacles.
+    const c = Math.cos(angle), s = Math.sin(angle), hx = length / 2, hy = width / 2;
+    const radius = Math.hypot(hx, hy), steps = Math.max(1, Math.ceil(Math.hypot(dx, dy) / 8));
+    let nx = 0, ny = 0;
+    for (let n = 0; n < steps; n++) {
+      x += dx / steps; y += dy / steps;
+      for (let pass = 0; pass < 3; pass++) {
+        for (let ty = Math.floor((y - radius) / TILE); ty <= Math.floor((y + radius) / TILE); ty++) for (let tx = Math.floor((x - radius) / TILE); tx <= Math.floor((x + radius) / TILE); tx++) {
+          if (this.inBounds(tx, ty) && !mask[ty * this.w + tx]) continue;
+          const rx = x - (tx + .5) * TILE, ry = y - (ty + .5) * TILE;
+          let penetration = Infinity, ax = 0, ay = 0;
+          for (const [ux, uy] of [[1, 0], [0, 1], [c, s], [-s, c]]) {
+            const overlap = hx * Math.abs(c * ux + s * uy) + hy * Math.abs(-s * ux + c * uy) + TILE / 2 * (Math.abs(ux) + Math.abs(uy)) - Math.abs(rx * ux + ry * uy);
+            if (overlap <= 0) { penetration = -1; break; }
+            if (overlap < penetration) { penetration = overlap; const sign = rx * ux + ry * uy >= 0 ? 1 : -1; ax = ux * sign; ay = uy * sign; }
+          }
+          if (penetration > 0) { x += ax * (penetration + .01); y += ay * (penetration + .01); nx = ax; ny = ay; }
+        }
+      }
+    }
+    return { x, y, nx, ny };
+  }
+
+  /** Height of terrain, roofs and low rigid bodies a soldier can stand on. */
   groundAt(x, y, r, z) {
     const w = this.w;
     const fr = r * 0.6;
     const tx0 = Math.floor((x - fr) / TILE), tx1 = Math.floor((x + fr) / TILE);
     const ty0 = Math.floor((y - fr) / TILE), ty1 = Math.floor((y + fr) / TILE);
-    let best = 0;
+    let best = this.heightAt(x, y);
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
       if (tx < 0 || ty < 0 || tx >= w || ty >= this.h) continue;
-      const top = this.top[ty * w + tx];
+      const i = ty * w + tx;
+      if (!this.top[i]) continue;
+      const top = this.top[i] + this.tileBase(tx, ty);
       if (top > best && top <= z + STEP_H) best = top;
+    }
+    const roof = this.buildings[this.roofByTile[Math.floor(y / TILE) * this.w + Math.floor(x / TILE)]];
+    if (roof?.active) {
+      const offset = roof.axis === 'y' ? y - (roof.y0 + roof.y1) / 2 : x - (roof.x0 + roof.x1) / 2;
+      const top = roof.ridge - Math.abs(offset) * roof.slope;
+      if (top <= z + STEP_H) best = Math.max(best, top);
+    }
+    for (const b of this.dynamicBodies || []) if (b.id !== this.ignoreRigid && x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && b.z1 <= z + STEP_H && b.z1 > best) {
+      const d = rayBody(b.tuple, x, y, z + STEP_H, 0, 0, -1, 1000);
+      if (Number.isFinite(d)) best = Math.max(best, z + STEP_H - d);
     }
     return best;
   }
@@ -414,9 +504,16 @@ export class GameMap {
    * than their top. Returns the scratch object {d (horizontal distance travelled), tx, ty (the tile hit or -1), top (true when
    * the bullet came down onto the top of a low wall)}.
    */
-  castBullet(ox, oy, oz, dx, dy, slope, maxD) {
+  castBullet(ox, oy, oz, dx, dy, slope, maxD, mask = this.bstop) {
     const r = this._bh || (this._bh = { d: 0, tx: -1, ty: -1, top: false });
-    r.d = maxD; r.tx = -1; r.ty = -1; r.top = false;
+    r.d = maxD; r.tx = -1; r.ty = -1; r.top = false; r.ground = false; r.rigid = 0;
+    for (const b of this.dynamicBodies || []) {
+      if (b.id === this.ignoreRigid) continue;
+      const d = rayBody(b.tuple, ox, oy, oz, dx, dy, slope, maxD);
+      if (d < maxD) { maxD = d; r.d = d; r.rigid = b.id; }
+    }
+    const roof = roofHit(this.buildings, ox, oy, oz, dx, dy, slope, maxD);
+    if (roof) { r.rigid = 0; maxD = roof.d; r.d = roof.d; r.tx = roof.tx; r.ty = roof.ty; r.top = true; }
     let tx = Math.floor(ox / TILE), ty = Math.floor(oy / TILE);
     const stepX = dx > 0 ? 1 : -1, stepY = dy > 0 ? 1 : -1;
     const tDeltaX = dx !== 0 ? Math.abs(TILE / dx) : Infinity;
@@ -427,16 +524,33 @@ export class GameMap {
     for (;;) {
       if (tx < 0 || ty < 0 || tx >= this.w || ty >= this.h) { r.d = tEnter; r.tx = tx; r.ty = ty; return r; }
       const i = ty * this.w + tx;
-      if (this.bstop[i]) {
-        const tExit = Math.min(tMaxX, tMaxY, maxD);
-        const top = this.top[i];
-        const zIn = oz + slope * tEnter, zOut = oz + slope * tExit;
-        if (Math.min(zIn, zOut) < top) {
-          r.tx = tx; r.ty = ty;
-          if (zIn >= top && slope < 0) { r.d = Math.min(maxD, (top - oz) / slope); r.top = true; } else r.d = tEnter;
-          return r;
+      const tExit = Math.min(tMaxX, tMaxY, maxD);
+      // A ray crosses at most two terrain planes inside a tile. Split at their shared diagonal.
+      const diagonal = Math.abs(dx + dy) > 1e-9 ? (((tx + ty + 1) * TILE) - ox - oy) / (dx + dy) : -1;
+      const points = diagonal > tEnter + 1e-7 && diagonal < tExit - 1e-7 ? [tEnter, diagonal, tExit] : [tEnter, tExit];
+      let groundD = Infinity;
+      for (let j = 0; j < points.length - 1; j++) {
+        const a = points[j], b = points[j + 1];
+        const za = oz + slope * a - this.heightAt(ox + dx * a, oy + dy * a);
+        const zb = oz + slope * b - this.heightAt(ox + dx * b, oy + dy * b);
+        if (za < -.001) { groundD = a; break; }
+        if (zb < -.001 && zb < za) { groundD = a + (b - a) * Math.max(0, za) / (za - zb); break; }
+      }
+      const building = this.buildings[this.roofByTile[i]], header = this.headerBottom[i] && building?.active;
+      if (mask[i] || header) {
+        const base = this.tileBase(tx, ty), top = base + (header ? this.wallHeights[i] : this.top[i]);
+        const bottom = header ? base + this.headerBottom[i] : -Infinity;
+        let enter = tEnter, leave = tExit;
+        if (Math.abs(slope) < 1e-9) { if (oz < bottom || oz >= top) leave = -1; }
+        else {
+          const a = (bottom - oz) / slope, b = (top - oz) / slope;
+          enter = Math.max(enter, Math.min(a, b)); leave = Math.min(leave, Math.max(a, b));
+        }
+        if (enter <= leave && enter < maxD && enter <= groundD) {
+          r.rigid = 0; r.tx = tx; r.ty = ty; r.d = Math.max(tEnter, enter); r.top = enter > tEnter + .001; return r;
         }
       }
+      if (groundD < maxD) { r.rigid = 0; r.d = groundD; r.tx = tx; r.ty = ty; r.top = true; r.ground = true; return r; }
       if (tMaxX < tMaxY) { tEnter = tMaxX; tx += stepX; tMaxX += tDeltaX; } else { tEnter = tMaxY; ty += stepY; tMaxY += tDeltaY; }
       if (tEnter >= maxD) return r;
     }

@@ -1,7 +1,7 @@
 // Fully synthesised sound effects (no audio files to download), with simple positional audio.
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 
-class AudioEngine {
+export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.master = null;
@@ -307,6 +307,24 @@ class AudioEngine {
     const t = this.ctx.currentTime;
     this._noise(out, t, 0.55, { freq: 700, q: 0.5, gain: 0.85, sweepTo: 2200 });
     this._tone(out, t, 0.3, { type: 'sawtooth', from: 180, to: 60, gain: 0.5 });
+  }
+
+  seeker(locked) {
+    if (!this.ready() || this._throttle('seeker', locked ? 200 : 420)) return;
+    const out = this._out(null, .35);
+    this._tone(out, this.ctx.currentTime, locked ? .18 : .07, { type: 'sine', from: locked ? 1300 : 850, gain: .15 });
+  }
+
+  airWarning(threat) {
+    if (!this.ready() || this._throttle('air-warning', threat === 'incoming' ? 180 : 600)) return;
+    const out = this._out(null, .5);
+    this._tone(out, this.ctx.currentTime, .08, { type: 'square', from: threat === 'incoming' ? 1500 : 1000, to: 700, gain: .12 });
+  }
+
+  flareBurst(pos) {
+    if (!this.ready()) return;
+    const out = this._out(pos, .6, 2600); if (!out) return;
+    this._noise(out, this.ctx.currentTime, .35, { freq: 2500, gain: .7 });
   }
 
   defib(pos) {

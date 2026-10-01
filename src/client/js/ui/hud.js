@@ -1,12 +1,12 @@
 // In-game DOM UI: ticket bar, flags, health/ammo, squad, kill feed, chat, scoreboard, pause menu, banners, deploy screen.
 import { PHASE, T, CT, SPEC, GREN_ORDER, GRENADE, TEAM_NAMES, RULES, SQUAD_NAMES } from '../../shared/constants.js';
 import { WEAPONS, WEAPON_LIST, GADGET_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, CLASSES, ATTACH, resolveWeapon, ALT } from '../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
+import { VEHICLES, VEHICLE_LIST, vehicleDistance } from '../../shared/vehicles.js';
 import { audio } from '../audio.js';
 import { Minimap } from '../game/minimap.js';
 import { gunIcon } from '../game/viewmodel.js';
 import { DeployScreen } from './deploy.js';
-import { settingsHTML, bindSettings } from './settings.js';
+import { settingsHTML, bindSettings, controlsHTML } from './settings.js';
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -117,9 +117,9 @@ export class HUD {
     try { localStorage.setItem('bf.hints', '1'); } catch { /* ignore */ }
     const div = document.createElement('div');
     div.className = 'hintbar';
-    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look</span><span><kbd>LMB</kbd> fire</span><span><kbd>RMB</kbd> aim</span><span><kbd>Shift</kbd> sprint</span><span><kbd>Space</kbd> jump</span><span><kbd>C</kbd> crouch</span><span><kbd>R</kbd> reload</span><span><kbd>E</kbd> use / vehicle</span><span><kbd>G</kbd> grenade</span><span><kbd>Q</kbd> spot</span><span><kbd>L</kbd> loadout</span>';
+    div.innerHTML = '<span><kbd>WASD</kbd> move</span><span><kbd>Mouse</kbd> look / fire</span><span><kbd>RMB</kbd> aim</span><span><kbd>E</kbd> interact</span><span><kbd>Esc</kbd> controls & settings</span>';
     this.el.hud.appendChild(div);
-    setTimeout(() => div.remove(), 18000);
+    setTimeout(() => div.remove(), 8000);
   }
 
   /** kill-feed / death-card glyph for a damage source: the gun silhouette, or a short label */
@@ -178,17 +178,18 @@ export class HUD {
     // experience for the profile card on the main menu: match score plus a bonus for the win
     try { const rec = g.roster.get(g.you); const gain = (rec ? rec.s : 0) + (m.winner === g.myTeam() ? 150 : 40); localStorage.setItem('bf.xp', String((Number(localStorage.getItem('bf.xp')) || 0) + Math.max(0, Math.round(gain)))); } catch { /* ignore */ }
     const winName = m.winner < 0 ? 'Nobody' : TEAM_NAMES[m.winner];
-    const cls = m.winner === T || m.winner === CT ? (g.pt(m.winner) === 1 ? 'ct' : 't') : '';
     const mine = g.myTeam();
     const won = m.winner === mine;
     setTimeout(() => {
       if (!this.endOpen) return;
       this.el.endgame.classList.remove('hidden');
-      this.el.endgame.innerHTML = `<div class="inner card-panel end-box"><h1 style="color:var(--${cls || 'text'})">${m.winner < 0 ? 'Draw' : won ? 'Victory' : mine === SPEC ? winName + ' win' : 'Defeat'}</h1>
-        <div class="sc">${winName} win the match &nbsp;·&nbsp; tickets ${m.tix[0]} : ${m.tix[1] < 0 ? '∞' : m.tix[1]}</div>
-        ${this.scoreTables(true)}
-        <p style="color:var(--dim);margin-top:8px">${this.app.isHost() ? 'Returning to the lobby in a few seconds…' : 'Returning to the lobby…'}</p>
-        <div class="row" style="justify-content:center;margin-top:12px"><button class="btn" id="endLeave">Leave room</button></div></div>`;
+      const rec = g.roster.get(g.you), result = m.winner < 0 ? 'draw' : won ? 'win' : mine === SPEC ? 'draw' : 'lose';
+      const stat = (v, l) => `<div><b>${v}</b><span>${l}</span></div>`;
+      this.el.endgame.innerHTML = `<div class="inner end-box ${result}" role="dialog" aria-label="Match result"><div class="eb-head"><span class="eyebrow">Match complete</span><h1>${m.winner < 0 ? 'Draw' : won ? 'Victory' : mine === SPEC ? winName + ' win' : 'Defeat'}</h1>
+        <p>${winName} win the match <i></i> tickets ${m.tix[0]} : ${m.tix[1] < 0 ? '∞' : m.tix[1]}</p></div>
+        ${rec && mine !== SPEC ? `<div class="eb-stats">${stat(rec.s, 'Score')}${stat(rec.k, 'Kills')}${stat(rec.d, 'Deaths')}${stat(rec.a, 'Assists')}${stat(rec.rv, 'Revives')}${stat(rec.cp, 'Captures')}</div>` : ''}
+        <div class="eb-tables">${this.scoreTables(true)}</div>
+        <div class="eb-foot"><span>${this.app.isHost() ? 'Returning to the lobby in a few seconds…' : 'Returning to the lobby…'}</span><button class="btn" id="endLeave">Leave room</button></div></div>`;
       const b = $('endLeave'); if (b) b.onclick = () => this.app.leaveRoom();
     }, 2200);
     if (g.myTeam() === m.winner) audio.roundWin(); else audio.roundLose();
@@ -236,6 +237,7 @@ export class HUD {
 
   openChat(team) {
     if (this.chatOpen) return;
+    this.game.input.reset();
     this.chatOpen = true; this.chatTeam = team && this.game.myTeam() !== SPEC;
     this.el.chatTag.textContent = this.chatTeam ? 'TEAM' : 'ALL';
     this.el.chatbox.classList.remove('hidden');
@@ -257,33 +259,34 @@ export class HUD {
     this.pauseOpen ? this.closePause() : this.openPause();
   }
 
-  openPause() {
+  openPause(tab = 'game') {
+    this.game.input.reset();
     this.pauseOpen = true;
     document.body.classList.add('menu-open');
     const el = this.el.pause;
     el.classList.remove('hidden');
     const g = this.game, mt = g.myTeam();
-    el.innerHTML = `<div class="inner card-panel pause-box">
-      <h2>Paused</h2>
-      <div style="color:var(--dim);font-size:12px">The match keeps running while you're in this menu.</div>
-      <div><span class="label">Team</span><div class="seg" id="pauseTeam">
-        <button data-t="0" class="${mt === T ? 'on' : ''}">${TEAM_NAMES[0]}</button><button data-t="1" class="${mt === CT ? 'on' : ''}">${TEAM_NAMES[1]}</button><button data-t="2" class="${mt === SPEC ? 'on' : ''}">Spectate</button></div></div>
-      <div><span class="label">Squad</span><div class="seg" id="pauseSquad">${[0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}">${'ABCDEFGH'[i]}</button>`).join('')}</div></div>
-      ${settingsHTML(g)}
-      <div class="ctrl-grid"><kbd>WASD</kbd><span>Move</span><kbd>Mouse</kbd><span>Look / aim</span><kbd>LMB</kbd><span>Fire</span><kbd>RMB</kbd><span>Aim down sights / scope</span>
-      <kbd>Shift</kbd><span>Sprint (forward)</span><kbd>Space</kbd><span>Jump (hop onto low cover)</span><kbd>C</kbd><span>Crouch (hold)</span><kbd>R</kbd><span>Reload</span>
-      <kbd>E</kbd><span>Enter / exit vehicle, revive, arm M-COM</span><kbd>G</kbd><span>Grenade</span><kbd>X</kbd><span>Knife</span><kbd>Wheel</kbd><span>Cycle weapons</span>
-      <kbd>Q</kbd><span>Spot enemy</span><kbd>V</kbd><span>Ping</span><kbd>L</kbd><span>Loadout</span><kbd>M</kbd><span>Big map</span><kbd>Tab</kbd><span>Scoreboard</span>
-      <kbd>Space</kbd><span>Brake (vehicles)</span><kbd>1-4</kbd><span>Weapons / gadgets (seats in vehicles)</span><kbd>Enter</kbd><span>Team chat</span><kbd>Y</kbd><span>All chat</span></div>
-      <div class="row"><button class="btn primary" id="resumeBtn" style="flex:1">Resume</button>
-      ${this.app.isHost() ? '<button class="btn" id="endMatchBtn">End match</button>' : ''}
-      <button class="btn danger" id="leaveBtn">Leave</button></div></div>`;
+    const tabs = [['game', 'Match'], ['settings', 'Settings'], ['controls', 'Controls']];
+    const seg = (id, items) => `<div class="seg" id="${id}" role="group">${items.join('')}</div>`;
+    const pane = tab === 'settings' ? settingsHTML(g) : tab === 'controls' ? controlsHTML() : `
+      <section class="set-group"><h4>Team</h4>${seg('pauseTeam', [[0, TEAM_NAMES[0], T], [1, TEAM_NAMES[1], CT], [2, 'Spectate', SPEC]].map(([v, l, t]) => `<button data-t="${v}" class="${mt === t ? 'on' : ''}" aria-pressed="${mt === t}">${l}</button>`))}<p class="field-note">Changing team respawns you.</p></section>
+      <section class="set-group"><h4>Squad</h4>${seg('pauseSquad', [0, 1, 2, 3, 4, 5, 6, 7].map((i) => `<button data-s="${i}" class="${g.mySquad() === i ? 'on' : ''}" aria-pressed="${g.mySquad() === i}">${'ABCDEFGH'[i]}</button>`))}<p class="field-note">Squad mates share spawn points and supplies.</p></section>
+      <section class="set-group"><h4>Loadout</h4><button class="btn" id="changeKit">Change loadout <kbd>L</kbd></button><p class="field-note">New kit applies the next time you spawn.</p></section>`;
+    el.innerHTML = `<div class="inner pause-box" role="dialog" aria-label="Paused">
+      <div class="pb-head"><div><h2>Paused</h2><p>The match keeps running while this menu is open.</p></div><button class="btn primary" id="resumeBtn">Resume <kbd>Esc</kbd></button></div>
+      <div class="pb-tabs" role="tablist">${tabs.map(([k, l]) => `<button data-ptab="${k}" class="${tab === k ? 'on' : ''}" aria-pressed="${tab === k}">${l}</button>`).join('')}</div>
+      <div class="pb-body">${pane}</div>
+      <div class="pb-foot">${this.app.isHost() ? '<button class="btn" id="endMatchBtn">End match for everyone</button>' : '<span></span>'}<button class="btn danger" id="leaveBtn">Leave match</button></div></div>`;
     $('resumeBtn').onclick = () => this.closePause();
     $('leaveBtn').onclick = () => { this.closePause(); this.app.leaveRoom(); };
     const em = $('endMatchBtn'); if (em) em.onclick = () => { this.net.send({ t: 'lobby' }); this.closePause(); };
-    bindSettings(el, g);
-    $('pauseTeam').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'team', team: Number(b.dataset.t) }); this.closePause(); } };
-    $('pauseSquad').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'a', a: 'squad', n: Number(b.dataset.s) }); this.closePause(); } };
+    el.querySelectorAll('[data-ptab]').forEach((b) => { b.onclick = () => this.openPause(b.dataset.ptab); });
+    if (tab === 'settings') bindSettings(el, g);
+    if (tab === 'game') {
+      $('pauseTeam').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'team', team: Number(b.dataset.t) }); this.closePause(); } };
+      $('pauseSquad').onclick = (e) => { const b = e.target.closest('button'); if (b) { this.net.send({ t: 'a', a: 'squad', n: Number(b.dataset.s) }); this.closePause(); } };
+      $('changeKit').onclick = () => { this.closePause(); this.deploy.show(true); };
+    }
     el.onclick = (e) => { if (e.target === el) this.closePause(); };
   }
 
@@ -302,7 +305,7 @@ export class HUD {
   renderScore() {
     const g = this.game, s = this.app.room || {};
     const modeName = { conquest: 'Conquest', rush: 'Rush', tdm: 'Team Deathmatch' }[g.mode] || '';
-    this.el.score.innerHTML = `<div class="inner card-panel"><div class="sb-head"><h2>${esc(g.map ? g.map.name : '')} · ${modeName}</h2><small>Room <b>${esc(s.code || '')}</b></small></div>${this.scoreTables(false)}</div>`;
+    this.el.score.innerHTML = `<div class="inner score-box"><div class="sb-head"><h2>${esc(g.map ? g.map.name : '')}<span>${modeName}</span></h2><small>Room <b>${esc(s.code || '')}</b> · release <kbd>Tab</kbd> to close</small></div>${this.scoreTables(false)}</div>`;
   }
 
   scoreTables(final) {
@@ -316,7 +319,7 @@ export class HUD {
       if (team === SPEC && !list.length) continue;
       const tix = g.tix[team];
       const head = team === SPEC ? list.length : g.mode === 'tdm' ? tix : (tix < 0 ? '∞' : Math.max(0, Math.ceil(tix)));
-      html += `<div class="sb-team ${['t', 'ct', 's'][g.pt(team)]}"><h3><span>${TEAM_NAMES[team]}</span><span>${head}${team === SPEC ? '' : g.mode === 'tdm' ? ' kills' : ' tickets'}</span></h3><table class="sb-table"><tr><th>Player</th>${team === SPEC ? '' : '<th>Score</th><th>K</th><th>D</th><th>A</th><th>Rev</th><th>Cap</th>'}<th>Ping</th></tr>`;
+      html += `<div class="sb-team ${['t', 'ct', 's'][g.pt(team)]}"><h3><span>${TEAM_NAMES[team]}</span><span>${head}${team === SPEC ? '' : g.mode === 'tdm' ? ' kills' : ' tickets'}</span></h3><table class="sb-table"><tr><th>Player</th>${team === SPEC ? '' : '<th>Score</th><th>Kills</th><th>Deaths</th><th>Assists</th><th>Revives</th><th>Captures</th>'}<th>Ping</th></tr>`;
       for (const p of list) {
         html += `<tr class="${p.id === g.you ? 'me' : ''} ${p.al || team === SPEC || final ? '' : 'dead'}"><td>${team === SPEC ? '' : `<span class="cls" style="background:${CLS_COL[p.cl] || '#888'}">${CLS_LETTER[p.cl] || 'A'}</span>`}${esc(p.n)}${p.b ? '<span class="bot">BOT</span>' : ''}${p.id === g.hostId ? '<span class="bot">HOST</span>' : ''}${p.sq >= 0 && team !== SPEC ? `<span class="bot">${'ABCDEFGH'[p.sq] || ''}</span>` : ''}</td>`;
         if (team !== SPEC) html += `<td>${p.s}</td><td>${p.k}</td><td>${p.d}</td><td>${p.a}</td><td>${p.rv}</td><td>${p.cp}</td>`;
@@ -510,7 +513,7 @@ export class HUD {
     else if (gadIdx >= 0) {
       const gd = GADGET_LIST[gadIdx];
       name = gd.name;
-      if (gd.kind === 'launcher') { clipTxt = me.clip; resTxt = '/' + me.res; img = gunIcon(gd.id, 'launcher', null, 420, 170); mode = 'ROCKET'; } else if (gd.charges > 0) clipTxt = me.clip;
+      if (gd.kind === 'launcher') { clipTxt = me.clip; resTxt = '/' + me.res; img = gunIcon(gd.id, 'launcher', null, 420, 170); mode = gd.aa ? 'LOCK-ON' : 'ROCKET'; } else if (gd.charges > 0) clipTxt = me.clip;
     }
     this.set('clip', String(clipTxt), (v) => { el.clip.textContent = v; el.clip.classList.toggle('low', !!(w && w.kind !== 'knife' && Number(v) <= Math.ceil(w.mag * 0.25))); });
     this.set('res', resTxt, (v) => { el.reserve.textContent = v; });
@@ -549,8 +552,11 @@ export class HUD {
       return `<div class="seat ${i === v.seat ? 'me' : ''}"><kbd>${i + 1}</kbd><span>${esc(s.name)}</span><b>${pid ? esc(g.nameOf(pid)) : '—'}</b></div>`;
     }).join('');
     const sd = def.seats[v.seat];
-    const ammo = v.mag ? `${v.ammo}/${v.mag}${v.rel > 0 ? ' reloading' : ''}` : (sd.weapon ? 'ready' : '');
-    const html = `<h4>${esc(def.name)}</h4><div class="vhp"><i style="width:${Math.max(0, v.hp / v.mhp * 100)}%;background:${v.hp / v.mhp > 0.5 ? 'var(--good)' : v.hp / v.mhp > 0.25 ? '#f5c542' : 'var(--bad)'}"></i></div>${sd.weapon ? `<div class="seat me"><span>${esc(v.wn)}</span><b>${ammo}</b></div>` : ''}${seats}<div class="hint"><kbd>E</kbd> exit · <kbd>1-${def.seats.length}</kbd> seat${def.kind === 'wheeled' || def.kind === 'boat' ? ' · <kbd>Space</kbd> brake' : ''}</div>`;
+    const ammo = v.mag ? `${v.ammo}/${v.mag}${v.rel > 0 ? ' reloading' : ''}` : (sd.weapon ? v.cd > .05 ? `Reloading ${v.cd.toFixed(1)}s` : 'ready' : '');
+    const flight = def.kind === 'air' ? `<div class="seat me"><span>Altitude above ground</span><b>${Math.max(0, (v.z - g.map.heightAt(v.x, v.y)) / 16).toFixed(1)} m</b></div><div class="seat"><span>Vertical speed</span><b>${((v.vz || 0) / 16).toFixed(1)} m/s</b></div>` : '';
+    const countermeasures = def.kind === 'air' ? `<div class="seat me"><span>Flares <kbd>Z</kbd></span><b>${v.flares?.[0] || 0} / ${!v.flares?.[0] ? 'EMPTY' : v.flares?.[2] > 0 ? 'ACTIVE' : v.flares?.[1] > 0 ? v.flares[1].toFixed(1) + 's' : 'READY'}</b></div>${v.threat ? `<div class="seat me" style="color:#ff745f"><b>${v.threat === 'incoming' ? 'MISSILE INCOMING — Z FLARES' : 'ENEMY ACQUIRING LOCK'}</b></div>` : ''}` : '';
+    const speed = `<div class="seat"><span>Speed</span><b>${(Math.hypot(v.vx, v.vy) / 16 * 3.6).toFixed(0)} km/h</b></div>`;
+    const html = `<h4>${esc(def.name)}</h4>${speed}${flight}${countermeasures}<div class="vhp"><i style="width:${Math.max(0, v.hp / v.mhp * 100)}%;background:${v.hp / v.mhp > 0.5 ? 'var(--good)' : v.hp / v.mhp > 0.25 ? '#f5c542' : 'var(--bad)'}"></i></div>${sd.weapon ? `<div class="seat me"><span>${esc(v.wn)}</span><b>${ammo}</b></div>` : ''}${seats}<div class="hint"><kbd>E</kbd> exit · <kbd>1-${def.seats.length}</kbd> seat · <kbd>V</kbd> view<br>${v.seat === 0 ? `<kbd>W/S</kbd> drive · <kbd>A/D</kbd> ${def.kind === 'air' ? 'strafe' : 'steer'} · <kbd>Space</kbd> brake` : ''}${def.kind === 'air' && v.seat === 0 ? '<br><kbd>Shift</kbd> climb · <kbd>Ctrl / C</kbd> descend' : ''}${sd.weapon ? '<br><kbd>Mouse</kbd> aim · <kbd>LMB</kbd> fire · <kbd>RMB</kbd> zoom' : ''}</div>`;
     this.set('veh', html, (h) => { box.innerHTML = h; box.classList.remove('hidden'); });
   }
 
@@ -560,20 +566,22 @@ export class HUD {
     if (me && me.own && g.alive) {
       const px = g.viewer() ? g.viewer().x : me.x, py = g.viewer() ? g.viewer().y : me.y;
       if (me.pl > 0) { prog = me.pl; plabel = me.plk === 'revive' ? 'Reviving…' : me.plk === 'disarm' ? 'Disarming M-COM…' : 'Arming M-COM…'; }
-      else if (me.veh) text = 'Press <kbd>E</kbd> to exit';
+      else if (me.veh) text = '';
       else {
         // vehicle to board?
         let near = null, nd = 40;
         for (const v of g.vehiclesDrawn()) {
-          if (!v.def) continue;
-          const d = Math.hypot(v.x - px, v.y - py) - v.def.r;
+          const def = VEHICLES[VEHICLE_LIST[v.ty]];
+          if (!def || Math.abs(v.z - (g.viewer()?.z ?? me.z)) > 48) continue;
+          const d = vehicleDistance({ ...v, def }, px, py);
           const mine = v.team === g.myTeam() || v.team < 0 || v.occ === 0;
-          if (d < nd && mine && v.occ !== (1 << v.def.seats.length) - 1) { nd = d; near = v; }
+          if (d < nd && mine && v.occ !== (1 << def.seats.length) - 1) { nd = d; near = { ...v, def }; }
         }
         const mc = g.mcomList().find((m) => m.state !== 2 && Math.hypot(m.x - px, m.y - py) < 48);
         const corpse = (g.ents.cp || []).find((c) => Math.hypot(c[1] - px, c[2] - py) < 56);
         const gd = me.held >= HELD_GADGET_BASE ? GADGET_LIST[me.held - HELD_GADGET_BASE] : null;
-        if (near) text = `Press <kbd>E</kbd> to enter ${esc(near.def.name)}`;
+        if (gd?.aa) text = me.rel > 0 ? 'Reloading Stinger…' : me.lk?.[1] >= 1 ? 'Target locked — <kbd>LMB</kbd> launch' : me.lk ? 'Hold <kbd>RMB</kbd> — acquiring aircraft' : 'Hold <kbd>RMB</kbd> on an enemy helicopter to lock';
+        else if (near) text = `Press <kbd>E</kbd> to enter ${esc(near.def.name)}`;
         else if (mc && g.myTeam() === T && mc.state === 0) text = 'Hold <kbd>E</kbd> to arm the M-COM';
         else if (mc && g.myTeam() === CT && mc.state === 1) text = 'Hold <kbd>E</kbd> to disarm the M-COM';
         else if (corpse && gd && gd.id === 'defib') text = `Hold <kbd>LMB</kbd> to revive ${esc(g.nameOf(corpse[0]))}`;

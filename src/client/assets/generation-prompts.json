@@ -1,0 +1,37 @@
+{
+  "tool": "built-in image_gen",
+  "assets": [
+    {
+      "asset": "hero",
+      "prompt": "Use case: stylized-concept. Asset type: production game main-menu background artwork, landscape 16:9. Primary request: cinematic modern combined-arms battlefield at a ruined river crossing at golden hour, believable detailed semi-realistic game art. One equipped infantry soldier with matte olive helmet, plate carrier and carbine seen from behind in the central-right foreground, a battle tank on the dusty road, small distant helicopter, broken concrete industrial buildings, river glinting through ruins, windblown dust and distant smoke. Warm amber rim light and cool slate shadows, restrained earth colors, photographic depth and material detail. Composition: quiet dark empty left third to accommodate the game menu, focal soldier at 58% horizontal position, distant river crossing in center, darkest corners. No text, UI, logos, watermark, borders or split panels. Wide landscape."
+    },
+    {
+      "asset": "camo",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square base-color texture for Blender/glTF military uniforms and field equipment in a first-person game. Primary request: realistic matte ripstop fabric with irregular modern woodland camouflage patches in muted sage olive, khaki tan, earthy brown and charcoal. Orthographic flat scan filling entire square edge to edge, evenly lit diffuse albedo with no shadows, highlights, folds, perspective or objects. Fine woven fiber grain visible, natural medium-size organic camouflage shapes, no symbols, logos, text, border or watermark. Tileable on all four edges. Make a single cohesive texture, not a collage."
+    },
+    {
+      "asset": "concrete",
+      "prompt": "Use case: stylized-concept. Asset type: production seamless square weathered concrete diffuse albedo texture for destructible buildings in a first-person battlefield game. Flat orthographic scan of aged pale warm-gray cement, small aggregate, fine hairline cracks, chipped pores and subtle dusty brown weathering. Restrained contrast, believable tactile surface, uniform detail over entire square, neutral flat illumination, no directional shadows, perspective, large objects, seams, border, words or logos. Truly tileable on all four edges. A single material filling the canvas."
+    },
+    {
+      "asset": "metal",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square game material base-color texture for painted metal weapon receivers and military vehicle armor. Flat orthographic scan filling the entire canvas of neutral medium-light gray matte ceramic-coated metal with fine powder-coat grain, subtle edge-like scuffs scattered evenly, tiny scratches and restrained dust speckles. Neutral monochrome so it can be color tinted in Blender; mostly intact finish, mild battle wear, low contrast. Uniform diffuse lighting, no baked directional highlights, shadows, perspective, recognizable objects, text, watermark or border. Tileable all four sides. Single material, not collage."
+    },
+    {
+      "asset": "brick",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square diffuse base-color material for brick building walls in a first-person battlefield game. Primary request: weathered muted clay-red and dusty brown bricks laid in precisely seamless running bond, 4 bricks across by 8 horizontal courses filling the square. Narrow recessed warm-gray mortar, irregular chipped corners, fine pores, faint soot and pale mineral weathering with natural restrained color variation. Flat orthographic material scan, diffuse neutral even illumination, no directional shadows or highlights, no perspective, no building silhouette, no large cracks, no text or watermark. Tileable on all four edges, continuous repeating brick bond. Realistic surface detail, muted earthy palette, single material filling the canvas."
+    },
+    {
+      "asset": "grass",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square diffuse ground base-color texture for a first-person battlefield game's terrain. Primary request: flat overhead material scan of short sparse olive meadow grass, dry straw blades, dusty tan soil patches, tiny stones and broken leaf litter, mottled organic distribution. Natural subdued olive, earth brown and straw palette, high-frequency fine detail with soft low-frequency changes. Covers approximately four by four meters. Even diffuse illumination, no baked directional shadows or highlights. No long grass stalks, objects, animals, tracks, flowers, borders, text or watermark. Seamless on all four edges. Single cohesive terrain material, no collage."
+    },
+    {
+      "asset": "oak-foliage",
+      "prompt": "Use case: stylized-concept. Asset type: transparent foliage cutout texture for alpha-tested leaf cards on a realistic Blender oak tree in a first-person battlefield game. Primary request: one naturally irregular small oak branch carrying approximately 30 individual green oak leaves, with visible leaf lobes, thin twigs and several overlapping leaf clusters. Entire branch and every leaf fully in frame, isolated with generous irregular transparent gaps between leaves and clusters; no solid canopy silhouette. Natural muted medium green with some olive leaves, fine veins and subtle material variation, soft neutral diffuse lighting, no cast shadow. Flat front-facing botanical material cutout, realistic photographed detail suitable for foliage cards. Square composition filling most of canvas, no pot, trunk, landscape, text, logos, border, watermark or background. Actual transparent alpha background."
+    },
+    {
+      "asset": "oak-bark",
+      "prompt": "Use case: stylized-concept. Asset type: seamless square diffuse albedo bark material for a realistic Blender tree trunk in a first-person battlefield game. Primary request: weathered oak bark, vertically oriented irregular fissures and ridges, restrained gray-brown color, subtle olive moss speckling in crevices and fine tactile detail. Orthographic flat material scan filling the square edge to edge, neutral even diffuse illumination, no directional highlights or shadows, no perspective, no tree silhouette, leaves, border, text or watermark. Truly tileable on all four edges, vertical bark structure. One cohesive material, no collage."
+    }
+  ]
+}

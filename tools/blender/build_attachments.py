@@ -13,7 +13,7 @@ prev = '--preview' in sys.argv
 reset()
 mm = guns.M()
 poly, poly_l, steel, gunm, slot, rubber = mm['poly'], mm['poly_l'], mm['steel'], mm['gunm'], mm['slot'], mm['rubber']
-glass = mat('glass', (0.35, 0.6, 0.75), 0.0, 0.05, alpha=0.32)
+glass = mat('glass', (0.35, 0.6, 0.75), 0.0, 0.05, alpha=0.08)
 glass_dark = mat('glass_dark', (0.02, 0.05, 0.08), 0.0, 0.05, alpha=0.55)
 lens_amber = mat('lens_amber', (0.6, 0.35, 0.05), 0.0, 0.1, alpha=0.6)
 led_white = mat('led_white', (1, 1, 0.9), 0.0, 0.3, emit=(1, 0.97, 0.85), emit_strength=8)
@@ -43,7 +43,7 @@ def optic_holo():
     for s in (1, -1):
         B.box(poly, (0.0, s * 0.0205, 0.033), (0.078, 0.005, 0.045), bevel=0.002)
     B.box(poly, (-0.0, 0, 0.0575), (0.078, 0.046, 0.006), bevel=0.002)
-    B.box(poly, (0.0385, 0, 0.038), (0.005, 0.04, 0.02), bevel=0.0015)                   # front lower bar
+    B.box(poly, (0.0385, 0, 0.014), (0.005, 0.04, 0.008), bevel=0.0015)                   # front lower bar
     B.box(glass, (0.022, 0, 0.0345), (0.0012, 0.036, 0.038), bevel=0.0003, seg=1)
     B.cyl(mm['red'], (0.02, 0, 0.034), (0.0225, 0, 0.034), 0.0017, verts=8)
     for k in range(8):
@@ -185,7 +185,7 @@ reset()
 mm = guns.M()
 glove = mat('glove', srgb('#2a2c31'), 0.0, 0.75)
 glove_l = mat('glove_light', srgb('#3c3f47'), 0.0, 0.7)
-sleeve = mat('sleeve', srgb('#5a6a45'), 0.0, 0.85)
+sleeve = image_mat('sleeve', 'skins/woodland-runtime.jpg', rough=0.88)
 skin = mat('skin', srgb('#c99a78'), 0.0, 0.6)
 steel = mm['steel']
 

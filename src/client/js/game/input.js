@@ -20,9 +20,10 @@ export class Input {
     this.adsToggle = false;         // right mouse toggles aiming instead of holding
     this.wantLock = () => false;    // game callback: should a click capture the mouse right now?
     this.enabled = false;        // false while a menu / chat box is capturing input
+    this.isBlocked = () => false;
     this.handlers = {};          // name -> fn (edge-triggered actions)
     this.bindings = {
-      KeyR: 'reload', KeyE: 'use', KeyF: 'alt', KeyQ: 'spot', KeyX: 'slot6', KeyB: 'last', KeyL: 'deploy',
+      KeyR: 'reload', KeyE: 'use', KeyF: 'alt', KeyQ: 'spot', KeyX: 'slot6', KeyB: 'last', KeyL: 'deploy', KeyZ: 'flares',
       Digit1: 'slot1', Digit2: 'slot2', Digit3: 'slot3', Digit4: 'slot4', Digit5: 'slot5', Digit6: 'slot6',
       Tab: 'score', Enter: 'chatTeam', KeyY: 'chatAll', KeyU: 'chatTeam', KeyV: 'ping', KeyM: 'bigmap', Escape: 'menu',
       Space: 'next', KeyG: 'slot5', KeyH: 'freecam', KeyN: 'togglefog',
@@ -46,9 +47,19 @@ export class Input {
     document.addEventListener('pointerlockerror', () => { this.lockErrors = (this.lockErrors || 0) + 1; if (this.lockErrors >= 4) this.lockDenied = true; });
     window.addEventListener('mousedown', (e) => this.onMouse(e, true));
     window.addEventListener('mouseup', (e) => this.onMouse(e, false));
-    window.addEventListener('contextmenu', (e) => { if (this.enabled) e.preventDefault(); });
-    window.addEventListener('wheel', (e) => { if (this.enabled) { this.fire('wheel', e.deltaY > 0 ? 1 : -1); } }, { passive: true });
-    window.addEventListener('blur', () => { this.down.clear(); this.left = this.right = false; });
+    window.addEventListener('contextmenu', (e) => { if (this.canAct()) e.preventDefault(); });
+    window.addEventListener('wheel', (e) => { if (this.canAct() && !this.isTyping()) this.fire('wheel', e.deltaY > 0 ? 1 : -1); }, { passive: true });
+    window.addEventListener('blur', () => this.reset());
+  }
+
+  canAct() { return this.enabled && !this.isBlocked(); }
+
+  reset() {
+    this.down.clear();
+    this.left = this.right = false;
+    this.pending = 0;
+    this.look.dx = this.look.dy = 0;
+    this.fire('score', false);
   }
 
   on(name, fn) { this.handlers[name] = fn; }
@@ -79,16 +90,24 @@ export class Input {
   }
 
   onKey(e, down) {
+    // Releases must reach us even when chat or a settings field now has focus.
+    if (!down) {
+      this.down.delete(e.code);
+      if (this.bindings[e.code] === 'score') this.fire('score', false);
+      if (this.bindings[e.code] === 'use') this.fire('useUp');
+      return;
+    }
     if (this.isTyping()) return;
     const code = e.code;
     if (down) {
       if (e.repeat) { if (this.enabled && (code in this.bindings || code.startsWith('Arrow') || code === 'Tab')) e.preventDefault(); return; }
+      const act = this.bindings[code];
+      if (!this.enabled) return;
+      if (act === 'menu' || act === 'deploy') { this.fire(act); e.preventDefault(); return; }
+      if (!this.canAct()) return;
       this.down.add(code);
       if (code === 'KeyE') this.pending |= KEY.USE;
-      const act = this.bindings[code];
-      if (act === 'menu') { this.fire('menu'); e.preventDefault(); return; }
       if (act === 'score') { e.preventDefault(); this.fire('score', true); return; }
-      if (!this.enabled) return;
       if (act) { e.preventDefault(); this.fire(act, e); }
       else if (code.startsWith('Arrow') || code === 'Space') e.preventDefault();
     } else {
@@ -99,6 +118,10 @@ export class Input {
   }
 
   onMouse(e, down) {
+    if (!this.canAct() || this.isTyping()) {
+      if (!down) { if (e.button === 0) this.left = false; if (e.button === 2 && !this.adsToggle) this.right = false; }
+      return;
+    }
     if (e.target !== this.canvas && !(e.target.closest && e.target.closest('#hud'))) {
       if (!down) { if (e.button === 0) this.left = false; if (e.button === 2 && !this.adsToggle) this.right = false; }
       return;
@@ -116,7 +139,7 @@ export class Input {
 
   /** Movement / action bits for this tick. */
   keys() {
-    if (!this.enabled) return 0;
+    if (!this.canAct() || this.isTyping()) { this.reset(); return 0; }
     const d = this.down;
     let k = 0;
     if (d.has('KeyW') || d.has('ArrowUp')) k |= KEY.UP;

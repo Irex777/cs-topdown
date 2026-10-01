@@ -109,5 +109,5 @@ export default {
     grass: '#6a9a4c', grass2: '#628f45', road: '#4d525a', concrete: '#9a9a96', sand: '#d2bf90', deep: '#28629f', shallow: '#58a9c9',
     brick: '#a9584a', rock: '#6f7378', crate: '#b08348', metal: '#4f7fa8', tree: '#3d7c38', accent: '#66c8ff', fog: [8, 12, 20],
   },
-  rows: built.rows, objects: built.objects,
+  elevation: true, rows: built.rows, objects: built.objects,
 };

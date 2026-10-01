@@ -20,7 +20,7 @@ function adaptLegacy(def) {
   }).join(''));
   const t = def.theme || {};
   return {
-    ...def, rows: out, modes: ['tdm'],
+    ...def, rows: out, modes: ['tdm'], elevation: true,
     theme: {
       grass: t.floor, grass2: t.floor2, concrete: t.floor, road: t.floor2, brick: t.wallTop, rock: t.wall, crate: t.crate, accent: t.accent, fog: t.fog,
       sand: t.floor, metal: t.crate, tree: '#3f7f3a', legacy: true,

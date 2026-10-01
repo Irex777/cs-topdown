@@ -6,6 +6,7 @@ import { throwGrenade } from './grenades.js';
 import { useGadget } from './gadgets.js';
 import { spawnProjectile } from './projectiles.js';
 import { damageVehicle } from './vehicles.js';
+import { explode } from './world.js';
 
 const MAX_RANGE = 2800;
 const tmp = { x: 0, y: 0, z: 0, cf: 0, alive: false };
@@ -145,6 +146,14 @@ export function tryFire(game, p, held, edge, vt, aimDist, keys) {
       damageVehicle(game, r.veh, dmg, p, w.id, 'bullet');
       if (p.conn && i === 0) game.emit(['hitm', 1, 0, 0], 0, 0, 0, p.id);
     }
+    if (r.rigid) { game.physics?.hit(r.rigid, w.dmg * fall, ang, pit, p); kind = 1; }
+    else if (r.tile && r.tx >= 0) {
+      const ch = game.map.charAt(r.tx, r.ty);
+      const damage = ch === 'G' || ch === 'o' || ch === 'X' || ch === '=' ? w.dmg * fall : w.dmg * fall * .08;
+      const destroyed = game.map.damageTile(r.tx, r.ty, damage);
+      if (destroyed && ch === 'o') explode(game, { x: (r.tx + .5) * 32, y: (r.ty + .5) * 32, radius: 95, dmg: 70, veh: 60, tile: 150, owner: p, wid: 'barrel', kind: 'barrel' });
+      if (i === 0) game.emit(['material', ch, Math.round(ox + Math.cos(ang) * r.dist), Math.round(oy + Math.sin(ang) * r.dist), Math.round(r.z), .25], ox, oy, 900);
+    }
     emitShot(game, p, w.idx, ox, oy, oz, ang, pit, r, kind, i === 0 ? 0 : 1, w.suppressed ? 1 : 0, w.suppressed ? 700 : 2200);
   }
 }
@@ -153,7 +162,7 @@ function emitShot(game, p, widx, ox, oy, oz, ang, pit, r, kind, sub, supp, radiu
   game.emit(['shot', p.id, widx, Math.round(ox), Math.round(oy), Math.round(ang * 1000) / 1000, Math.round(r.dist), kind, sub, supp, Math.round(oz * 10) / 10, Math.round(pit * 1000) / 1000], ox, oy, radius);
 }
 
-function lagTick(game, vt) {
+export function lagTick(game, vt) {
   if (vt > 0 && game.time - vt < 0.4 && vt <= game.time + 0.05) return vt / DT;
   return 0;
 }
@@ -216,7 +225,7 @@ export function castRay(game, ox, oy, oz, ang, pitch, opts) {
   const dx = Math.cos(ang), dy = Math.sin(ang);
   const slope = Math.tan(pitch);
   const wall = map.castBullet(ox, oy, oz, dx, dy, slope, opts.range);
-  const wallD = wall.d, wallTile = wall.tx >= 0;
+  const wallD = wall.d, wallTile = wall.tx >= 0, rigid = wall.rigid || 0;
   let best = wallD, target = null, veh = null, head = false, leg = false;
   const tf = opts.tf || 0;
   for (const q of game.players.values()) {
@@ -242,10 +251,10 @@ export function castRay(game, ox, oy, oz, ang, pitch, opts) {
     const c = chord(ox, oy, dx, dy, v.x, v.y, v.def.hr * 0.92);
     if (!c) continue;
     const zr = v.def.zr || [0, 26];
-    const d = bandHit(oz, slope, c[0], c[1], zr[0], zr[1]);
+    const d = bandHit(oz, slope, c[0], c[1], v.z + zr[0], v.z + zr[1]);
     if (d >= 0 && d < best) { best = d; veh = v; target = null; head = leg = false; }
   }
-  return { dist: best, z: oz + slope * best, target, veh, head, leg, tile: !target && !veh && wallTile && wallD < opts.range };
+  return { dist: best, z: oz + slope * best, target, veh, head, leg, rigid: !target && !veh ? rigid : 0, tx: wall.tx, ty: wall.ty, tile: !target && !veh && wallTile && wallD < opts.range };
 }
 
 function swingKnife(game, p, w) {

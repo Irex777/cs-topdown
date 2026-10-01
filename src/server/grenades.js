@@ -17,9 +17,10 @@ export function throwGrenade(game, p, aimDist) {
   const dx = Math.cos(p.angle), dy = Math.sin(p.angle);
   let sx = p.x + dx * 16, sy = p.y + dy * 16;
   if (!game.map.clearLine(p.x, p.y, sx, sy)) { sx = p.x; sy = p.y; }
-  const v0 = dist * GREN_DRAG;
-  const g = { id: game.nextId++, type, owner: p.id, team: p.team, x: sx, y: sy, vx: dx * v0, vy: dy * v0, t: 0, fuse: GRENADE[type].fuse };
+  const v0 = dist * .85;
+  const g = { id: game.nextId++, type, owner: p.id, team: p.team, x: sx, y: sy, vx: dx * v0, vy: dy * v0, z: p.eyeZ, vz: 75 + Math.sin(p.pitch || 0) * 60, t: 0, fuse: GRENADE[type].fuse };
   game.grenades.push(g);
+  game.physics?.grenade(g);
   game.emit(['nade', type, Math.round(sx), Math.round(sy), p.id], sx, sy, 800);
   // choose what to hold next
   if (p.grenades[type] <= 0) {
@@ -35,16 +36,26 @@ export function updateGrenades(game, dt) {
   for (let i = game.grenades.length - 1; i >= 0; i--) {
     const g = game.grenades[i];
     g.t += dt;
+    const rigid = game.physics?.grenadeBodies.get(g.id);
+    if (rigid) {
+      g.x = rigid.position.x * 16; g.y = rigid.position.y * 16; g.z = rigid.position.z * 16;
+      g.vx = rigid.velocity.x * 16; g.vy = rigid.velocity.y * 16; g.vz = rigid.velocity.z * 16;
+    } else {
     const k = Math.exp(-GREN_DRAG * dt);
     g.vx *= k; g.vy *= k;
     let nx = g.x + g.vx * dt, ny = g.y + g.vy * dt;
     const px = nx + Math.sign(g.vx) * 4, py = ny + Math.sign(g.vy) * 4;
-    if (map.isSolidAt(px, g.y)) { g.vx = -g.vx * 0.5; nx = g.x; }
-    if (map.isSolidAt(g.x, py)) { g.vy = -g.vy * 0.5; ny = g.y; }
+    if (map.isSolidAt(px, g.y) && g.z < map.heightAt(px, g.y) + map.top[Math.floor(g.y / 32) * map.w + Math.floor(px / 32)]) { g.vx = -g.vx * 0.5; nx = g.x; }
+    if (map.isSolidAt(g.x, py) && g.z < map.heightAt(g.x, py) + map.top[Math.floor(py / 32) * map.w + Math.floor(g.x / 32)]) { g.vy = -g.vy * 0.5; ny = g.y; }
     g.x = nx; g.y = ny;
+    g.vz -= 156.96 * dt; g.z += g.vz * dt;
+    const floor = map.heightAt(g.x, g.y) + 2;
+    if (g.z <= floor) { g.z = floor; g.vz = g.vz < -45 ? -g.vz * .3 : 0; }
+    }
     const speed = Math.hypot(g.vx, g.vy);
     if (g.t >= g.fuse || (g.type === 'smoke' && g.t > 0.7 && speed < 14)) {
       game.grenades.splice(i, 1);
+      game.physics?.removeGrenade(g.id);
       detonate(game, g);
     }
   }
@@ -53,14 +64,14 @@ export function updateGrenades(game, dt) {
 function detonate(game, g) {
   const owner = game.players.get(g.owner) || null;
   if (g.type === 'he') {
-    explode(game, { x: g.x, y: g.y, radius: HE_RADIUS, dmg: HE_DAMAGE, veh: 90, tile: 150, owner, wid: 'he', kind: 'he' });
+    explode(game, { x: g.x, y: g.y, z: g.z, radius: HE_RADIUS, dmg: HE_DAMAGE, veh: 90, tile: 150, owner, wid: 'he', kind: 'he' });
   } else if (g.type === 'flash') {
-    game.emit(['boom', 'flash', Math.round(g.x), Math.round(g.y)], g.x, g.y, 5000);
+    game.emit(['boom', 'flash', Math.round(g.x), Math.round(g.y), 0, Math.round(g.z)], g.x, g.y, 5000);
     for (const p of game.players.values()) {
       if (!p.alive || p.team === SPEC) continue;
       const d = Math.hypot(p.x - g.x, p.y - g.y);
       if (d > FLASH_RADIUS) continue;
-      if (d > 20 && !game.map.los(g.x, g.y, p.x, p.y)) continue;
+      if (d > 20 && !game.map.los(g.x, g.y, p.x, p.y, g.z + 4, p.eyeZ)) continue;
       let dur = FLASH_MAX * clamp(1.15 - d / FLASH_RADIUS, 0.18, 1);
       const facing = Math.abs(angleDiff(Math.atan2(g.y - p.y, g.x - p.x), p.angle));
       if (facing > 1.75) dur *= 0.35; else if (facing > 1.0) dur *= 0.7;
@@ -72,10 +83,10 @@ function detonate(game, g) {
   } else if (g.type === 'smoke') {
     game.smokes.push({ id: game.nextId++, x: g.x, y: g.y, t0: game.time, r: 8 });
     game.fires = game.fires.filter((f) => Math.hypot(f.x - g.x, f.y - g.y) > FIRE_RADIUS + SMOKE_RADIUS * 0.5);
-    game.emit(['boom', 'smoke', Math.round(g.x), Math.round(g.y)], g.x, g.y, 5000);
+    game.emit(['boom', 'smoke', Math.round(g.x), Math.round(g.y), 0, Math.round(g.z)], g.x, g.y, 5000);
   } else if (g.type === 'molo') {
     game.fires.push({ id: game.nextId++, x: g.x, y: g.y, t0: game.time, r: FIRE_RADIUS, owner: g.owner, team: g.team, acc: new Map() });
-    game.emit(['boom', 'molo', Math.round(g.x), Math.round(g.y)], g.x, g.y, 5000);
+    game.emit(['boom', 'molo', Math.round(g.x), Math.round(g.y), 0, Math.round(g.z)], g.x, g.y, 5000);
   }
 }
 
@@ -97,7 +108,7 @@ export function updateFires(game, dt) {
     const owner = game.players.get(f.owner) || null;
     for (const p of game.players.values()) {
       if (!p.alive || p.veh || p.team === SPEC) continue;
-      const d = Math.hypot(p.x - f.x, p.y - f.y);
+      const d = Math.hypot(p.x - f.x, p.y - f.y, p.z - game.map.heightAt(f.x, f.y));
       if (d > f.r || (d > 24 && !game.map.clearLine(f.x, f.y, p.x, p.y))) continue;
       const acc = (f.acc.get(p.id) || 0) + FIRE_DPS * dt;
       if (acc >= FIRE_DPS * 0.25) {

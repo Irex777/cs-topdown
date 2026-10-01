@@ -8,17 +8,31 @@
     "start": "node src/server/index.js",
     "dev": "node --watch src/server/index.js",
     "test": "node tools/test-all.js",
+    "test:browser": "node tools/browsercheck.mjs",
     "lint": "eslint src tools",
     "maps": "node tools/preview-maps.js",
     "sim": "node tools/sim.js",
     "mechanics": "node tools/mechanics.js",
     "botstats": "node tools/botstats.js",
-    "sim:cs": "node tools/cs/sim.js"
+    "sim:cs": "node tools/cs/sim.js",
+    "test:vehicles": "node tools/vehiclebrowser.mjs",
+    "test:deploy": "node tools/deploybrowser.mjs",
+    "test:terrain": "node tools/elevationbrowser.mjs",
+    "test:heights": "node tools/verticalbrowser.mjs",
+    "test:crew": "node tools/crew-browser.mjs",
+    "test:air-defense": "node tools/airdefensebrowser.mjs",
+    "test:physics": "node tools/physicscheck.mjs",
+    "test:physics-browser": "node tools/physicsbrowser.mjs"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "eslint": "^9.39.5",
+    "playwright": "^1.63.0"
   }
 }

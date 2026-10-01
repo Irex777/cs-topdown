@@ -1,6 +1,6 @@
 // App bootstrap: connection, screen routing, room / match lifecycle.
 import { Net } from './net.js';
-import { audio } from './audio.js';
+import { audio } from './battlefield-audio.js';
 import { ClientGame } from './game/game.js';
 import { loadAssets } from './game/assets.js';
 import { HUD } from './ui/hud.js';
@@ -145,7 +145,6 @@ class App {
     this.hud.deathAt = 0;
     this.hud.closeEnd(); this.hud.closePause();
     this.hud.el.killfeed.innerHTML = ''; this.hud.el.chatlog.innerHTML = '';
-    if (m.mode) this.toast('Match starting — pick a class and a spawn point!');
   }
 
   onLobby() {

@@ -17,6 +17,7 @@ function trial(useVt, lagSec) {
   a.sel = 'primary'; a.drawT = 0;
   b.x = 22 * 32 + 16; b.y = 10 * 32 + 16;            // target starts here and runs down (+y) through the open middle of the map
   a.x = 29 * 32 + 16; a.y = 15 * 32 + 16;            // shooter to the right, ~7 tiles away
+  a.z = g.map.heightAt(a.x, a.y); b.z = g.map.heightAt(b.x, b.y);
   for (let ty = 10; ty <= 19; ty++) if (g.map.isSolidTile(22, ty)) throw new Error('test lane is blocked at row ' + ty);
   let seq = 1, hit = false;
   const hp0 = b.hp;
@@ -29,7 +30,8 @@ function trial(useVt, lagSec) {
       const pos = { x: 0, y: 0, alive: false };
       b.rewound(tf, pos);
       const ang = Math.atan2(pos.y - a.y, pos.x - a.x);
-      cmd = [seq++, KEY.FIRE | KEY.SCOPE, ang, useVt ? vt : 0, 0];
+      const pitch = Math.atan2(pos.z + 18 - a.eyeZ, Math.hypot(pos.x - a.x, pos.y - a.y));
+      cmd = [seq++, KEY.FIRE | KEY.SCOPE, ang, useVt ? vt : 0, 0, pitch];
     } else cmd = [seq++, 0, Math.PI, 0, 0];
     room.handle(a, { t: 'in', c: [cmd] });
     room.tick();

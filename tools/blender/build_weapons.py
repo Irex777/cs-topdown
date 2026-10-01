@@ -3,8 +3,12 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import importlib  # noqa: E402
+import lib  # noqa: E402
+importlib.reload(lib)    # a long-lived Blender MCP session may hold an older copy
 from lib import *  # noqa: E402,F401,F403
 import guns  # noqa: E402
+importlib.reload(guns)
 
 BUILDERS = guns.BUILDERS
 args = [a for a in sys.argv[1:] if not a.startswith('--')]

@@ -11,8 +11,8 @@ export const BASE_SPEED = 92;       // px/s (5.75 m/s) for a soldier jogging wit
 export const SPRINT_MUL = 1.34;
 export const CROUCH_SPEED = 0.52;   // speed factor when fully crouched
 // Vertical dimension (heights are px above the ground; tile heights `h3` live in gamemap.js TILES).
-export const GRAVITY = 900;         // px/s^2
-export const JUMP_V = 200;          // px/s: a jump peaks ~22 px (sandbags, barrels and crates can be climbed)
+export const GRAVITY = 156.96;      // 9.81 m/s² at 16 world units/metre
+export const JUMP_V = 84;           // px/s: a jump peaks ~22 px (sandbags, barrels and crates can be climbed)
 export const STEP_H = 6;            // ledges up to this high are walked over
 export const EYE_H = 26;            // eye height above the feet, standing
 export const EYE_H_CROUCH = 16;

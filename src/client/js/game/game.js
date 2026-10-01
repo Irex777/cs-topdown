@@ -1,11 +1,12 @@
 // Client-side game controller: snapshot buffer, interpolation, prediction (soldier and vehicle driver), events, per-frame loop.
 import { DT, PHASE, KEY, SPEC, TILE, T, CT, BASE_SPEED, EYE_H, EYE_H_CROUCH } from '../../shared/constants.js';
 import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, PROJ, maxSpeedFor, resolveWeapon } from '../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST, stepVehicle } from '../../shared/vehicles.js';
+import { VEHICLES, VEHICLE_LIST, stepVehicle, vehicleGunMount } from '../../shared/vehicles.js';
 import { createMap } from '../../shared/maps/index.js';
 import { stepMovement, relativeDir } from '../../shared/movement.js';
 import { canSee, viewParams } from '../../shared/vision.js';
-import { audio } from '../audio.js';
+import { audio } from '../battlefield-audio.js';
+import { bodyBounds } from '../../shared/rigid.js';
 import { FX } from './fx.js';
 import { Input } from './input.js';
 import { Terrain } from './terrain.js';
@@ -23,6 +24,7 @@ export class ClientGame {
     this.net = net;
     this.ui = ui;
     this.input = new Input(canvas);
+    this.input.isBlocked = () => !!(this.ui.inputBlocked && this.ui.inputBlocked());
     this.fx = new FX();
     this.renderer = new Renderer(canvas, this);
     this.active = false;
@@ -65,7 +67,8 @@ export class ClientGame {
     this.alive = false;
     this.rc = -1;
     this.angle = 0;
-    this.aimDist = 300;
+    this.aimDist = 300; this.aimHeight = 14;
+    this.vehiclePitch = -.14; this.vehicleCameraMode = 'auto';
     this.deathLook = true;            // dead view: stay in first person and sink to the ground
     this.yaw = 0;                     // where the camera (and aim) points, radians, 0 = +x
     this.pitch = 0;                   // look up (+) / down (-), radians
@@ -101,11 +104,15 @@ export class ClientGame {
     this.deployChoice = null;
     this.playerCache = null; this.vehCache = null; this.projCache = null;
     this.lastVehTick = 0;
+    this._enginePos = new Map();
   }
 
   // ------------------------------------------------------------------ lifecycle
   startMatch(info) {
     this.reset();
+    this.input.reset();
+    // A hidden nickname/chat input must not continue swallowing gameplay keys.
+    if (this.input.isTyping()) document.activeElement.blur();
     this.mode = info.mode;
     this.map = createMap(info.map);
     if (info.tiles && info.tiles.length) this.map.applyChanges(info.tiles);
@@ -118,6 +125,7 @@ export class ClientGame {
     this.tix = info.tix || [0, 0];
     this.phase = info.phase ?? PHASE.LIVE;
     this.active = true;
+    audio.startWorld();
     this.input.enabled = true;
     this.lastTime = performance.now();
     if (!this._raf) this._raf = requestAnimationFrame(this.frame);
@@ -125,6 +133,7 @@ export class ClientGame {
 
   stop() {
     this.active = false;
+    audio.stopWorld();
     this.input.enabled = false;
     cancelAnimationFrame(this._raf); this._raf = 0;
   }
@@ -168,7 +177,14 @@ export class ClientGame {
     this.playerCache = null; this.vehCache = null; this.projCache = null;
 
     // world entities
-    this.ents = { g: s.g || [], sm: s.sm || [], fi: s.fi || [], pj: s.pj || [], gd: s.gd || [], cp: s.cp || [], sp: s.sp || [], v: s.v || [] };
+    this.ents = { g: s.g || [], sm: s.sm || [], fi: s.fi || [], pj: s.pj || [], gd: s.gd || [], cp: s.cp || [], sp: s.sp || [], v: s.v || [], cf: s.cf || [] };
+    let deformed = false;
+    for (const [i, z] of s.td || []) if (this.map.elevation[i] !== z) { this.map.elevation[i] = z; deformed = true; }
+    if (deformed) this.renderer.ground?.deform();
+    this.ents.rb = s.rb || [];
+    this.map.dynamicBodies = this.ents.rb.filter((t) => t[1] !== 'G' && t[1] !== '=').map(bodyBounds);
+    for (const id of s.bs || []) { const b = this.map.buildings.find((b) => b.id === id); if (b) { b.collapsed = true; b.active = false; } }
+    this.renderer.buildings?.sync();
     this.projRecv = now;
     if (s.fl) { for (const f of s.fl) this.flagState.set(f[0], { owner: f[1], cap: f[2] / 100, contested: !!f[3] }); this.flagsCache = null; }
     if (s.mc) this.mcomState = s.mc.map((m) => ({ id: m[0], state: m[1], timer: m[2], stage: m[3], x: m[4], y: m[5] }));
@@ -190,6 +206,10 @@ export class ClientGame {
     } else { this.me = null; this.alive = !!s.al; }
 
     if (s.ev) this.processEvents(s.ev);
+    if (this.alive && s.me?.own) {
+      if (s.me.veh?.threat) audio.airWarning(s.me.veh.threat);
+      if (s.me.lk) audio.seeker(s.me.lk[1] >= 1);
+    }
     this.ui.onSnapshot && this.ui.onSnapshot(this, s);
   }
 
@@ -210,11 +230,11 @@ export class ClientGame {
       const respawned = me.rc !== this.rc || !wasAlive;
       this.rc = me.rc;
       this.predMode = key;
-      if (drv) this.predVeh = { x: me.veh.x, y: me.veh.y, a: me.veh.a, vx: me.veh.vx, vy: me.veh.vy };
+      if (drv) this.predVeh = { x: me.veh.x, y: me.veh.y, a: me.veh.a, vx: me.veh.vx, vy: me.veh.vy, flightZ: me.veh.z, chassisZ: me.veh.z, vz: me.veh.vz || 0, steer: me.veh.steer || 0, yawRate: me.veh.yawRate || 0, throttle: me.veh.throttle || 0 };
       this.pred = { x: me.x, y: me.y, vx: me.vx, vy: me.vy, z: me.z || 0, vz: me.vz || 0, cf: me.cf || 0 };
       this.pending.length = 0;
       this.shots.fired.length = 0;
-      this.errX = this.errY = 0;
+      this.errX = this.errY = this.errZ = 0;
       this.predValid = true;
       if (this.alive && respawned) { this.fx.clearAll && this._lastRc !== me.rc && this.onRespawn(); this._lastRc = me.rc; }
       return;
@@ -224,10 +244,13 @@ export class ClientGame {
     this.shots.fired = this.shots.fired.filter((q) => q > s.ack);
     if (drv) {
       const def = this.vehDef();
-      const st = { x: me.veh.x, y: me.veh.y, a: me.veh.a, vx: me.veh.vx, vy: me.veh.vy };
+      const st = { x: me.veh.x, y: me.veh.y, a: me.veh.a, vx: me.veh.vx, vy: me.veh.vy, flightZ: me.veh.z, chassisZ: me.veh.z, vz: me.veh.vz || 0, steer: me.veh.steer || 0, yawRate: me.veh.yawRate || 0, throttle: me.veh.throttle || 0 };
       for (const c of this.pending) stepVehicle(this.map, st, def, c[1], c[2]);
       const ex = this.predVeh.x - st.x, ey = this.predVeh.y - st.y;
-      if (Math.hypot(ex, ey) > 90) { this.errX = this.errY = 0; } else { this.errX += ex; this.errY += ey; }
+      if (Math.hypot(ex, ey) > 90) { this.errX = this.errY = this.errZ = 0; } else { this.errX += ex; this.errY += ey; }
+      const ez = (this.predVeh.flightZ || 0) - st.flightZ;
+      this.errZ = Math.abs(ez) > 60 ? 0 : (this.errZ || 0) + ez;
+      this.predVeh.chassisZ = st.chassisZ; this.predVeh.flightZ = st.flightZ; this.predVeh.vz = st.vz; this.predVeh.steer = st.steer; this.predVeh.yawRate = st.yawRate; this.predVeh.throttle = st.throttle;
       this.predVeh.x = st.x; this.predVeh.y = st.y; this.predVeh.a = st.a; this.predVeh.vx = st.vx; this.predVeh.vy = st.vy;
       return;
     }
@@ -243,7 +266,7 @@ export class ClientGame {
       stepMovement(this.map, st, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
     }
     const ex = this.pred.x - st.x, ey = this.pred.y - st.y;
-    if (Math.hypot(ex, ey) > 70) { this.errX = this.errY = 0; }
+    if (Math.hypot(ex, ey) > 70) { this.errX = this.errY = this.errZ = 0; }
     else { this.errX += ex; this.errY += ey; }
     this.pred.x = st.x; this.pred.y = st.y; this.pred.vx = st.vx; this.pred.vy = st.vy;
     // vertical state: trust the replay, but never fight a small difference
@@ -312,13 +335,22 @@ export class ClientGame {
         if (!v) continue;
         if (drv && id === this.me.veh.id) {
           const e = this.viewerVeh();
-          v.x = e.x; v.y = e.y; v.a = e.a; v.own = true; v.ta = this.turretAngle();
+          v.x = e.x; v.y = e.y; v.a = e.a; v.z = e.z; v.steer = this.predVeh.steer; v.yawRate = this.predVeh.yawRate; v.own = true; v.ta = this.turretAngle();
         }
+        if (this.me?.own && v.id === this.me.veh?.id && this.vehDef().seats[this.me.veh.seat].aim === 'free') v.ga = this.gunnerAngle();
+        if (VEHICLES[VEHICLE_LIST[v.ty]].kind !== 'air') v.z = VEHICLES[VEHICLE_LIST[v.ty]].kind === 'boat' ? 0 : this.map.heightAt(v.x, v.y);
         list.push(v);
       }
     }
     this.vehCache = list;
     return list;
+  }
+
+  gunnerAngle() {
+    if (!this.me?.veh) return this.angle;
+    const sd = this.vehDef().seats[this.me.veh.seat], key = `${this.me.veh.id}:${this.me.veh.seat}`;
+    if (!this._gunAim || this._gunAim.key !== key) this._gunAim = { key, angle: this.me.veh.sa };
+    return sd.aim === 'free' ? this._gunAim.angle : this.angle;
   }
 
   turretAngle() {
@@ -339,8 +371,8 @@ export class ClientGame {
     const out = [];
     for (const q of this.ents.pj) {
       const pr = PROJ[PROJ_LIST[q[1]]];
-      const sp = pr ? pr.speed : 800;
-      out.push({ id: q[0], idx: q[1], x: q[2] + Math.cos(q[4]) * sp * el, y: q[3] + Math.sin(q[4]) * sp * el, a: q[4] });
+      const sp = q[7] ?? (pr ? pr.speed : 800);
+      out.push({ id: q[0], idx: q[1], x: q[2] + Math.cos(q[4]) * sp * el, y: q[3] + Math.sin(q[4]) * sp * el, z: (q[5] ?? 17) + (q[6] || 0) * el, pitch: Math.atan2(q[6] || 0, sp), a: q[4] });
     }
     this.projCache = out;
     return out;
@@ -352,7 +384,7 @@ export class ClientGame {
   visiblePoint(x, y) {
     const v = this.viewer();
     if (!v || !this.fogOn) return true;
-    return canSee(this.map, this.smokeCircles(), v.x, v.y, v.angle, v.view, x, y, 0, 6);
+    return canSee(this.map, this.smokeCircles(), v.x, v.y, v.angle, v.view, x, y, 0, 6, v.eye);
   }
 
   smokeCircles() { return this.ents.sm.map((s) => ({ x: s[1], y: s[2], r: s[3] })); }
@@ -384,25 +416,30 @@ export class ClientGame {
           break;
         }
         case 'vshot': {
-          const [, , snd, x, y, ang, len, kind] = e;
+          const [, , snd, x, y, ang, len, kind, , gz = 24, ez = gz] = e;
           const ex = x + Math.cos(ang) * len, ey = y + Math.sin(ang) * len;
           const seen = this.visiblePoint(x, y) || this.visiblePoint(ex, ey);
           audio.vshot(snd, { x, y });
-          if (seen && (snd === 'lmg' || snd === 'cannon2')) {
-            fx.tracer(x, y, 24, ex, ey, 24, false, true);
-            if (kind === 1) fx.sparks(ex, ey, ang, 4); else if (kind === 2) fx.blood(ex, ey, ang, 6); else if (kind === 3) fx.sparks(ex, ey, ang, 7, 14);
+          if (seen && snd === 'lmg') {
+            fx.tracer(x, y, gz, ex, ey, ez, false, true);
+            if (kind === 1) fx.sparks(ex, ey, ang, 4, ez); else if (kind === 2) fx.blood(ex, ey, ang, 6, ez); else if (kind === 3) fx.sparks(ex, ey, ang, 7, ez);
           }
-          if (seen) fx.muzzle(x - Math.cos(ang) * 10, y - Math.sin(ang) * 10, ang, 22);
+          if (seen) fx.muzzle(x - Math.cos(ang) * 10, y - Math.sin(ang) * 10, ang, gz);
           if (snd === 'cannon' && seen) { fx.addShake(2.5); fx.smokeTrail(x, y, 20); for (let i = 0; i < 5; i++) fx.smokeTrail(x + Math.cos(ang) * i * 8, y + Math.sin(ang) * i * 8, 20); }
           break;
         }
+        case 'material': audio.material(e[1], { x: e[2], y: e[3], z: e[4] }, e[5]); break;
+        case 'collapse': audio.collapse({ x: e[2], y: e[3], z: e[4] }); fx.addShake(2); break;
+        case 'fracture': audio.material(e[1], { x: e[2], y: e[3], z: e[4] }, .55); break;
+        case 'bounce': audio.bounce({ x: e[2], y: e[3], z: e[4] }); break;
+        case 'flares': audio.flareBurst({ x: e[2], y: e[3] }); break;
         case 'launch': audio.launch(e[1], { x: e[2], y: e[3] }); break;
         case 'blast': fx.smokeTrail(e[1] - Math.cos(e[3]) * 14, e[2] - Math.sin(e[3]) * 14, 12); for (let i = 0; i < 4; i++) fx.smokeTrail(e[1] - Math.cos(e[3]) * (14 + i * 6), e[2] - Math.sin(e[3]) * (14 + i * 6), 12); break;
         case 'knife': audio.knife({ x: e[2], y: e[3] }, !!e[5]); this.muzzle.set(e[1], now + 120); break;
         case 'step': if (e[1] !== this.you) audio.step({ x: e[2], y: e[3] }); break;
-        case 'rel': if (e[1] !== this.you) audio.reload({ x: e[2], y: e[3] }); break;
+        case 'rel': { const w = WEAPON_LIST[e[4]]; audio.reload(e[1] === this.you ? null : { x: e[2], y: e[3] }, w?.kind, w?.reload); break; }
         case 'nade': audio.throwNade({ x: e[2], y: e[3] }); break;
-        case 'boom': this.onBoom(e[1], e[2], e[3], e[4]); break;
+        case 'boom': this.onBoom(e[1], e[2], e[3], e[4], e[5] ?? this.map.heightAt(e[2], e[3])); break;
         case 'hurt': this.onHurt(e[1], e[2]); break;
         case 'hitm': this.hitMarker = now; this.hitKill = !!e[2]; this.hitHead = !!e[3]; audio.hitmarker(!!e[2], !!e[3]); break;
         case 'die': this.onDie(e); break;
@@ -414,7 +451,7 @@ export class ClientGame {
         case 'deploy': audio.deploy({ x: e[3], y: e[4] }); break;
         case 'enter': audio.doorOpen({ x: 0, y: 0 }, true); break;
         case 'exit': audio.doorOpen({ x: 0, y: 0 }, true); break;
-        case 'crash': audio.crash(); break;
+        case 'crash': { const v = this.interpolatedVeh(e[1]); audio.crash(v ? { x: v.x, y: v.y, z: v.z } : null); break; }
         case 'flagcap': audio.flagCap(e[2] === this.myTeam() || this.myTeam() === SPEC ? 1 : 0); break;
         case 'beep': audio.beep({ x: e[1], y: e[2] }, e[3] < 10 ? 1 : 0); break;
         case 'repair': audio.repair({ x: e[1], y: e[2] }); break;
@@ -433,17 +470,17 @@ export class ClientGame {
     this.ui.onScore && this.ui.onScore(pts, label);
   }
 
-  onBoom(kind, x, y, r) {
+  onBoom(kind, x, y, r, z = 0) {
     const fx = this.fx;
     const v = this.viewer();
     const d = v ? Math.hypot(v.x - x, v.y - y) : 9999;
     const size = r || 120;
-    if (kind === 'flash') { fx.flashBurst(x, y); audio.flash({ x, y }); }
-    else if (kind === 'smoke') { audio.smoke({ x, y }); for (let i = 0; i < 10; i++) fx.cube({ x, y, z: 6, vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.5) * 160, vz: 30, life: 0.7, r: 8, k: 'puff', col: '#d2d2d2', a0: 0.4, grow: 22 }); }
-    else if (kind === 'molo') { fx.molotovSplash(x, y); audio.molotov({ x, y }); }
+    if (kind === 'flash') { fx.flashBurst(x, y, z); audio.flash({ x, y }); }
+    else if (kind === 'smoke') { audio.smoke({ x, y }); for (let i = 0; i < 10; i++) fx.cube({ x, y, z: z + 6, vx: (Math.random() - 0.5) * 160, vy: (Math.random() - 0.5) * 160, vz: 30, life: 0.7, r: 8, k: 'puff', col: '#d2d2d2', a0: 0.4, grow: 22 }); }
+    else if (kind === 'molo') { fx.molotovSplash(x, y, z); audio.molotov({ x, y }); }
     else {
-      fx.explosion(x, y, size);
-      audio.explosion(kind === 'c4' || kind === 'veh' || kind === 'shell' ? 'bomb' : 'he', { x, y });
+      fx.explosion(x, y, size, z);
+      audio.explosion(kind === 'c4' || kind === 'veh' || kind === 'shell' ? 'bomb' : 'he', { x, y, z });
       fx.addShake(clamp(size / 8 - d / 70, 0, 12));
     }
   }
@@ -467,7 +504,7 @@ export class ClientGame {
 
   // ------------------------------------------------------------------ viewer (whose eyes are we looking through)
   viewerVeh() {
-    return { x: this.predVeh.x + this.errX + (this.ext ? this.ext.x : 0), y: this.predVeh.y + this.errY + (this.ext ? this.ext.y : 0), a: this.predVeh.a };
+    return { x: this.predVeh.x + this.errX + (this.ext ? this.ext.x : 0), y: this.predVeh.y + this.errY + (this.ext ? this.ext.y : 0), a: this.predVeh.a, z: this.vehDef()?.kind === 'air' ? this.predVeh.flightZ + (this.errZ || 0) + (this.ext?.z || 0) : this.predVeh.chassisZ ?? this.map.heightAt(this.predVeh.x, this.predVeh.y) };
   }
 
   viewer() {
@@ -501,6 +538,7 @@ export class ClientGame {
         scopeLvl = w ? (this.me && this.me.mv ? this.me.mv[1] : w.scope) : 0; scoped = !!(p.fl & 1);
       }
     } else return this._lastViewer || null;
+    if (this.me?.veh) z = this.alive && this.me.own && this.inDriverSeat() ? this.viewerVeh().z : this.interpolatedVeh(this.me.veh.id)?.z ?? this.me.veh.z;
     if (!view) view = viewParams(scoped, scopeLvl);
     const v = { x, y, angle, scoped, scopeLvl, view, air, z, cf, pitch: pit, eye: z + EYE_H + (EYE_H_CROUCH - EYE_H) * cf };
     this._lastViewer = v;
@@ -542,14 +580,14 @@ export class ClientGame {
     }
     if (!s0) s0 = snaps[0];
     const a = s0.veh.get(id), b = s1 ? s1.veh.get(id) : null;
-    const pack = (t, x, y, ang, ta, ga) => ({ id: t[0], ty: t[1], x, y, a: ang, ta, ga, hp: t[7], team: t[8], occ: t[9], speed: t[10] });
+    const pack = (t, x, y, ang, ta, ga, z = t[13], vz = t[14] || 0) => ({ id: t[0], ty: t[1], x, y, z, vz, a: ang, ta, ga, hp: t[7], team: t[8], occ: t[9], speed: t[10], pitch0: t[11] || 0, pitch1: t[12] || 0, steer: t[15] || 0, yawRate: t[16] || 0, throttle: t[17] || 0 });
     if (!a && !b) {
       for (let i = snaps.length - 1; i >= 0; i--) { const t = snaps[i].veh.get(id); if (t) return pack(t, t[2], t[3], t[4], t[5], t[6]); }
       return null;
     }
     if (a && b && s1.st > s0.st) {
       const k = clamp((rt - s0.st) / (s1.st - s0.st), 0, 1);
-      return pack(b, lerp(a[2], b[2], k), lerp(a[3], b[3], k), lerpAngle(a[4], b[4], k), lerpAngle(a[5], b[5], k), lerpAngle(a[6], b[6], k));
+      return pack(b, lerp(a[2], b[2], k), lerp(a[3], b[3], k), lerpAngle(a[4], b[4], k), lerpAngle(a[5], b[5], k), lerpAngle(a[6], b[6], k), lerp(a[13], b[13], k), lerp(a[14] || 0, b[14] || 0, k));
     }
     const t = a || b;
     return pack(t, t[2], t[3], t[4], t[5], t[6]);
@@ -564,6 +602,7 @@ export class ClientGame {
     const send = (a, extra) => this.net.send({ t: 'a', a, ...extra });
     const sw = (slot) => { if (this.alive && !this.inVehicle()) { send('sw', { slot }); audio.switchWeapon(); } };
     inp.on('reload', () => send('reload'));
+    inp.on('flares', () => { if (this.playing() && this.inDriverSeat() && this.vehDef().kind === 'air') send('flares'); });
     inp.on('alt', () => { if (this.inVehicle()) return; send('alt'); audio.click(); });
     inp.on('last', () => send('sw', { slot: 'last' }));
     inp.wantLock = () => this.playing();
@@ -583,7 +622,7 @@ export class ClientGame {
         }
         for (const q of this.vehiclesDrawn()) {
           if (q.team === this.myTeam()) continue;
-          const s = r.project(q.x, q.y, 16);
+          const s = r.project(q.x, q.y, (q.z || 0) + 24);
           if (s && Math.hypot(s.x - cx, s.y - cy) < bd) { bd = Math.hypot(s.x - cx, s.y - cy); best = q; }
         }
         if (best) w = { x: best.x, y: best.y };
@@ -603,6 +642,7 @@ export class ClientGame {
       send('sw', { slot: order[(i + d + order.length) % order.length] }); audio.switchWeapon();
     });
     inp.on('ping', () => {
+      if (this.inVehicle() && this.playing()) { this.vehicleCameraMode = this.renderer.vehicleFirst ? 'chase' : 'first'; return; }
       const v = this.viewer();
       if (!v) return;
       const w = this.crosshairWorld();
@@ -655,6 +695,7 @@ export class ClientGame {
     const v = this._lastViewer;
     // the mouse turns the view more slowly the more you are zoomed in
     if (v && v.scoped) sens *= this.zoomMul(v.scopeLvl);
+    if (own && this.me.veh && inp.right && this.vehDef().seats[this.me.veh.seat].weapon) sens *= .55;
     const dx = look.dx * sens, dy = look.dy * sens * (this.invertY ? -1 : 1);
     this.lookRate.y = dx; this.lookRate.p = -dy;
     if (own && this.me.veh) {
@@ -664,18 +705,24 @@ export class ClientGame {
       const follow = !sd.weapon;
       if (this.lookKey !== key) {
         this.lookKey = key;
-        this.lookOff = 0; this.lookIdle = 0;
+        this.vehicleCameraMode = 'auto';
+        inp.right = false;
+        this._gunAim = null;
+        if (!this._lastVehicleId || this._lastVehicleId !== this.me.veh.id) this.vehiclePitch = -.08;
+        this._lastVehicleId = this.me.veh.id;
         this.followYaw = heading;
-        this.yaw = follow ? heading : (sd.aim === 'turret' ? this.me.veh.ta : heading);
+        this.yaw = sd.aim === 'turret' ? this.me.veh.ta : sd.aim === 'free' ? this.me.veh.sa : heading;
       }
+      // Driving keys steer the hull; free look stays where the player leaves it.
       if (follow) {
-        this.lookOff = clamp(this.lookOff + dx, -2.4, 2.4);
-        if (dx) this.lookIdle = 0; else this.lookIdle += dt;
-        if (this.lookIdle > 1.2) this.lookOff *= Math.exp(-2.5 * dt);
-        this.followYaw = lerpAngle(this.followYaw, heading, 1 - Math.exp(-5 * dt));
-        this.yaw = this.followYaw + this.lookOff;
-      } else this.yaw += dx;
-      this.elev = clamp(this.elev + dy * 0.8, 0.06, 1.25);
+        let turn = heading - this.followYaw;
+        while (turn > Math.PI) turn -= Math.PI * 2;
+        while (turn < -Math.PI) turn += Math.PI * 2;
+        this.yaw += turn;
+      }
+      this.followYaw = heading;
+      this.yaw += dx;
+      this.vehiclePitch = clamp(this.vehiclePitch - dy, sd.aim === 'free' ? -1.25 : -.75, sd.aim === 'free' ? 1.25 : .85);
     } else if (own || (!this.spec && !this.freecam) || this.freecam) {
       this.lookKey = '';
       this.yaw += dx;
@@ -712,6 +759,7 @@ export class ClientGame {
     this.fixedUpdate(dt);
     this.fx.update(dt);
     this.engineSounds(dt);
+    audio.tick();
     this.renderer.render(dt, nowMs);
     if (this.alive) this.renderer.autoQuality(dt);
     this.ui.onFrame && this.ui.onFrame(this, dt);
@@ -721,7 +769,6 @@ export class ClientGame {
   engineSounds(dt) {
     const v = this.viewer();
     if (!v || !this.alive) return;
-    this._enginePos = this._enginePos || new Map();
     const seen = new Set();
     for (const c of this.vehiclesDrawn()) {
       if (c.hp <= 0) continue;
@@ -729,8 +776,10 @@ export class ClientGame {
       const last = this._enginePos.get(c.id);
       this._enginePos.set(c.id, { x: c.x, y: c.y });
       if (Math.hypot(c.x - v.x, c.y - v.y) > 900) continue;
-      const kind = VEHICLE_LIST[c.ty], speed = last && dt > 0 ? Math.hypot(c.x - last.x, c.y - last.y) / dt : 0;
-      if (kind === 'heli' ? c.occ : speed > 12) audio.engine(kind, speed, { x: c.x, y: c.y });
+      const kind = VEHICLE_LIST[c.ty];
+      // Snapshot corrections and map changes can jump position; they are not engine RPM.
+      const speed = last && dt > 0 ? Math.min(VEHICLES[kind].maxSpeed * 1.1, Math.hypot(c.x - last.x, c.y - last.y) / dt) : 0;
+      if (c.occ || speed > 12) audio.engine(kind, speed + (kind === 'heli' ? 0 : Math.abs(c.own ? this.predVeh.throttle || 0 : c.throttle || 0) * 50), { x: c.x, y: c.y, z: c.z + 16 }, c.id);
     }
     for (const id of this._enginePos.keys()) if (!seen.has(id)) this._enginePos.delete(id);
   }
@@ -740,11 +789,17 @@ export class ClientGame {
     // aim angle from the mouse, relative to where the player currently is on screen
     const v = this.viewer();
     if (v && this.alive && this.me && this.me.own) {
-      this.angle = this.me.veh ? this.yaw : this.viewYaw();
-      const a = this.renderer.aimGround;
-      if (a) this.aimDist = clamp(Math.hypot(a.x - v.x, a.y - v.y), 30, 2000);
+      const a = this.me.veh ? this.renderer.vehicleAim : this.renderer.aimGround;
+      const freeGun = this.me.veh && this.vehDef().seats[this.me.veh.seat].aim === 'free';
+      const origin = freeGun ? vehicleGunMount({ ...(this.interpolatedVeh(this.me.veh.id) || this.me.veh), x: v.x, y: v.y, z: v.z, def: this.vehDef() }, this.me.veh.seat) : v;
+      this.angle = this.me.veh && a ? Math.atan2(a.y - origin.y, a.x - origin.x) : this.viewYaw();
+      if (a) {
+        const distance = Math.hypot(a.x - v.x, a.y - v.y);
+        this.aimDist = clamp(distance, 1, 2000);
+        this.aimHeight = a.z ?? 14;
+      }
     }
-    audio.setListener(v ? v.x : 0, v ? v.y : 0);
+    audio.setListener(v ? v.x : 0, v ? v.y : 0, this.viewYaw(), v?.eye ?? (v?.z || 0) + 26, this.map);
     // local turret slew (cosmetic; the server's value is the truth)
     if (this.me && this.me.veh && this.me.own) {
       const def = this.vehDef(), sd = def.seats[this.me.veh.seat];
@@ -756,13 +811,19 @@ export class ClientGame {
       }
     }
 
+    if (this.me?.own && this.me.veh && this.vehDef().seats[this.me.veh.seat].aim === 'free') {
+      this.gunnerAngle();
+      const sd = this.vehDef().seats[this.me.veh.seat], aim = this._gunAim;
+      const d = Math.atan2(Math.sin(this.angle - aim.angle), Math.cos(this.angle - aim.angle));
+      aim.angle += clamp(d, -sd.turn * dt, sd.turn * dt);
+    }
     const batch = [];
     while (this.acc >= DT) {
       this.acc -= DT;
       if (!(this.alive && this.me && this.me.own && this.predValid)) continue;
       const keys = this.ui.inputBlocked && this.ui.inputBlocked() ? 0 : this.input.keys();
       const seq = ++this.seq;
-      const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist), Math.round(this.viewPitch() * 1000) / 1000];
+      const cmd = [seq, keys, Math.round(this.angle * 1000) / 1000, Math.round(this.renderTime() * 1000) / 1000, Math.round(this.aimDist), Math.round(this.viewPitch() * 1000) / 1000, this.me.veh ? Math.round(this.aimHeight * 10) / 10 : null, this.me.veh ? this.renderer.vehicleAim?.x ?? null : null, this.me.veh ? this.renderer.vehicleAim?.y ?? null : null];
       if (this.inDriverSeat()) {
         stepVehicle(this.map, this.predVeh, this.vehDef(), keys, this.angle);
       } else if (!this.me.veh) {
@@ -773,10 +834,10 @@ export class ClientGame {
         const [ax, ay] = relativeDir(keys, this.angle);
         const vz0 = this.pred.vz;
         stepMovement(this.map, this.pred, keys, maxSpeedFor(prof, walk, scoped, sprint), false, ax, ay);
-        if (vz0 < -120 && this.pred.vz === 0) { this.landDip = Math.min(1, -vz0 / 300); audio.ownStep(true); }   // landing thump
+        if (vz0 < -75 && this.pred.vz === 0) { this.landDip = Math.min(1, -vz0 / 300); audio.ownStep(true); }   // landing thump
         // your own footsteps (the server only sends everybody else's)
         const spd = Math.hypot(this.pred.vx, this.pred.vy);
-        if (this.pred.z < 1 && spd > 45 && this.pred.cf < 0.5 && !walk) { this.stepAcc = (this.stepAcc || 0) + spd * DT; if (this.stepAcc > 44) { this.stepAcc = 0; audio.ownStep(false); } }
+        if (this.pred.z <= this.map.groundAt(this.pred.x, this.pred.y, 11, this.pred.z) + .01 && spd > 45 && this.pred.cf < 0.5 && !walk) { this.stepAcc = (this.stepAcc || 0) + spd * DT; if (this.stepAcc > 44) { this.stepAcc = 0; audio.ownStep(false); } }
         this.predictFire(keys, seq);
       }
       this.pending.push(cmd);
@@ -788,14 +849,14 @@ export class ClientGame {
     if (this.alive && this.predValid && this.map) {
       if (this.inDriverSeat()) {
         const pv = this.predVeh;
-        if (pv.vx || pv.vy) { const def = this.vehDef(); const r = this.map.moveCircle(pv.x, pv.y, pv.vx * this.acc, pv.vy * this.acc, def.r, def.kind === 'air' ? null : def.kind === 'boat' ? this.map.blockBoat : this.map.blockInf); this.ext = { x: r.x - pv.x, y: r.y - pv.y }; }
+        if (pv.vx || pv.vy || pv.vz) { const def = this.vehDef(); const r = this.map.moveCircle(pv.x, pv.y, pv.vx * this.acc, pv.vy * this.acc, def.r, def.kind === 'air' ? this.map.aircraftMask(pv.flightZ) : def.kind === 'boat' ? this.map.blockBoat : this.map.blockInf); this.ext = { x: r.x - pv.x, y: r.y - pv.y, z: (pv.vz || 0) * this.acc }; }
       } else if (!this.me.veh && (this.pred.vx || this.pred.vy)) {
         const r = this.map.moveCircle(this.pred.x, this.pred.y, this.pred.vx * this.acc, this.pred.vy * this.acc, 11, this.map.blockFoot, this.pred.z);
         this.ext = { x: r.x - this.pred.x, y: r.y - this.pred.y };
       }
     }
     const k = Math.exp(-14 * dt);
-    this.errX *= k; this.errY *= k;
+    this.errX *= k; this.errY *= k; this.errZ *= k;
     if (this.shots.cd > 0) this.shots.cd -= dt;
   }
 
@@ -805,7 +866,9 @@ export class ClientGame {
     const edge = fire && !this.shots.prevFire;
     this.shots.prevFire = fire;
     const me = this.me;
-    if (!fire || !me || me.held >= HELD_GREN_BASE || me.pw < 0) return;
+    if (!fire) this.shots.throwing = false;
+    if (fire && me?.hb) this.shots.throwing = true;
+    if (!fire || !me || this.shots.throwing || me.hb || me.held >= HELD_GREN_BASE || me.pw < 0) return;
     const w = WEAPON_LIST[me.held];
     if (!w || w.kind === 'knife' || me.rel > 0 || this.shots.cd > 0 || me.spr) return;
     if (me.alt) return;

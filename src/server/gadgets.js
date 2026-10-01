@@ -1,12 +1,13 @@
 // Class gadgets: defibrillator, repair tool, medic bag, ammo crate, mines, claymores, C4, beacons, sensors, rocket launchers.
 import { DT, RULES, SPEC } from '../shared/constants.js';
-import { PROJ, CLASSES } from '../shared/weapons.js';
+import { AIR_DEFENSE, CLASSES } from '../shared/weapons.js';
 import { canSee } from '../shared/vision.js';
 import { angleDiff } from '../shared/gamemap.js';
 import { explode } from './world.js';
 import { spawnProjectile } from './projectiles.js';
 import { startReload } from './combat.js';
 import { repairVehicle } from './vehicles.js';
+import { updateAirLock } from './air-defense.js';
 
 const MAX_C4 = 3;
 
@@ -59,32 +60,19 @@ function repair(game, p, held) {
 // ------------------------------------------------------------------------------------------ launchers
 function launcher(game, p, g, held, edge, keys) {
   const def = g.def;
-  const pr = PROJ[def.proj];
-  // Stinger lock: hold right mouse with an aircraft in the cone
-  if (def.aa) {
-    if ((keys & 64) !== 0) {
-      let best = null, bd = 1500;
-      for (const v of game.vehicles) {
-        if (v.dead || v.def.kind !== 'air' || v.team === p.team) continue;
-        const d = Math.hypot(v.x - p.x, v.y - p.y);
-        if (d > bd) continue;
-        if (Math.abs(angleDiff(Math.atan2(v.y - p.y, v.x - p.x), p.angle)) > 0.32) continue;
-        bd = d; best = v;
-      }
-      if (best) { if (p.lockTarget === best.id) p.lockT += DT; else { p.lockTarget = best.id; p.lockT = 0; } }
-      else { p.lockTarget = 0; p.lockT = 0; }
-    } else { p.lockTarget = 0; p.lockT = 0; }
-  }
+  if (def.aa) updateAirLock(game, p, (keys & 64) !== 0);
   if (!(edge || held) || p.fireCd > 0 || p.reloadT > 0) return;
   if (!g.loaded) { if (g.charges > 0) startReload(game, p); return; }
+  const locked = def.aa && p.lockTarget && p.lockT >= AIR_DEFENSE.lockTime;
+  if (def.aa && !locked) return;
   g.loaded = false;
   p.fireCd = def.cd;
-  const locked = def.aa && p.lockTarget && p.lockT >= 1.4;
+  p.lastShot = game.time; p.spawnProt = 0;
   const ox = p.x + Math.cos(p.angle) * 16, oy = p.y + Math.sin(p.angle) * 16;
   spawnProjectile(game, { type: def.proj, owner: p, x: ox, y: oy, ang: p.angle, target: locked ? p.lockTarget : 0 });
+  p.lockTarget = 0; p.lockT = 0;
   game.emit(['blast', Math.round(p.x), Math.round(p.y), Math.round(p.angle * 100) / 100], p.x, p.y, 700);
   if (g.charges > 0) startReload(game, p);
-  void pr;
 }
 
 // ------------------------------------------------------------------------------------------ deployables
@@ -101,7 +89,7 @@ function deploy(game, p, g) {
   g.charges--;
   p.fireCd = 0.6;
   game.gadgets.push({
-    id: game.nextId++, type: def.id, owner: p.id, team: p.team, squad: p.squad, x, y, a: p.angle, t0: game.time,
+    id: game.nextId++, type: def.id, owner: p.id, team: p.team, squad: p.squad, x, y, z: game.map.heightAt(x, y), a: p.angle, t0: game.time,
     life: def.life || 0, arm: def.id === 'mine' ? 1.2 : def.id === 'claymore' ? 1.5 : 0, acc: 0, hp: 60, attach: 0, tick: 0,
   });
   game.emit(['deploy', p.id, def.id, Math.round(x), Math.round(y)], x, y, 900);
@@ -115,14 +103,14 @@ function placeC4(game, p, g, aimDist) {
   const d = Math.max(24, Math.min(150, aimDist || 60));
   let x = p.x + Math.cos(p.angle) * d, y = p.y + Math.sin(p.angle) * d;
   if (!game.map.clearLine(p.x, p.y, x, y)) { x = p.x; y = p.y; }
-  let attach = 0, ox = 0, oy = 0;
+  let attach = 0, ox = 0, oy = 0, z = game.map.heightAt(x, y) + 2;
   for (const v of game.vehicles) {
-    if (v.dead) continue;
-    if (Math.hypot(v.x - x, v.y - y) < v.def.r + 10) { attach = v.id; ox = x - v.x; oy = y - v.y; break; }
+    if (v.dead || Math.abs(v.z + (v.def.zr[0] + v.def.zr[1]) / 2 - p.eyeZ) > 64) continue;
+    if (Math.hypot(v.x - x, v.y - y) < v.def.r + 10) { attach = v.id; z = v.z + (v.def.zr[0] + v.def.zr[1]) / 2; ox = x - v.x; oy = y - v.y; break; }
   }
   g.charges--;
   p.fireCd = 0.5;
-  game.gadgets.push({ id: game.nextId++, type: 'c4', owner: p.id, team: p.team, squad: p.squad, x, y, a: 0, t0: game.time, life: 0, arm: 0.4, hp: 40, attach, ox, oy, tick: 0 });
+  game.gadgets.push({ id: game.nextId++, type: 'c4', owner: p.id, team: p.team, squad: p.squad, x, y, z, a: 0, t0: game.time, life: 0, arm: 0.4, hp: 40, attach, ox, oy, tick: 0 });
   game.emit(['deploy', p.id, 'c4', Math.round(x), Math.round(y)], x, y, 900);
 }
 
@@ -142,7 +130,7 @@ export function updateGadgets(game, dt) {
     const owner = game.players.get(q.owner) || null;
     if (q.attach) {
       const v = game.vehicles.find((x) => x.id === q.attach && !x.dead);
-      if (v) { q.x = v.x + q.ox; q.y = v.y + q.oy; } else q.attach = 0;
+      if (v) { q.x = v.x + q.ox; q.y = v.y + q.oy; q.z = v.z + (v.def.zr[0] + v.def.zr[1]) / 2; } else q.attach = 0;
     }
     const armed = game.time - q.t0 >= q.arm;
     switch (q.type) {

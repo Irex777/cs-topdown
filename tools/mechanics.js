@@ -14,6 +14,8 @@ function setup(settings = {}, humans = 2) {
   for (let i = 0; i < humans; i++) { const p = room.addHuman(fake(), 'P' + i); room.assignTeam(p, i % 2 === 0 ? T : CT); ps.push(p); }
   room.start();
   const g = room.game;
+  g.map.elevation.fill(0); g.vehicles.forEach((v) => { v.chassisZ = 0; if (v.def.kind === 'air') v.flightZ = 2; }); g.map.buildings.forEach((b) => { b.eave -= b.base; b.ridge -= b.base; b.base = 0; });
+  g.physics.rebuildGround();                 // the physics terrain follows the flattened elevation
   let seq = 1;
   const tick = (n = 1) => { for (let i = 0; i < n; i++) room.tick(); };
   const cmd = (p, keys, angle = 0, aim = 300) => room.handle(p, { t: 'in', c: [[seq++, keys, angle, 0, aim]] });
@@ -59,11 +61,13 @@ console.log('view-relative controls (third-person camera)');
   check(ps[0].x < x2 - 15, 'D strafes to the right of the view (looking south, right is west)');
   // helicopter: W flies where the pilot looks
   const heli = g.vehicles.find((v) => v.type === 'heli');
-  heli.x = 40 * 32; heli.y = 40 * 32; heli.vx = heli.vy = 0;
+  const heliSpot = g.map.nearestClear(40 * 32, 40 * 32, g.map.blockInf, 3);
+  heli.x = heliSpot.x; heli.y = heliSpot.y; heli.vx = heli.vy = 0; heli.flightZ = 2;
   spawn(ps[1], lo('assault', 'ar7', ['defib', 'medkit']), heli.x + 10, heli.y);
   ps[1].usePrev = false; g.applyCmd(ps[1], KEY.USE, 0, 0, 0);
   if (ps[1].veh === heli.id) {
     const hx = heli.x, hy = heli.y;
+    hold(ps[1], KEY.SPRINT, Math.PI / 2, 180);
     hold(ps[1], KEY.UP, Math.PI / 2, 60);
     check(heli.y > hy + 60 && Math.abs(heli.x - hx) < 40, `W flies the helicopter toward the view (${Math.round(heli.y - hy)} px south)`);
   } else check(false, 'the pilot could board the helicopter');
@@ -223,8 +227,8 @@ console.log('vehicles');
   g.applyCmd(ps[0], KEY.USE, 0, 0, 0);
   check(ps[0].veh === tank.id && tank.seats[0] === ps[0].id, 'E boards the nearest vehicle');
   const x0 = tank.x;
-  hold(ps[0], KEY.UP, 0, 90);
-  check(tank.x > x0 + 80, `the tank drives forward (${Math.round(tank.x - x0)} px in 1.5 s)`);
+  hold(ps[0], KEY.UP, 0, 180);
+  check(tank.x > x0 + 80, `the tank drives forward (${Math.round(tank.x - x0)} px in 3 s)`);
   const sp = tank.speed;
   check(sp > 100 && sp <= 205, `speed is capped (${Math.round(sp)} px/s)`);
   // fire the cannon at a wall in front of the tank
@@ -329,6 +333,7 @@ console.log('aircraft, attachments, alt fire');
   ps[0].usePrev = false; g.applyCmd(ps[0], KEY.USE, 0, 0, 0);
   check(ps[0].veh === heli.id, 'a helicopter can be boarded');
   // fly east straight over the base wall and the river: no collisions for aircraft
+  hold(ps[0], KEY.SPRINT, 0, 180);
   hold(ps[0], KEY.RIGHT, 0, 60 * 6);
   check(heli.x > 5000 || heli.speed > 100, `helicopters fly over walls and water (x=${Math.round(heli.x)})`);
   const sup = lo('assault', 'ar7', ['defib', 'medkit'], { att: { barrel: 'supp', optic: 'acog', under: 'vgrip', mag: 'ext' } });

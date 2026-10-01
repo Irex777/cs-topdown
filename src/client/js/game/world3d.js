@@ -133,8 +133,8 @@ function pbrMat(name, rx, ry, o = {}) {
 }
 
 /** the parts of a Blender prop: geometry with its node transform baked in, feet on y=0, centred on the tile, scaled to game pixels */
-function propParts(name) {
-  const node = assets.props && assets.props.getObjectByName(name);
+function propParts(name, source = assets.props) {
+  const node = source && source.getObjectByName(name);
   if (!node) return null;
   node.updateMatrixWorld(true);
   const wp = node.getWorldPosition(new THREE.Vector3());
@@ -147,8 +147,16 @@ function propParts(name) {
     geo.scale(PX_PER_M, PX_PER_M, PX_PER_M);
     const m = o.material.clone();
     const nm = o.material.name;
-    if (nm === 'wood' || nm === 'wood_dark') { m.map = worldTex('wood', 'c'); m.normalMap = worldTex('wood', 'n'); m.roughnessMap = worldTex('wood', 'r'); m.roughness = 1; m.metalness = 0; }
+    if (['wood', 'wood_dark', 'crate_wood', 'crate_wood_dark', 'facade_timber'].includes(nm)) { m.map = worldTex('wood', 'c'); m.normalMap = worldTex('wood', 'n'); m.roughnessMap = worldTex('wood', 'r'); m.normalScale.set(.35, .35); m.roughness = 1; m.metalness = 0; }
     else if (nm === 'sandbag') { m.map = worldTex('sandbag', 'c'); m.normalMap = worldTex('sandbag', 'n'); m.roughnessMap = worldTex('sandbag', 'r'); m.roughness = 1; m.normalScale = new THREE.Vector2(1.2, 1.2); }
+    else if (nm === 'bag_fabric' || nm === 'facade_plaster') {
+      const texture = nm === 'bag_fabric' ? 'sandbag' : 'plaster';
+      m.map = worldTex(texture, 'c'); m.normalMap = worldTex(texture, 'n'); m.roughnessMap = worldTex(texture, 'r'); m.normalScale.set(.35, .35);
+    }
+    else if (nm === 'facade_brick' || nm === 'facade_stone' || nm === 'barrier_concrete') {
+      const texture = nm === 'facade_brick' ? 'brick' : 'concrete';
+      m.map = worldTex(texture, 'c'); m.normalMap = worldTex(texture, 'n'); m.roughnessMap = worldTex(texture, 'r'); m.normalScale.set(.45, .45);
+    }
     m.needsUpdate = true;
     parts.push({ geo, mat: m });
   });
@@ -156,6 +164,26 @@ function propParts(name) {
 }
 const DUMMY = new THREE.Object3D();
 const COLOR = new THREE.Color();
+
+// Storeys sharing a material render in one instanced draw, with original UVs.
+function stackedGeometry(source, floors) {
+  const geometry = new THREE.BufferGeometry(), vertices = source.attributes.position.count;
+  for (const [name, attribute] of Object.entries(source.attributes)) {
+    const array = new attribute.array.constructor(attribute.array.length * floors);
+    for (let level = 0; level < floors; level++) {
+      const offset = level * attribute.array.length;
+      array.set(attribute.array, offset);
+      if (name === 'position') for (let i = 1; i < attribute.array.length; i += 3) array[offset + i] += level * 52;
+    }
+    geometry.setAttribute(name, new THREE.BufferAttribute(array, attribute.itemSize, attribute.normalized));
+  }
+  if (source.index) {
+    const indices = new Uint32Array(source.index.count * floors);
+    for (let level = 0; level < floors; level++) for (let i = 0; i < source.index.count; i++) indices[level * source.index.count + i] = source.index.array[i] + level * vertices;
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  }
+  return geometry;
+}
 
 /** a chunky stacked-cube tree (8 px cubes: cheap enough for the forests, and it fits the voxel look) */
 function treeGeometry() {
@@ -172,7 +200,7 @@ export class BlockField {
     this.scene = scene; this.map = map;
     this.k = terrain.th.c;
     this.types = new Map();
-    this.slot = new Map();
+    this.slot = new Map(); this.tileType = new Map();
     this.group = new THREE.Group();
     scene.add(this.group);
     this.pbr = !!opts.pbr && hasWorld();
@@ -190,13 +218,68 @@ export class BlockField {
     const fence = lam(tex['='].side, { transparent: false, alphaTest: 0.35, side: THREE.DoubleSide });
     this.specs['='] = { parts: [{ geo: BOX, mat: fence }], fence: true };
     this.specs.T = { parts: [{ geo: treeGeometry(), mat: new THREE.MeshLambertMaterial({ vertexColors: true }) }], tree: true };
+    this.resources = { geometries: new Set(), materials: new Set(), textures: new Set() };
+    this.trackResources();
+    this.modeled = !!assets.props;
+    this.containerSeed = new Int32Array(map.chars.length); this.containerSeed.fill(-1);
+    for (let i = 0; i < map.chars.length; i++) if (map.chars[i] === 'M' && this.containerSeed[i] < 0) {
+      const queue = [i]; this.containerSeed[i] = i;
+      for (let n = 0; n < queue.length; n++) {
+        const tile = queue[n], x = tile % map.w, y = Math.floor(tile / map.w);
+        for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) {
+          const nx = x + dx, ny = y + dy, next = ny * map.w + nx;
+          if (nx < 0 || nx >= map.w || ny < 0 || ny >= map.h || map.chars[next] !== 'M' || this.containerSeed[next] >= 0) continue;
+          this.containerSeed[next] = i; queue.push(next);
+        }
+      }
+    }
     if (this.pbr) this.upgradeSpecs(H);
+    else this.upgradeProps(true);
+    for (const spec of Object.values(this.specs)) if (spec.prop) {
+      spec.nativeHeight = Math.max(...spec.parts.map((part) => { part.geo.computeBoundingBox(); return part.geo.boundingBox.max.y; }));
+    }
+    // Stack authored storey modules without stretching windows or facade details.
+    for (let floors = 2; floors <= 5; floors++) for (const family of ['', ':brick', ':plaster', ':stone']) {
+      for (const ch of ['B', 'G']) {
+        const key = ch + family, spec = this.specs[key];
+        if (!spec?.prop) continue;
+        this.specs[key + '@' + floors] = { ...spec, nativeHeight: spec.nativeHeight * floors, parts: spec.parts.map((part) => ({ geo: stackedGeometry(part.geo, floors), mat: part.mat })) };
+      }
+    }
+    for (let floors = 2; floors <= 5; floors++) if (!this.specs.B.prop) {
+      const wall = this.specs.B;
+      this.specs['B@' + floors] = { ...wall, parts: Array.from({ length: floors }, (_, level) => ({ geo: new THREE.BoxGeometry(1, 1 / floors, 1).translate(0, (level + .5) / floors - .5, 0), mat: wall.parts[0].mat })) };
+      const window = this.specs.G;
+      if (window.prop) this.specs['G@' + floors] = { ...window, parts: Array.from({ length: floors }, (_, level) => window.parts.map((part) => ({ geo: part.geo.clone().translate(0, level * 52, 0), mat: part.mat }))).flat() };
+    }
+    this.trackResources();
     // count per type
     const counts = {};
-    for (let i = 0; i < map.chars.length; i++) { const ch = map.chars[i]; if (this.specs[ch]) counts[ch] = (counts[ch] || 0) + 1; }
+    for (let i = 0; i < map.chars.length; i++) { const ch = this.typeAt(i); if (this.specs[ch]) counts[ch] = (counts[ch] || 0) + 1; }
     for (const ch of Object.keys(this.specs)) this.makeType(ch, (counts[ch] || 0) + 160);
     for (let i = 0; i < map.chars.length; i++) if (this.specs[map.chars[i]]) this.place(i);
     for (const t of this.types.values()) this.commit(t);
+  }
+
+  trackResources() {
+    for (const spec of Object.values(this.specs)) for (const part of spec.parts) {
+      if (part.geo !== BOX) this.resources.geometries.add(part.geo);
+      for (const mat of (Array.isArray(part.mat) ? part.mat : [part.mat])) {
+        this.resources.materials.add(mat);
+        for (const key of ['map', 'normalMap', 'roughnessMap']) {
+          const texture = mat[key];
+          if (texture && (texture.isCanvasTexture || texture.userData.frontlineTransient)) this.resources.textures.add(texture);
+        }
+      }
+    }
+  }
+
+  dispose() {
+    this.scene.remove(this.group);
+    for (const t of this.types.values()) for (const mesh of t.meshes) mesh.dispose();
+    for (const set of Object.values(this.resources)) for (const resource of set) resource.dispose();
+    this.types.clear();
+    this.slot.clear(); this.tileType.clear();
   }
 
   /** swap the flat canvas materials for the Blender-baked PBR set, and the boxy props for the modelled ones */
@@ -211,11 +294,36 @@ export class BlockField {
     this.specs.B.parts[0].mat = [bs, bs, wallTop, bs, bs, bs];
     const ms = side('metal', 'M', new THREE.Color(1, 1, 1), { metal: 0.45 });
     this.specs.M.parts[0].mat = [ms, ms, pbrMat('metal', 1, 1, { metal: 0.45 }), ms, ms, ms];
+    this.upgradeProps();
+  }
+
+  upgradeProps(simple = false) {
     const crate = propParts('crate'), barrels = propParts('barrels'), bags = propParts('sandbags'), tree = propParts('tree');
+    const window = propParts('window', assets.architecture);
+    const container = propParts('container'), barrier = propParts('barrier'), rubble = propParts('rubble');
+    const modeled = [crate, barrels, bags, tree, window, container, barrier, rubble];
+    for (const family of ['brick', 'plaster', 'stone']) for (const [ch, type] of [['B', 'wall'], ['G', 'window']]) {
+      const parts = propParts(type + '_' + family, assets.architecture);
+      if (!parts) continue;
+      this.specs[ch + ':' + family] = { parts, prop: type };
+      modeled.push(parts);
+      if (family === 'brick') this.specs[ch] = this.specs[ch + ':' + family];
+    }
+    if (window) this.specs.G = { parts: window, prop: 'window' };
     if (crate) this.specs.X = { parts: crate, prop: 'crate' };
     if (barrels) this.specs.o = { parts: barrels, prop: 'barrels' };
     if (bags) this.specs.L = { parts: bags, prop: 'bags' };
     if (tree) this.specs.T = { parts: tree, tree: true, prop: 'tree' };
+    if (container) this.specs.M = { parts: container, prop: 'container' };
+    if (barrier) this.specs['L:barrier'] = { parts: barrier, prop: 'bags' };
+    if (rubble) { this.specs.r = { parts: rubble, prop: 'rubble', debris: true }; this.specs.d = this.specs.r; }
+    // Default aliases share parts; convert each material only once.
+    if (simple) for (const parts of new Set(modeled)) for (const part of parts || []) {
+      const m = part.mat;
+      part.mat = new THREE.MeshLambertMaterial({ color: m.color, map: m.map, alphaTest: m.alphaTest, transparent: m.transparent, opacity: m.opacity, side: m.side, depthWrite: m.depthWrite, vertexColors: m.vertexColors });
+      for (const key of ['normalMap', 'roughnessMap']) if (m[key]?.userData.frontlineTransient) m[key].dispose();
+      m.dispose();
+    }
   }
 
   makeType(ch, cap) {
@@ -248,29 +356,37 @@ export class BlockField {
 
   /** write instance n of type t for tile index i */
   write(t, n, i) {
-    const map = this.map, w = map.w, tx = i % w, ty = (i / w) | 0, ch = t.ch, spec = this.specs[ch];
-    const h = tileHeight(ch);
+    const map = this.map, w = map.w, tx = i % w, ty = (i / w) | 0, ch = t.ch[0], spec = this.specs[t.ch];
+    const h = map.top[i];
     const cx = (tx + 0.5) * TILE, cz = (ty + 0.5) * TILE;
+    const base = map.heightAt(cx, cz);
     const v = hash2(tx, ty, 5);
     if (spec.tree) {
       const sc = 0.9 + hash2(tx, ty, 9) * 0.3;
-      DUMMY.position.set(cx, 0, cz); DUMMY.rotation.set(0, v * 6.28, 0); DUMMY.scale.set(spec.prop ? sc : 1, spec.prop ? sc * (0.95 + hash2(tx, ty, 4) * 0.2) : sc, spec.prop ? sc : 1);
+      DUMMY.position.set(cx, base, cz); DUMMY.rotation.set(0, v * 6.28, 0); DUMMY.scale.set(spec.prop ? sc : 1, h / (spec.nativeHeight || 56), spec.prop ? sc : 1);
       const g = 0.85 + hash2(tx, ty, 2) * 0.3;
       COLOR.setRGB(g, g, g);
     } else if (spec.prop) {
       let ry = v * 6.283;
       if (spec.prop === 'crate') ry = Math.floor(v * 4) * Math.PI / 2 + (hash2(tx, ty, 6) - 0.5) * 0.14;
+      else if (spec.prop === 'window') { const c = map.chars; ry = (c[i - 1] === 'B' || c[i + 1] === 'B' || c[i - 1] === 'G' || c[i + 1] === 'G') ? 0 : Math.PI / 2; }
       else if (spec.prop === 'bags') { const c = map.chars; ry = (c[i - 1] === 'L' || c[i + 1] === 'L') ? 0 : (c[i - map.w] === 'L' || c[i + map.w] === 'L') ? Math.PI / 2 : Math.floor(v * 2) * Math.PI / 2; }
-      DUMMY.position.set(cx, 0, cz); DUMMY.rotation.set(0, ry, 0); DUMMY.scale.set(1, 1, 1);
+      else if (spec.prop === 'wall') ry = 0;
+      else if (spec.prop === 'container') ry = (map.chars[i - 1] === 'M' || map.chars[i + 1] === 'M') ? 0 : Math.PI / 2;
+      DUMMY.position.set(cx, base, cz); DUMMY.rotation.set(0, ry, 0); DUMMY.scale.set(1, spec.prop === 'window' || spec.debris ? 1 : h / spec.nativeHeight, 1);
       const g = 0.9 + hash2(tx, ty, 2) * 0.2;
       COLOR.setRGB(g, g, g, THREE.LinearSRGBColorSpace);
+      if (ch === 'M') {
+        const seed = this.containerSeed[i] < 0 ? i : this.containerSeed[i], colors = ['#71878c', '#92917b', '#7b8976'];
+        COLOR.set(colors[seed % colors.length]);
+      }
     } else if (spec.fence) {
       const horiz = map.chars[i - 1] === '=' || map.chars[i + 1] === '=';
-      DUMMY.position.set(cx, h / 2, cz); DUMMY.rotation.set(0, horiz ? 0 : Math.PI / 2, 0); DUMMY.scale.set(TILE, h, 2);
+      DUMMY.position.set(cx, base + h / 2, cz); DUMMY.rotation.set(0, horiz ? 0 : Math.PI / 2, 0); DUMMY.scale.set(TILE, h, 2);
       COLOR.setRGB(1, 1, 1);
     } else {
       const s = spec.shrink || 1;
-      DUMMY.position.set(cx, h / 2, cz); DUMMY.rotation.set(0, 0, 0); DUMMY.scale.set(TILE * s, h, TILE * s);
+      DUMMY.position.set(cx, base + h / 2, cz); DUMMY.rotation.set(0, 0, 0); DUMMY.scale.set(TILE * s, h, TILE * s);
       if (ch === 'M') { const cols = [[0.55, 0.7, 0.9], [0.95, 0.42, 0.36], [0.4, 0.75, 0.5], [0.95, 0.75, 0.32]]; const c = cols[(tx * 7 + ty * 3) & 3]; COLOR.setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace); }
       else { const g = 0.92 + v * 0.14; COLOR.setRGB(g, g, g, THREE.LinearSRGBColorSpace); }
     }
@@ -281,13 +397,24 @@ export class BlockField {
     }
   }
 
+  typeAt(i) {
+    const ch = this.map.chars[i], floors = Math.round(this.map.top[i] / 52);
+    if ((ch === 'r' || ch === 'd') && i % 7 !== 0) return null;
+    if (ch === 'B' || ch === 'G') {
+      const building = this.map.buildings[this.map.roofByTile[i]], family = building ? ['plaster', 'brick', 'stone'][building.id % 3] : 'brick';
+      const key = ch + ':' + family + (floors > 1 ? '@' + floors : '');
+      if (this.specs[key]) return key;
+    }
+    if (ch === 'L' && ['harbor', 'foundry', 'warehouse'].includes(this.map.id) && i % 3 === 0 && this.specs['L:barrier']) return 'L:barrier';
+    return floors > 1 && this.specs[ch + '@' + floors] ? ch + '@' + floors : ch;
+  }
   place(i) {
-    const ch = this.map.chars[i];
+    const ch = this.typeAt(i);
     if (!this.specs[ch]) return;
     let t = this.types.get(ch);
     if (t.n >= t.cap) t = this.grow(t);
     this.write(t, t.n, i);
-    t.tiles[t.n] = i; this.slot.set(i, t.n); t.n++;
+    t.tiles[t.n] = i; this.slot.set(i, t.n); this.tileType.set(i, ch); t.n++;
   }
 
   grow(t) {
@@ -298,10 +425,10 @@ export class BlockField {
   }
 
   unplace(i, ch) {
-    const t = this.types.get(ch);
+    const t = this.types.get(this.tileType.get(i) || ch);
     const s = this.slot.get(i);
     if (!t || s === undefined) return;
-    this.slot.delete(i);
+    this.slot.delete(i); this.tileType.delete(i);
     const last = t.n - 1;
     if (s !== last) {
       const tile = t.tiles[last];
@@ -323,13 +450,26 @@ export class BlockField {
 
 // ------------------------------------------------------------------------------------------------ ground
 const CPX = 256;
-const PLANE = new THREE.PlaneGeometry(CPX, CPX);
-PLANE.rotateX(-Math.PI / 2);
+
+function terrainGeometry(map, cx, cy) {
+  const positions = [], normals = [], uv = [], indices = [], n = CPX / TILE;
+  for (let y = 0; y <= n; y++) for (let x = 0; x <= n; x++) {
+    const wx = cx * CPX + x * TILE, wy = cy * CPX + y * TILE, g = map.gradientAt(wx, wy), len = Math.hypot(g.x, 1, g.y);
+    positions.push(x * TILE - CPX / 2, map.heightAt(wx, wy), y * TILE - CPX / 2);
+    normals.push(-g.x / len, 1 / len, -g.y / len); uv.push(x / n, 1 - y / n);
+    if (x < n && y < n) { const a = y * (n + 1) + x, b = a + 1, d = a + n + 1, c = d + 1; indices.push(a, d, b, b, d, c); }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.setIndex(indices);
+  return geo;
+}
 
 function texFor(canvas) {
   const t = new THREE.CanvasTexture(canvas);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.magFilter = THREE.NearestFilter;
+  t.magFilter = THREE.LinearFilter;
   t.minFilter = THREE.LinearMipmapLinearFilter;
   t.anisotropy = 8;
   t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
@@ -352,8 +492,18 @@ export class Ground {
     on = !!on && hasWorld();
     if (on === this.pbr) return;
     this.pbr = on;
+    if (on && !this.detailImages) this.detailImages = { grass: assets.tex.ground_c?.image, concrete: assets.tex.concrete_c?.image };
+    this.terrain.setDetailImages(on ? this.detailImages : null);
     for (const [k, e] of [...this.chunks]) this.drop(k, e);
     if (on && !this.detail) this.detail = { n: worldTex('ground', 'n', 12, 12), r: worldTex('ground', 'r', 12, 12) };
+  }
+
+  deform() {
+    for (const [key, e] of this.chunks) {
+      const geo = terrainGeometry(this.terrain.map, key % this.terrain.cw, Math.floor(key / this.terrain.cw));
+      e.mesh.geometry.dispose(); e.mesh.geometry = geo;
+      if (e.decal) e.decal.mesh.geometry = geo;
+    }
   }
 
   update(px, pz, radius) {
@@ -374,7 +524,7 @@ export class Ground {
         const mat = this.pbr
           ? new THREE.MeshStandardMaterial({ map: tex, normalMap: this.detail.n, normalScale: new THREE.Vector2(0.9, 0.9), roughnessMap: this.detail.r, roughness: 1, metalness: 0 })
           : new THREE.MeshLambertMaterial({ map: tex });
-        const mesh = new THREE.Mesh(PLANE, mat);
+        const mesh = new THREE.Mesh(terrainGeometry(terrain.map, cx, cy), mat);
         mesh.position.set(cx * CPX + CPX / 2, 0, cy * CPX + CPX / 2);
         mesh.receiveShadow = true;
         this.group.add(mesh);
@@ -388,7 +538,7 @@ export class Ground {
         if (!e.decal) {
           const dt = texFor(d.c);
           dt.generateMipmaps = false; dt.minFilter = THREE.NearestFilter;
-          const dm = new THREE.Mesh(PLANE, new THREE.MeshBasicMaterial({ map: dt, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+          const dm = new THREE.Mesh(e.mesh.geometry, new THREE.MeshBasicMaterial({ map: dt, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
           dm.position.set(cx * CPX + CPX / 2, 0.4, cy * CPX + CPX / 2);
           dm.renderOrder = 1;
           this.group.add(dm);
@@ -405,12 +555,16 @@ export class Ground {
   }
 
   drop(key, e) {
-    this.group.remove(e.mesh); e.mesh.material.dispose(); e.tex.dispose();
+    this.group.remove(e.mesh); e.mesh.geometry.dispose(); e.mesh.material.dispose(); e.tex.dispose();
     if (e.decal) { this.group.remove(e.decal.mesh); e.decal.mesh.material.dispose(); e.decal.tex.dispose(); }
     this.chunks.delete(key);
   }
 
-  dispose() { for (const [k, e] of [...this.chunks]) this.drop(k, e); this.scene.remove(this.group); }
+  dispose() {
+    for (const [k, e] of [...this.chunks]) this.drop(k, e);
+    if (this.detail) { this.detail.n?.dispose(); this.detail.r?.dispose(); }
+    this.scene.remove(this.group);
+  }
 }
 
 export { linear };

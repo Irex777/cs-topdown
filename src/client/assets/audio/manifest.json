@@ -1,0 +1,102 @@
+{
+  "pistol": [
+    "pistol-0.ogg",
+    "pistol-1.ogg",
+    "pistol-2.ogg"
+  ],
+  "rifle": [
+    "rifle-0.ogg",
+    "rifle-1.ogg",
+    "rifle-2.ogg"
+  ],
+  "sniper": [
+    "sniper-0.ogg",
+    "sniper-1.ogg",
+    "sniper-2.ogg"
+  ],
+  "shotgun": [
+    "shotgun-0.ogg"
+  ],
+  "footstep_grass": [
+    "footstep_grass-0.ogg",
+    "footstep_grass-1.ogg",
+    "footstep_grass-2.ogg",
+    "footstep_grass-3.ogg"
+  ],
+  "footstep_concrete": [
+    "footstep_concrete-0.ogg",
+    "footstep_concrete-1.ogg",
+    "footstep_concrete-2.ogg",
+    "footstep_concrete-3.ogg"
+  ],
+  "footstep_wood": [
+    "footstep_wood-0.ogg",
+    "footstep_wood-1.ogg",
+    "footstep_wood-2.ogg",
+    "footstep_wood-3.ogg"
+  ],
+  "footstep_snow": [
+    "footstep_snow-0.ogg",
+    "footstep_snow-1.ogg",
+    "footstep_snow-2.ogg",
+    "footstep_snow-3.ogg"
+  ],
+  "impactWood_heavy": [
+    "impactWood_heavy-0.ogg",
+    "impactWood_heavy-1.ogg",
+    "impactWood_heavy-2.ogg",
+    "impactWood_heavy-3.ogg"
+  ],
+  "impactMetal_heavy": [
+    "impactMetal_heavy-0.ogg",
+    "impactMetal_heavy-1.ogg",
+    "impactMetal_heavy-2.ogg",
+    "impactMetal_heavy-3.ogg"
+  ],
+  "impactGlass_heavy": [
+    "impactGlass_heavy-0.ogg",
+    "impactGlass_heavy-1.ogg",
+    "impactGlass_heavy-2.ogg",
+    "impactGlass_heavy-3.ogg"
+  ],
+  "impactSoft_heavy": [
+    "impactSoft_heavy-0.ogg",
+    "impactSoft_heavy-1.ogg",
+    "impactSoft_heavy-2.ogg",
+    "impactSoft_heavy-3.ogg"
+  ],
+  "impactMining": [
+    "impactMining-0.ogg",
+    "impactMining-1.ogg",
+    "impactMining-2.ogg",
+    "impactMining-3.ogg"
+  ],
+  "cannon": [
+    "cannon-0.ogg",
+    "cannon-1.ogg",
+    "cannon-2.ogg"
+  ],
+  "explosion": [
+    "explosion-0.ogg",
+    "explosion-1.ogg",
+    "explosion-2.ogg"
+  ],
+  "reload": [
+    "reload-0.ogg"
+  ],
+  "reloadPistol": [
+    "reloadPistol-0.ogg"
+  ],
+  "bolt": [
+    "bolt-0.ogg"
+  ],
+  "engine": [
+    "engine-0.ogg"
+  ],
+  "rotor": [
+    "rotor-0.ogg"
+  ],
+  "wind": [
+    "wind-0.ogg"
+  ]
+}

@@ -1,8 +1,9 @@
 // Everything drawn on the 2D layer above the 3D scene: name tags, objective markers, pings, spot markers, floating
 // score text, damage indicators, screen effects and the crosshair. World positions are projected through the camera.
 import { SPEC, GREN_ORDER, HE_RADIUS, SMOKE_RADIUS, FIRE_RADIUS, GREN_MAX_DIST, GREN_MIN_DIST } from '../../shared/constants.js';
-import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, ALT } from '../../shared/weapons.js';
-import { VEHICLES, VEHICLE_LIST } from '../../shared/vehicles.js';
+import { WEAPON_LIST, HELD_GREN_BASE, HELD_GADGET_BASE, GADGET_LIST, ALT, PROJ } from '../../shared/weapons.js';
+import { vehicleAimPoint } from '../../shared/vehicle-aim.js';
+import { VEHICLES, VEHICLE_LIST, VWEAPONS, vehicleShot } from '../../shared/vehicles.js';
 
 const TAU = Math.PI * 2;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -27,11 +28,13 @@ export class Overlay {
     this.floaters(ctx);
     this.offscreen(ctx);
     this.screenFx(ctx, viewer, dt);
+    if (g.me?.hb) this.text(ctx, 'E · DROP     LMB · THROW', r.W / 2, r.H * .64, '#ffe0a0', 13);
     if (g.alive && g.me && g.me.own && !(g.ui.isOverlayOpen && g.ui.isOverlayOpen())) this.crosshair(ctx, viewer, performance.now());
     if (g.playing() && !g.input.locked && !g.input.lockDenied) {
-      ctx.fillStyle = 'rgba(0,0,0,0.62)'; ctx.fillRect(r.W / 2 - 230, r.H * 0.62 - 30, 460, 60);
-      this.text(ctx, 'CLICK TO CAPTURE THE MOUSE', r.W / 2, r.H * 0.62 - 2, '#ffb23a', 20, 800);
-      this.text(ctx, 'then look around with the mouse — Esc releases it', r.W / 2, r.H * 0.62 + 20, '#d8dee8', 12, 600);
+      const y = r.H - 170;
+      ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(r.W / 2 - 164, y - 20, 328, 44);
+      this.text(ctx, 'CLICK TO AIM', r.W / 2, y - 2, '#ffb23a', 13, 800);
+      this.text(ctx, 'Move mouse to look · Esc to release', r.W / 2, y + 15, '#d8dee8', 11, 600);
     }
   }
 
@@ -51,7 +54,7 @@ export class Overlay {
   flagLabels(ctx) {
     const r = this.r, g = r.game;
     for (const f of g.flagList()) {
-      const p = r.project(f.x, f.y, 92);
+      const p = r.project(f.x, f.y, g.map.heightAt(f.x, f.y) + 92);
       if (!p || p.dist > 2600) continue;
       const po = g.pt(f.owner), col = po === 0 ? '#ff8a72' : po === 1 ? '#7fb0ff' : '#e6e9ec';
       const near = p.dist < 1300;
@@ -68,7 +71,7 @@ export class Overlay {
       if (f.contested) { ctx.strokeStyle = `rgba(255,220,80,${0.5 + 0.4 * Math.sin(r.t * 8)})`; ctx.lineWidth = 3; ctx.strokeRect(p.x - 17 * s, p.y - 17 * s, 34 * s, 34 * s); }
     }
     for (const m of g.mcomList()) {
-      const p = r.project(m.x, m.y, 44);
+      const p = r.project(m.x, m.y, g.map.heightAt(m.x, m.y) + 44);
       if (!p || p.dist > 2600) continue;
       const armed = m.state === 1, dead = m.state === 2;
       const s = clamp(1500 / p.dist, 0.6, 1.4);
@@ -89,7 +92,7 @@ export class Overlay {
       if (p.own) continue;
       const mate = p.team === myTeam;
       if (!mate && g.myTeam() !== SPEC) continue;
-      const s = r.project(p.x, p.y, 40);
+      const s = r.project(p.x, p.y, p.z + 40);
       if (!s || s.dist > LABEL_RANGE) continue;
       const col = TEAM_COL[g.pt(p.team)];
       const rec = g.roster.get(p.id);
@@ -103,11 +106,12 @@ export class Overlay {
       ctx.globalAlpha = 1;
     }
     for (const v of g.vehiclesDrawn()) {
+      if (v.id === g.me?.veh?.id) continue;
       const def = VEHICLES[VEHICLE_LIST[v.ty]];
       if (!def) continue;
       const mate = v.team === myTeam;
       if (!mate && v.team >= 0) continue;
-      const s = r.project(v.x, v.y, def.kind === 'air' ? 96 : def.r + 34);
+      const s = r.project(v.x, v.y, (v.z || 0) + def.size[2] + 16);
       if (!s || s.dist > 1800) continue;
       const col = TEAM_COL[g.pt(v.team)];
       this.text(ctx, def.name, s.x, s.y, col.text, 11);
@@ -116,7 +120,7 @@ export class Overlay {
     // spotted enemies stay marked through walls
     for (const sp of g.ents.sp || []) {
       const [, x, y, kind] = sp;
-      const s = r.project(x, y, 60);
+      const s = r.project(x, y, g.map.heightAt(x, y) + 60);
       if (!s) continue;
       const bob = Math.sin(r.t * 5) * 3, k = clamp(1400 / s.dist, 0.7, 1.2), y0 = s.y - 10 + bob;
       ctx.fillStyle = '#ff3b3b'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2;
@@ -132,7 +136,7 @@ export class Overlay {
     g.pings = g.pings.filter((p) => now - p.t < 4500);
     for (const p of g.pings) {
       const age = (now - p.t) / 1000;
-      const s = r.project(p.x, p.y, 34);
+      const s = r.project(p.x, p.y, g.map.heightAt(p.x, p.y) + 34);
       if (!s) continue;
       const col = TEAM_COL[g.pt(p.team)];
       const fade = clamp((4.5 - age) / 1, 0, 1);
@@ -150,7 +154,7 @@ export class Overlay {
     const r = this.r;
     for (const f of r.game.fx.floaters) {
       const k = f.t / f.life;
-      const s = r.project(f.x, f.y, 46 + k * 40);
+      const s = r.project(f.x, f.y, r.game.map.heightAt(f.x, f.y) + 46 + k * 40);
       if (!s) continue;
       ctx.globalAlpha = 1 - k * k;
       this.text(ctx, f.text, s.x, s.y, f.color, 15, 800);
@@ -166,7 +170,7 @@ export class Overlay {
     for (const m of g.mcomList()) if (m.state !== 2) marks.push({ x: m.x, y: m.y, label: 'M', col: m.state === 1 ? '#ff3b2f' : '#ffb84a', pulse: m.state === 1 });
     const W = r.W, H = r.H, pad = 44;
     for (const m of marks) {
-      const p = r.project(m.x, m.y, 40, true);
+      const p = r.project(m.x, m.y, g.map.heightAt(m.x, m.y) + 40, true);
       if (!p) continue;
       if (!p.behind && p.x > pad && p.x < W - pad && p.y > pad && p.y < H - pad) continue;
       const cx = W / 2, cy = H / 2;
@@ -247,9 +251,9 @@ export class Overlay {
 
   // ------------------------------------------------------------------ crosshair & aiming aids
   /** where a ground point `d` px ahead of the viewer along `ang` lands on screen, and how many px one world px is there */
-  ground(viewer, ang, d, z = 0) {
+  ground(viewer, ang, d, z) {
     const r = this.r;
-    const p = r.project(viewer.x + Math.cos(ang) * d, viewer.y + Math.sin(ang) * d, z);
+    const p = r.project(viewer.x + Math.cos(ang) * d, viewer.y + Math.sin(ang) * d, z ?? r.game.map.heightAt(viewer.x + Math.cos(ang) * d, viewer.y + Math.sin(ang) * d));
     return p ? { x: p.x, y: p.y, k: r.focal / p.dist } : null;
   }
 
@@ -273,16 +277,21 @@ export class Overlay {
       ctx.restore();
       if (sd.weapon && viewer) {
         // where the turret / gun really points right now
-        const ang = sd.aim === 'turret' ? g.turretAngle() : sd.aim === 'body' ? g.predVeh.a : v.sa;
-        const pt = this.ground(viewer, ang, clamp(g.aimDist, 200, 900), 14);
+        const ang = sd.aim === 'turret' ? g.turretAngle() : sd.aim === 'body' ? g.predVeh.a : g.gunnerAngle();
+        const state = { ...v, x: viewer.x, y: viewer.y, z: viewer.z, a: g.inDriverSeat() ? g.predVeh.a : (g.interpolatedVeh(v.id)?.a ?? v.a), ta: g.turretAngle(), def };
+        const shot = vehicleShot(state, v.seat, ang, g.aimDist, g.aimHeight, r.vehicleAim), wp = VWEAPONS[sd.weapon];
+        const distance = Math.hypot(shot.target.x - shot.x, shot.target.y - shot.y);
+        const reach = wp.kind === 'proj' ? PROJ[wp.proj].speed * PROJ[wp.proj].life * Math.cos(shot.pitch) : wp.range;
+        r.weaponImpact = vehicleAimPoint(g.map, shot, { x: Math.cos(shot.yaw), y: Math.sin(shot.yaw), z: Math.tan(shot.pitch) }, g.soldiers(), g.vehiclesDrawn(), v.id, VEHICLE_LIST.map((id) => VEHICLES[id]), Math.min(distance, reach));
+        const point = r.weaponImpact, pt = r.project(point.x, point.y, point.z);
         if (pt) {
-          ctx.strokeStyle = 'rgba(255,255,255,0.75)'; ctx.lineWidth = 2;
+          ctx.strokeStyle = Math.hypot(pt.x - mx, pt.y - my) > 12 ? '#ffd16e' : 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
           ctx.beginPath(); ctx.moveTo(pt.x, pt.y - 7); ctx.lineTo(pt.x + 7, pt.y); ctx.lineTo(pt.x, pt.y + 7); ctx.lineTo(pt.x - 7, pt.y); ctx.closePath(); ctx.stroke();
         }
       }
       return;
     }
-    const w = held < HELD_GREN_BASE ? WEAPON_LIST[held] : null;
+    const w = held < HELD_GREN_BASE ? g.heldWeapon(me) || WEAPON_LIST[held] : null;
     if (held >= HELD_GREN_BASE && held < HELD_GADGET_BASE && viewer) {
       const type = GREN_ORDER[held - HELD_GREN_BASE];
       const d = clamp(g.aimDist, GREN_MIN_DIST, GREN_MAX_DIST);
@@ -311,6 +320,18 @@ export class Overlay {
       ctx.moveTo(0, gp); ctx.lineTo(0, gp + len); ctx.moveTo(0, -gp); ctx.lineTo(0, -gp - len); ctx.stroke();
     };
     const gadget = held >= HELD_GADGET_BASE;
+    const aa = gadget && GADGET_LIST[held - HELD_GADGET_BASE]?.aa;
+    if (aimingDown && (w?.att?.optic === 'reddot' || w?.att?.optic === 'holo')) {
+      ctx.fillStyle = '#350800'; ctx.beginPath(); ctx.arc(0, 0, 2.6, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#ff4236'; ctx.beginPath(); ctx.arc(0, 0, 1.5, 0, TAU); ctx.fill();
+      if (w.att.optic === 'holo') { ctx.strokeStyle = 'rgba(255,65,48,.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.stroke(); }
+    }
+    if (aa) {
+      ctx.strokeStyle = me.lk?.[1] >= 1 ? '#8dffc2' : '#e9c278'; ctx.lineWidth = 1.5;
+      for (const [x, y] of [[-45, -36], [45, -36], [-45, 36], [45, 36]]) { ctx.beginPath(); ctx.moveTo(x, y - Math.sign(y) * 10); ctx.lineTo(x, y); ctx.lineTo(x - Math.sign(x) * 10, y); ctx.stroke(); }
+      ctx.fillStyle = ctx.strokeStyle; ctx.font = `700 11px ${FONT}`; ctx.textAlign = 'center';
+      ctx.fillText(me.rel > 0 ? 'RELOADING' : me.lk?.[1] >= 1 ? 'LOCKED · LMB LAUNCH' : me.lk ? `ACQUIRING ${Math.round(me.lk[1] * 100)}%` : 'RMB · ACQUIRE AIRCRAFT', 0, 65);
+    }
     if (!gadget && !aimingDown && (!w || w.kind !== 'knife')) { ticks('rgba(0,0,0,0.6)', 4); ticks(col, 2); }
     if (!aimingDown) { ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-2.5, -2.5, 5, 5); ctx.fillStyle = col; ctx.fillRect(-1.5, -1.5, 3, 3); }
     if (hm) { const hd = g.hitHead ? 1.5 : 1; ctx.strokeStyle = g.hitKill || g.hitHead ? '#ff453a' : '#fff'; ctx.lineWidth = g.hitHead ? 3 : 2; ctx.beginPath(); ctx.moveTo(-9 * hd, -9 * hd); ctx.lineTo(-4, -4); ctx.moveTo(9 * hd, -9 * hd); ctx.lineTo(4, -4); ctx.moveTo(-9 * hd, 9 * hd); ctx.lineTo(-4, 4); ctx.moveTo(9 * hd, 9 * hd); ctx.lineTo(4, 4); ctx.stroke(); }
@@ -323,7 +344,7 @@ export class Overlay {
       ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.lineWidth = 6; ctx.beginPath(); ctx.arc(0, 0, gp + 30, 0, TAU); ctx.stroke();
       ctx.strokeStyle = c; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(0, 0, gp + 30, -Math.PI / 2, -Math.PI / 2 + TAU * clamp(me.pl, 0, 1)); ctx.stroke();
     }
-    if (me.lk) {
+    if (me.lk && !aa) {
       ctx.strokeStyle = me.lk[1] >= 1 ? '#ff3b2f' : '#ffd24a'; ctx.lineWidth = 3; ctx.strokeRect(-18, -18, 36, 36);
       ctx.fillStyle = ctx.strokeStyle; ctx.font = `800 11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(me.lk[1] >= 1 ? 'LOCKED' : 'LOCKING', 0, 32);
     }

@@ -1,29 +1,47 @@
-// Sliders and toggles shared by the pause menu and the main menu's Settings screen.
-import { audio } from '../audio.js';
+// Settings and controls shared by the pause menu and the main menu's Settings screen.
+import { audio } from '../battlefield-audio.js';
 
 const save = (k, v) => { try { localStorage.setItem(k, String(v)); } catch { /* ignore */ } };
 
+const field = (label, id, min, max, value, out, hint = '') => `<label class="field"><span class="fl">${label}${hint ? `<small>${hint}</small>` : ''}</span><input type="range" id="${id}" min="${min}" max="${max}" value="${value}" aria-label="${label}"><output id="${out.id}">${out.text}</output></label>`;
+
 export function settingsHTML(g) {
+  const q = g.renderer.quality;
   return `
-      <div class="slider"><span>Volume</span><input type="range" id="volRange" min="0" max="100" value="${Math.round(audio.volume * 100)}" aria-label="Volume"></div>
-      <div class="slider"><span>Mouse sensitivity</span><input type="range" id="sensRange" min="4" max="60" value="${Math.round(g.sens * 10000)}" aria-label="Mouse sensitivity"></div>
-      <div class="slider"><span>Field of view</span><input type="range" id="fovRange" min="70" max="120" value="${Math.round(g.fov)}" aria-label="Field of view"><b id="fovVal" style="min-width:34px;text-align:right">${Math.round(g.fov)}°</b></div>
-      <div class="slider"><span>Graphics</span><select id="gfxQ" aria-label="Graphics quality" style="flex:1;padding:7px;background:#0b0f16;color:#fff;border:1px solid rgba(255,255,255,.25)"><option value="0" ${(g.renderer.quality === 0) ? 'selected' : ''}>Low — fastest (no shadows)</option><option value="1" ${(g.renderer.quality === 1) ? 'selected' : ''}>Medium</option><option value="2" ${(g.renderer.quality === 2) ? 'selected' : ''}>High — shadows, sharp</option></select></div>
-      <div class="row" style="gap:16px"><label class="chk"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}> Invert Y</label><label class="chk"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}> Toggle aim (RMB)</label></div>`;
+    <section class="set-group"><h4>Audio</h4>
+      ${field('Volume', 'volRange', 0, 100, Math.round(audio.volume * 100), { id: 'volVal', text: Math.round(audio.volume * 100) + '%' })}
+    </section>
+    <section class="set-group"><h4>Aiming &amp; view</h4>
+      ${field('Mouse sensitivity', 'sensRange', 4, 60, Math.round(g.sens * 10000), { id: 'sensVal', text: String(Math.round(g.sens * 10000)) })}
+      ${field('Field of view', 'fovRange', 70, 120, Math.round(g.fov), { id: 'fovVal', text: Math.round(g.fov) + '°' })}
+      <div class="checks"><label class="check"><input type="checkbox" id="invY" ${g.invertY ? 'checked' : ''}><span>Invert vertical look</span></label>
+      <label class="check"><input type="checkbox" id="adsT" ${g.input.adsToggle ? 'checked' : ''}><span>Toggle aim instead of holding right mouse</span></label></div>
+    </section>
+    <section class="set-group"><h4>Graphics</h4>
+      <label class="field"><span class="fl">Quality<small>Low turns shadows and post effects off for a smoother frame rate.</small></span><select id="gfxQ" class="select" aria-label="Graphics quality"><option value="0" ${q === 0 ? 'selected' : ''}>Low — fastest, no shadows or effects</option><option value="1" ${q === 1 ? 'selected' : ''}>Medium — shadows, bloom, smoothing</option><option value="2" ${q === 2 ? 'selected' : ''}>High — full effects, sharpest</option></select></label>
+    </section>`;
 }
 
 export function bindSettings(root, g) {
   const $ = (id) => root.querySelector('#' + id);
-  $('volRange').oninput = (e) => audio.setVolume(e.target.value / 100);
-  $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; save('fl.sens', g.sens); };
+  $('volRange').oninput = (e) => { audio.setVolume(e.target.value / 100); $('volVal').textContent = e.target.value + '%'; };
+  $('sensRange').oninput = (e) => { g.sens = e.target.value / 10000; $('sensVal').textContent = e.target.value; save('fl.sens', g.sens); };
   $('fovRange').oninput = (e) => { g.fov = Number(e.target.value); $('fovVal').textContent = g.fov + '°'; save('fl.fov', g.fov); };
   $('gfxQ').onchange = (e) => g.renderer.setQuality(Number(e.target.value), true);
   $('invY').onchange = (e) => { g.invertY = e.target.checked; save('fl.inv', g.invertY ? 1 : 0); };
   $('adsT').onchange = (e) => { g.input.adsToggle = e.target.checked; g.input.right = false; save('fl.adsT', g.input.adsToggle ? 1 : 0); };
 }
 
-export const CONTROLS = [
-  ['WASD', 'Move'], ['Mouse', 'Look / aim'], ['LMB', 'Fire'], ['RMB', 'Aim down sights'], ['Shift', 'Sprint (forward)'], ['Space', 'Jump'], ['C', 'Crouch'], ['R', 'Reload'],
-  ['E', 'Enter / exit vehicle, revive, arm M-COM'], ['G', 'Grenade'], ['X', 'Knife'], ['1-4', 'Weapons / gadgets'], ['Wheel', 'Cycle weapons'], ['Q', 'Spot enemy'],
-  ['V', 'Ping'], ['L', 'Loadout'], ['M', 'Big map'], ['Tab', 'Scoreboard'], ['Enter', 'Team chat'], ['Esc', 'Menu'],
+export const CONTROL_GROUPS = [
+  ['Movement', [['WASD', 'Move'], ['Shift', 'Sprint (forward)'], ['Space', 'Jump · brake in vehicles'], ['C', 'Crouch (hold)']]],
+  ['Combat', [['LMB', 'Fire'], ['RMB', 'Aim down sights / scope'], ['R', 'Reload'], ['G', 'Grenade'], ['X', 'Knife'], ['1-4', 'Weapons and gadgets'], ['Wheel', 'Cycle weapons']]],
+  ['Teamwork', [['E', 'Enter or exit vehicle, revive, arm M-COM'], ['Q', 'Spot enemy'], ['V', 'Ping'], ['Enter', 'Team chat'], ['Y', 'All chat']]],
+  ['Vehicles', [['Shift / Ctrl', 'Helicopter climb / descend'], ['V', 'Switch vehicle camera'], ['RMB', 'Weapon zoom'], ['1-4', 'Change seat']]],
+  ['Interface', [['L', 'Loadout'], ['M', 'Big map'], ['Tab', 'Scoreboard'], ['Esc', 'Menu']]],
 ];
+export const CONTROLS = CONTROL_GROUPS.flatMap(([, rows]) => rows);
+
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+export function controlsHTML() {
+  return `<div class="ctrl-groups">${CONTROL_GROUPS.map(([name, rows]) => `<section class="ctrl-group"><h4>${esc(name)}</h4>${rows.map(([k, d]) => `<div class="ctrl-row"><kbd>${esc(k)}</kbd><span>${esc(d)}</span></div>`).join('')}</section>`).join('')}</div>`;
+}

@@ -150,7 +150,7 @@ export const GADGET_LIST = [
   { id: 'mine',     name: 'AT Mine', kind: 'deploy', charges: 3, desc: 'Hidden mine that wrecks ground vehicles.' },
   { id: 'rpg',      name: 'RL-80', kind: 'launcher', charges: 5, desc: 'Rocket launcher. Heavy damage to vehicles and walls.', proj: 'rpg', cd: 1.1, reload: 2.6, mag: 1 },
   { id: 'smaw',     name: 'RL-80 HEAT', kind: 'launcher', charges: 6, desc: 'Fast rocket, longer range, bigger blast.', proj: 'smaw', cd: 1.3, reload: 3.0, mag: 1 },
-  { id: 'stinger',  name: 'AA Launcher', kind: 'launcher', charges: 4, desc: 'Locks onto aircraft. Hold RMB to lock.', proj: 'stinger', cd: 1.5, reload: 3.2, mag: 1, aa: true },
+  { id: 'stinger',  name: 'Stinger AA', kind: 'launcher', charges: 4, desc: 'Hold RMB on an enemy helicopter to lock, then LMB to launch. Flares break the lock.', proj: 'stinger', cd: 1.5, reload: 3.2, mag: 1, aa: true },
   { id: 'ammo',     name: 'Ammo Crate', kind: 'deploy', charges: 3, life: 26, radius: 110, desc: 'Resupplies ammo, armor and grenades of everyone nearby.' },
   { id: 'claymore', name: 'Claymore', kind: 'deploy', charges: 2, desc: 'Directional mine. Shreds enemy infantry in front of it.' },
   { id: 'c4',       name: 'C4', kind: 'c4', charges: 3, desc: 'Place with fire, detonate with right mouse. Sticks to vehicles.' },
@@ -172,6 +172,8 @@ export const PROJ = {
   ugl:     { name: '40mm', speed: 760, life: 1.4, radius: 5, expl: 118, dmg: 78, veh: 55, tile: 110, air: 0 },
   torpedo: { name: 'Depth charge', speed: 700, life: 1.8, radius: 6, expl: 95, dmg: 90, veh: 180, tile: 200, air: 0 },
 };
+
+export const AIR_DEFENSE = { lockTime: 1.4, range: 2400, cone: .12, flareLife: 3, flareCooldown: 12, flareCharges: 4 };
 
 // ---- classes -----------------------------------------------------------------------------------------------------
 export const CLASS_ORDER = ['assault', 'engineer', 'support', 'recon'];

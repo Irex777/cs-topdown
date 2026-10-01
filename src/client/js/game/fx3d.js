@@ -1,6 +1,7 @@
 // Draws the effects simulated in fx.js with three.js: instanced cube particles, additive glow sprites, tracer streaks and
 // expanding shock rings.
 import * as THREE from '../../vendor/three/three.module.js';
+import { billboardCloud, finishCloud } from './particles3d.js';
 
 const BOX = new THREE.BoxGeometry(1, 1, 1);
 const D = new THREE.Object3D();
@@ -36,10 +37,13 @@ export class FX3D {
     const mk = (cap, mat) => { const m = new THREE.InstancedMesh(BOX, mat, cap); m.instanceMatrix.setUsage(THREE.DynamicDrawUsage); m.frustumCulled = false; m.count = 0; C.setRGB(1, 1, 1); m.setColorAt(0, C); this.group.add(m); return m; };
     this.cubes = mk(1600, new THREE.MeshLambertMaterial());
     this.cubes.castShadow = true;
-    this.fires = mk(1200, new THREE.MeshBasicMaterial());
-    this.puffs = mk(900, new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.4, depthWrite: false }));
-    this.puffs.renderOrder = 3;
     this.glowTex = glowTexture();
+    this.fires = billboardCloud(1200, { map: this.glowTex, blending: THREE.AdditiveBlending });
+    this.fires.renderOrder = 4;
+    this.group.add(this.fires);
+    this.puffs = billboardCloud(900);
+    this.group.add(this.puffs);
+    this.puffs.renderOrder = 3;
     this.sprites = [];
     this.tracers = [];
     this.rings = [];
@@ -53,11 +57,11 @@ export class FX3D {
       s = new THREE.Sprite(new THREE.SpriteMaterial({ map: this.glowTex, blending: THREE.AdditiveBlending, depthWrite: false, transparent: true }));
       s.renderOrder = 4; this.group.add(s); this.sprites[i] = s;
     }
-    s.visible = true;
+    s.visible = true; s.material.color.set('#ffffff');
     return s;
   }
 
-  update() {
+  update(camera) {
     const fx = this.fx;
     let nc = 0, nf = 0, np = 0, ns = 0;
     for (const p of fx.parts) {
@@ -66,18 +70,20 @@ export class FX3D {
         case 'puff': {
           if (np >= 900) break;
           const s = Math.max(1, p.r + (p.grow || 0) * k);
-          D.position.set(p.x, p.z + s / 2, p.y); D.rotation.set(0, 0, 0); D.scale.setScalar(s * (k > 0.6 ? 1 - (k - 0.6) * 2.2 : 1)); D.updateMatrix();
+          D.position.set(p.x, p.z + s / 2, p.y); D.quaternion.copy(camera.quaternion); D.rotateZ(p.x * 0.1 + k * 0.25); D.scale.set(s * 2, s * 2, 1); D.updateMatrix();
           this.puffs.setMatrixAt(np, D.matrix);
           this.puffs.setColorAt(np, parseCol(p.col));
+          this.puffs.geometry.attributes.particleOpacity.setX(np, (p.a0 || 0.45) * Math.pow(1 - k, 1.3));
           np++;
           break;
         }
         case 'fire': {
           if (nf >= 1200) break;
           const s = Math.max(2, p.r * (1 - k * 0.6));
-          D.position.set(p.x, p.z + s / 2, p.y); D.rotation.set(0, p.t * 3, 0); D.scale.setScalar(s); D.updateMatrix();
+          D.position.set(p.x, p.z + s / 2, p.y); D.quaternion.copy(camera.quaternion); D.rotateZ(p.t * 3); D.scale.set(s * 2.4, s * 2.4, 1); D.updateMatrix();
           this.fires.setMatrixAt(nf, D.matrix);
           this.fires.setColorAt(nf, parseCol(k < 0.3 ? '#fff0a0' : k < 0.6 ? '#ff9a2a' : '#c23a12'));
+          this.fires.geometry.attributes.particleOpacity.setX(nf, 0.85 * (1 - k));
           nf++;
           break;
         }
@@ -100,10 +106,17 @@ export class FX3D {
         }
       }
     }
-    for (const [m, n] of [[this.cubes, nc], [this.fires, nf], [this.puffs, np]]) {
+    for (const [m, n] of [[this.cubes, nc]]) {
       m.count = n;
       m.instanceMatrix.needsUpdate = true;
       if (m.instanceColor) m.instanceColor.needsUpdate = true;
+    }
+    finishCloud(this.fires, nf);
+    finishCloud(this.puffs, np);
+    for (const f of fx.flares || []) {
+      const s = this.sprite(ns++);
+      s.position.set(f.x, f.z, f.y); s.scale.set(14, 14, 1);
+      s.material.color.set('#fff1c0'); s.material.opacity = Math.min(1, f.fade * 3);
     }
     for (let i = ns; i < this.sprites.length; i++) this.sprites[i].visible = false;
 
@@ -138,7 +151,7 @@ export class FX3D {
       const k = r.t / r.life;
       const rr = r.r0 + (r.r1 - r.r0) * (1 - Math.pow(1 - k, 2));
       m.visible = true;
-      m.position.set(r.x, 3, r.y);
+      m.position.set(r.x, (fx.map?.heightAt(r.x, r.y) || 0) + 3, r.y);
       m.scale.set(rr, 1, rr);
       m.material.color.copy(parseCol(r.color));
       m.material.opacity = (1 - k) * 0.85;

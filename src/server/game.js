@@ -8,9 +8,11 @@ import { Player, newStats } from './player.js';
 import { tryFire, tickWeaponTimers, damagePlayer } from './combat.js';
 import { updateGrenades, updateFires, updateSmokes } from './grenades.js';
 import { updateProjectiles } from './projectiles.js';
+import { updateFlares } from './air-defense.js';
 import { updateGadgets } from './gadgets.js';
 import { initVehicles, updateVehicles, destroyVehicle, vehicleCmd, vehicleById, enterVehicle, exitVehicle, nearestVehicle, switchSeat, canEnter, freeSeat } from './vehicles.js';
 import { explode } from './world.js';
+import { BattlefieldPhysics } from './physics.js';
 import { buildSnapshot } from './snapshot.js';
 import { BotBrain, BOT_NAMES, TeamMind } from './bot/brain.js';
 import { NavGrid } from './bot/nav.js';
@@ -32,7 +34,7 @@ export class Game {
     this.phase = PHASE.LIVE;
     this.timer = RULES.matchTime;
     this.tix = [0, 0];
-    this.grenades = []; this.smokes = []; this.fires = []; this.projectiles = []; this.gadgets = []; this.vehicles = []; this.corpses = [];
+    this.grenades = []; this.smokes = []; this.fires = []; this.projectiles = []; this.gadgets = []; this.vehicles = []; this.corpses = []; this.flares = [];
     this.events = [];
     this.nextId = 1;
     this.explDepth = 0;
@@ -40,6 +42,7 @@ export class Game {
     this.over = false;
     this.flags = []; this.mcoms = [];
     this.spawnRing = [0, 0];
+    this.physics = new BattlefieldPhysics(this);
   }
 
   get players() { return this.room.players; }
@@ -176,6 +179,8 @@ export class Game {
       if (g.type !== 'beacon' || g.team !== p.team || g.squad !== p.squad) continue;
       opts.push({ k: 'beacon', id: g.id, name: 'Spawn Beacon', x: g.x, y: g.y, ok: true, why: '' });
     }
+    const contested = opts.filter((o) => o.k === 'flag' && o.contested);
+    for (const o of opts) if ((o.k === 'squad' || o.k === 'beacon') && contested.some((f) => Math.hypot(o.x - f.x, o.y - f.y) <= f.r)) { o.ok = false; o.why = 'Contested'; }
     return opts;
   }
 
@@ -186,8 +191,8 @@ export class Game {
     if (this.time < p.respawnAt) return false;
     const opts = this.spawnOptions(p);
     let opt = null;
-    if (req && req.k) opt = opts.find((o) => o.k === req.k && o.id === req.id && o.ok);
-    if (!opt) opt = opts.find((o) => o.ok) || null;
+    if (req && req.k) { opt = opts.find((o) => o.k === req.k && o.id === req.id && o.ok); if (!opt) return false; }
+    else opt = opts.find((o) => o.ok) || null;
     if (!opt) return false;
     this.spawnPlayer(p, opt);
     return true;
@@ -197,33 +202,40 @@ export class Game {
     p.equip();
     p.alive = true; p.hp = 100; p.veh = 0; p.seat = 0;
     p.armor = opt.revived ? 0 : ((CLASSES[p.cls] && CLASSES[p.cls].armor) || 0);
-    let x = opt.x, y = opt.y;
+    let x = opt.x, y = opt.y, spawnAngle;
     const face = this.map.spawnCenter[otherTeam(p.team)] || { x: this.map.width / 2, y: this.map.height / 2 };
     // pick a spot with room to walk in the direction we will face (never spawn staring at a crate or wall)
     const pickSpot = (px, py, minR, maxR, tries = 10) => {
-      let best = null;
+      let alternate = null;
       for (let i = 0; i < tries; i++) {
         const fr = this.map.freeSpotNear(px, py, minR, maxR, Math.random, 1);
         const a = Math.atan2(face.y - fr.y, face.x - fr.x);
-        best = fr;
-        if (this.map.clearLineR(fr.x, fr.y, fr.x + Math.cos(a) * 110, fr.y + Math.sin(a) * 110, 13)) return fr;
+        const resolved = this.map.moveCircle(fr.x, fr.y, 0, 0, 13, this.map.blockInf);
+        if (Math.hypot(resolved.x - fr.x, resolved.y - fr.y) > .01) continue;
+        const clear = (angle) => this.map.clearLineR(fr.x, fr.y, fr.x + Math.cos(angle) * 110, fr.y + Math.sin(angle) * 110, 13);
+        if (clear(a)) return { ...fr, angle: a };
+        if (!alternate) for (const offset of [Math.PI / 4, -Math.PI / 4, Math.PI / 2, -Math.PI / 2, Math.PI * .75, -Math.PI * .75, Math.PI]) {
+          if (clear(a + offset)) { alternate = { ...fr, angle: a + offset }; break; }
+        }
       }
-      return best;
+      return alternate;
     };
     if (opt.k === 'base') {
       const sp = this.map.spawns[p.team];
-      const pt = sp[Math.floor(Math.random() * sp.length)];
-      const fr = pickSpot(pt.x, pt.y, 0, 60);
-      x = fr.x; y = fr.y;
+      const start = Math.floor(Math.random() * sp.length);
+      for (let i = 0; i < sp.length; i++) {
+        const pt = sp[(start + i) % sp.length], fr = pickSpot(pt.x, pt.y, 0, 60);
+        if (fr) { x = fr.x; y = fr.y; spawnAngle = fr.angle; break; }
+      }
     } else if (opt.k === 'flag' || opt.k === 'area') {
-      const fr = pickSpot(opt.x, opt.y, 30, opt.r || 110);
-      x = fr.x; y = fr.y;
+      const fr = pickSpot(opt.x, opt.y, 30, opt.r || 110) || pickSpot(opt.x, opt.y, 30, Math.max(180, opt.r || 110));
+      if (fr) { x = fr.x; y = fr.y; spawnAngle = fr.angle; }
     } else if (opt.k === 'squad' || opt.k === 'beacon') {
-      const fr = pickSpot(opt.x, opt.y, 24, 70);
-      x = fr.x; y = fr.y;
+      const fr = pickSpot(opt.x, opt.y, 24, 70) || pickSpot(opt.x, opt.y, 24, 150);
+      if (fr) { x = fr.x; y = fr.y; spawnAngle = fr.angle; }
     } else { const fr = this.map.nearestFree(x, y); x = fr.x; y = fr.y; }
-    p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.z = 0; p.vz = 0; p.cf = 0; p.pitch = 0;
-    p.angle = Math.atan2(face.y - p.y, face.x - p.x);
+    p.x = x; p.y = y; p.vx = 0; p.vy = 0; p.z = this.map.heightAt(x, y); p.vz = 0; p.cf = 0; p.pitch = 0;
+    p.angle = spawnAngle ?? Math.atan2(face.y - p.y, face.x - p.x);
     p.fireCd = 0; p.reloadT = 0; p.drawT = 0.3; p.burst = 0; p.scoped = false;
     p.useT = 0; p.reviveProg = 0; p.flashUntil = 0; p.flashFullUntil = 0;
     p.dmgFrom.clear();
@@ -251,7 +263,7 @@ export class Game {
     this.gadgets.splice(i, 1);
     const owner = this.players.get(g.owner) || null;
     if (boom) {
-      if (g.type === 'c4') explode(this, { x: g.x, y: g.y, radius: 150, dmg: 160, veh: 720, tile: 700, owner: owner || attacker, wid: 'c4', kind: 'c4', hitVeh: g.attach ? this.vehicles.find((v) => v.id === g.attach) : null });
+      if (g.type === 'c4') explode(this, { x: g.x, y: g.y, z: g.z, radius: 150, dmg: 160, veh: 720, tile: 700, owner: owner || attacker, wid: 'c4', kind: 'c4', hitVeh: g.attach ? this.vehicles.find((v) => v.id === g.attach) : null });
       else if (g.type === 'mine') explode(this, { x: g.x, y: g.y, radius: 90, dmg: 40, veh: 520, tile: 140, owner: owner || attacker, wid: 'mine', kind: 'mine' });
       else if (g.type === 'claymore') explode(this, { x: g.x, y: g.y, radius: 130, dmg: 100, veh: 40, tile: 60, owner: owner || attacker, wid: 'claymore', kind: 'claymore' });
       else if (attacker && owner && attacker.team !== owner.team) this.addScore(attacker, RULES.score.destroyGadget, 'Gadget destroyed');
@@ -273,11 +285,13 @@ export class Game {
     }
     for (const p of this.players.values()) this.updatePlayer(p, dt);
     updateVehicles(this, dt);
+    updateFlares(this, dt);
     updateProjectiles(this, dt);
     updateGrenades(this, dt);
     updateFires(this, dt);
     updateSmokes(this, dt);
     updateGadgets(this, dt);
+    this.physics.step(dt);
     this.enforceBases(dt);
     this.expireCorpses();
     for (const p of this.players.values()) p.record(this.tick);
@@ -329,14 +343,14 @@ export class Game {
     } else tickWeaponTimers(this, p, dt);
     if (p.bot) {
       const c = p.bot.think(dt);
-      this.applyCmd(p, c.keys, c.angle, 0, c.aimDist, c.ax, c.ay, c.pitch);
+      this.applyCmd(p, c.keys, c.angle, 0, c.aimDist, c.ax, c.ay, c.pitch, c.aimHeight);
       if (c.seat !== undefined && c.seat >= 0) switchSeat(this, p, c.seat);
     } else {
       const q = p.cmdQ;
       let n = q.length > 8 ? 4 : q.length > 3 ? 2 : 1;
       while (n-- > 0 && q.length) {
         const c = q.shift();
-        this.applyCmd(p, c[1], c[2], c[3], c[4], undefined, undefined, c[5]);
+        this.applyCmd(p, c[1], c[2], c[3], c[4], undefined, undefined, c[5], c[6], Number.isFinite(c[7]) && Number.isFinite(c[8]) ? { x: c[7], y: c[8] } : null);
         p.lastSeq = c[0];
         if (!p.alive) break;
       }
@@ -349,10 +363,10 @@ export class Game {
     return Math.max(this.time - 0.4, Math.min(this.time, Math.round((vt + 0.1) * 1000) / 1000));
   }
 
-  applyCmd(p, keys, angle, vt, aimDist, ax, ay, pitch = 0) {
+  applyCmd(p, keys, angle, vt, aimDist, ax, ay, pitch = 0, aimHeight = null, aimPoint = null) {
     const useHeld = (keys & KEY.USE) !== 0;
     if (p.veh) {
-      vehicleCmd(this, p, keys, angle, vt, aimDist);
+      vehicleCmd(this, p, keys, angle, vt, aimDist, aimHeight, aimPoint);
       this.handleUse(p, useHeld, keys);
       p.prevFire = (keys & KEY.FIRE) !== 0;
       return;
@@ -362,22 +376,27 @@ export class Game {
     p.lastKeys = keys;
     const w = p.weapon();
     const fire = (keys & KEY.FIRE) !== 0;
-    const wantScope = (keys & KEY.SCOPE) !== 0 && !!w && w.kind !== 'knife';
+    const wantScope = !p.heldBody && (keys & KEY.SCOPE) !== 0 && ((!!w && w.kind !== 'knife') || p.gadget()?.def.kind === 'launcher') && p.reloadT <= 0;
     p.scoped = wantScope;
+    if (!wantScope || !p.gadget()?.def.aa) { p.lockTarget = 0; p.lockT = 0; }
     const human = ax === undefined;
     p.walking = (keys & KEY.WALK) !== 0 || p.cf > 0.5;
     // sprinting: humans must be running forward; only while not aiming, shooting or crouched
     p.sprinting = (keys & KEY.SPRINT) !== 0 && !wantScope && !p.walking && !fire && (!human || (keys & KEY.UP) !== 0);
     if (human) [ax, ay] = relativeDir(keys, angle);   // humans: keys are relative to the view
+    this.physics.pushProps(p);
     stepMovement(this.map, p, keys, maxSpeedFor(w, p.walking, p.scoped, p.sprinting), false, ax, ay);
+    if (p.landingSpeed > 160 && p.spawnProt <= 0) damagePlayer(this, p, null, Math.min(100, (p.landingSpeed - 160) * .6), 'fall', {});
     // footsteps (silent in the air and when crouched)
     const sp = p.speed;
-    if (!p.walking && p.z < 1 && sp > 45) {
+    if (!p.walking && p.z <= this.map.groundAt(p.x, p.y, 11, p.z) + .01 && Math.abs(p.vz) < 1 && sp > 45) {
       p.stepAcc += sp * DT;
       if (p.stepAcc > 44) { p.stepAcc = 0; this.emit(['step', p.id, Math.round(p.x), Math.round(p.y), p.team, p.sprinting ? 1 : 0], p.x, p.y, p.sprinting ? 720 : 640); }
     } else if (sp <= 45) p.stepAcc = Math.max(p.stepAcc, 40);
     this.handleUse(p, useHeld, keys);
-    tryFire(this, p, fire, !p.prevFire && fire, vt, aimDist, keys);
+    if (!fire) p.throwLock = false;
+    if (p.heldBody && fire) { this.physics.release(p, true); p.throwLock = true; }
+    else if (!p.heldBody) tryFire(this, p, fire && !p.throwLock, !p.prevFire && fire && !p.throwLock, vt, aimDist, keys);
     p.prevFire = fire;
   }
 
@@ -390,6 +409,7 @@ export class Game {
       if (p.veh) { exitVehicle(this, p); return; }
       const v = nearestVehicle(this, p);
       if (v && canEnter(v, p) && freeSeat(v) >= 0) { enterVehicle(this, p, v, -1); return; }
+      if (this.physics.use(p)) return;
     }
     if (!p.veh && this.mode.onUse) this.mode.onUse(this, p, edge, DT);
   }
@@ -405,7 +425,7 @@ export class Game {
     for (const q of this.players.values()) {
       if (!q.alive || q.team === p.team || q.team === SPEC) continue;
       const d = Math.hypot(q.x - x, q.y - y);
-      if (d < bd && this.map.los(p.x, p.y, q.x, q.y)) { bd = d; best = q; kind = 0; }
+      if (d < bd && this.map.los(p.x, p.y, q.x, q.y, p.eyeZ, q.eyeZ)) { bd = d; best = q; kind = 0; }
     }
     for (const v of this.vehicles) {
       if (v.dead || v.team === p.team) continue;

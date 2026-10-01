@@ -7,7 +7,7 @@ export class MapBuilder {
     this.w = w; this.h = h;
     this.g = Array.from({ length: h }, () => Array(w).fill(fill));
     this._s = seed >>> 0;
-    this.objects = { flags: [], vehicles: [], mcoms: [] };
+    this.objects = { flags: [], vehicles: [], mcoms: [], buildings: [] };
   }
   rnd() { this._s = (this._s * 1664525 + 1013904223) >>> 0; return this._s / 4294967296; }
   ri(a, b) { return a + Math.floor(this.rnd() * (b - a + 1)); }
@@ -39,6 +39,7 @@ export class MapBuilder {
   }
   /** copy the top half onto the bottom (vertical mirror) */
   mirrorV(swap = {}) {
+    this.objects.buildings.push(...this.objects.buildings.filter((b) => b.y + b.h <= this.h / 2).map((b) => ({ ...b, y: this.h - b.y - b.h })));
     for (let y = 0; y < Math.floor(this.h / 2); y++) {
       for (let x = 0; x < this.w; x++) {
         const c = this.g[y][x];
@@ -49,6 +50,7 @@ export class MapBuilder {
   }
   /** copy the left half onto the right (horizontal mirror), swapping zone letters */
   mirrorH(swap = { t: 'c', c: 't' }) {
+    this.objects.buildings.push(...this.objects.buildings.filter((b) => b.x + b.w <= this.w / 2).map((b) => ({ ...b, x: this.w - b.x - b.w })));
     for (let y = 0; y < this.h; y++) for (let x = 0; x < Math.floor(this.w / 2); x++) {
       const c = this.g[y][x];
       this.g[y][this.w - 1 - x] = swap[c] || c;
@@ -57,6 +59,7 @@ export class MapBuilder {
   }
   /** copy the first half onto the second by 180 degree rotation */
   rot180(swap = {}) {
+    this.objects.buildings.push(...this.objects.buildings.filter((b) => b.y + b.h <= this.h / 2).map((b) => ({ ...b, x: this.w - b.x - b.w, y: this.h - b.y - b.h })));
     const total = this.w * this.h;
     for (let i = 0; i < total / 2; i++) {
       const x = i % this.w, y = Math.floor(i / this.w);
@@ -107,6 +110,7 @@ export class MapBuilder {
    * A building: walls B, interior floor, windows G and 1-2 door gaps. door = 'N','S','E','W' (any combination, e.g. 'NS').
    */
   house(x, y, w, h, o = {}) {
+    this.objects.buildings.push({ x, y, w, h, roof: o.roof || 'gable', wall: o.wall || 'B', ...(o.storeys ? { storeys: o.storeys } : {}) });
     const door = o.door === undefined ? 'S' : o.door, floor = o.floor || ';', wall = o.wall || 'B';
     this.rect(x, y, w, h, wall).rect(x + 1, y + 1, w - 2, h - 2, floor);
     const gaps = [];
@@ -229,7 +233,7 @@ export class MapBuilder {
 
 /** Mirror the objects of a half-built map onto the right side. Vehicle angles are flipped and teams swapped. */
 export function mirrorObjects(objects, w) {
-  const out = { flags: [], vehicles: [], mcoms: [] };
+  const out = { flags: [], vehicles: [], mcoms: [], buildings: objects.buildings || [] };
   const mx = (x) => w - 1 - x;
   const flipOwner = (o) => (o === 0 ? 1 : o === 1 ? 0 : o);
   for (const f of objects.flags) out.flags.push(f);

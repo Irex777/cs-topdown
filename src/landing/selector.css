@@ -1,0 +1,80 @@
+:root {
+  color-scheme: dark;
+  --background: #101412;
+  --foreground: #f1f2eb;
+  --muted: #9fa69d;
+  --accent: #d1e89b;
+  font-family: Arial, Helvetica, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 45% 0%, #20271f 0%, transparent 60%); }
+a { color: inherit; text-decoration: none; }
+.shell { max-width: 1440px; margin: auto; padding: 0 clamp(24px, 4.5vw, 72px); }
+.masthead { min-height: 104px; display: flex; align-items: center; justify-content: space-between; gap: 24px; border-bottom: 1px solid #ffffff12; }
+.brand { display: flex; align-items: center; gap: 12px; font-size: 15px; font-weight: 800; letter-spacing: .09em; }
+.brand-mark { width: 32px; height: 32px; color: var(--accent); }
+.brand-sub { display: block; margin-top: 5px; color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: .23em; }
+.platform, .eyebrow, .genre, .perspective, .game-kicker, footer { font-size: 10px; letter-spacing: .14em; font-weight: 600; }
+.platform { color: #bdc3b8; }
+.separator { color: #596151; margin: 0 10px; }
+.intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding: 48px 0 32px; }
+.eyebrow { color: var(--accent); margin: 0 0 16px; }
+h1 { font-size: clamp(32px, 4.5vw, 60px); letter-spacing: -.05em; font-weight: 700; line-height: 1.08; margin: 0; }
+h1 > span { color: var(--accent); }
+.intro-note { margin: 0 0 2px; font-size: 13px; line-height: 1.7; color: var(--muted); flex-shrink: 0; }
+.games { display: grid; grid-template-columns: 1.42fr 1fr; gap: 20px; }
+.game { container-type: inline-size; position: relative; min-width: 0; min-height: 560px; display: flex; flex-direction: column; justify-content: space-between; padding: 26px 32px 22px; overflow: hidden; isolation: isolate; border: 1px solid #ffffff20; border-radius: 3px; background: #232720; transition: border-color .2s, box-shadow .2s; }
+.cover { position: absolute; inset: 0; height: 100%; width: 100%; object-fit: cover; z-index: -3; transition: transform .6s ease; }
+.frontline .cover { object-position: 58% center; }
+.tactical .cover { object-position: center 24%; }
+.game::before { content: ''; position: absolute; inset: 0; z-index: -2; background: linear-gradient(180deg, #090e1380 0%, #090e1300 24%, #090e1370 43%, #090e13e6 70%, #090e13 100%), linear-gradient(90deg, #090e134a, transparent 75%); }
+.frontline::before { background: linear-gradient(180deg, #13181055 0%, #13181000 27%, #10150e50 42%, #10150ee6 71%, #10150e 100%), linear-gradient(90deg, #10150e88, transparent 80%); }
+.game:hover { border-color: #d1e89b88; box-shadow: 0 14px 44px #0003; }
+.game:hover .cover { transform: scale(1.035); }
+a:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+.card-top { display: flex; gap: 16px; justify-content: space-between; align-items: center; }
+.genre { color: var(--foreground); }
+.genre::before { content: ''; display: inline-block; width: 5px; height: 5px; margin: 0 8px 2px 0; background: var(--accent); }
+.perspective { color: #e1e6e0; font-size: 9px; letter-spacing: .1em; }
+.card-content { padding-top: 160px; }
+.game-kicker { font-size: 9px; color: #e0d8c3; margin: 0 0 14px; letter-spacing: .17em; }
+.tactical .game-kicker { color: #bbcbd4; }
+h2 { font-size: clamp(38px, 18cqw, 78px); white-space: nowrap; font-weight: 900; line-height: .89; letter-spacing: -.045em; margin: 0; }
+.tactical h2 { font-size: clamp(38px, 18cqw, 66px); }
+.description { font-size: 13px; line-height: 1.65; color: #e0e3d9; margin: 20px 0 0; }
+.features { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 19px 0 25px; font-size: 10px; color: #afb6a7; }
+.features span + span { position: relative; }
+.features span + span::before { content: '/'; color: #727e68; position: absolute; left: -10px; }
+.launch { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 15px 18px; background: var(--accent); color: #18200f; font-weight: 700; font-size: 13px; transition: background .2s; }
+.launch svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.5; transition: transform .2s; }
+.game:hover .launch svg { transform: translateX(3px); }
+.game:hover .launch { background: #e0f4b3; }
+.tactical .launch { background: #e5e9e4; color: #1b242b; }
+.tactical:hover .launch { background: #fff; }
+.room-status { color: #aab2a4; margin: 13px 0 0; font-size: 10px; line-height: 1.5; }
+.room-status.has-rooms { color: var(--accent); }
+.invite-note { color: var(--accent); font-size: 13px; margin: 20px 0 0; }
+footer { display: flex; justify-content: space-between; gap: 20px; padding: 30px 0; color: #a0a99a; font-size: 9px; }
+footer > span:last-child { font-size: 11px; letter-spacing: 0; font-weight: 400; }
+.footer-cross { color: var(--accent); font-size: 16px; margin-left: 12px; }
+@media (min-width: 1600px) { .intro { padding-top: 64px; padding-bottom: 40px; } .game { min-height: 630px; } }
+@media (max-width: 1050px) { .intro-note { display: none; } .game { padding: 22px; } .card-top { gap: 8px; } .perspective { font-size: 8px; } .features { gap: 8px 14px; font-size: 9px; } }
+@media (max-width: 760px) {
+  .shell { padding: 0 24px; }
+  .masthead { min-height: 80px; }
+  .platform { font-size: 8px; max-width: 90px; line-height: 1.7; text-align: right; }
+  .separator { display: none; }
+  .intro { padding: 32px 0 24px; }
+  .eyebrow { font-size: 9px; margin-bottom: 12px; }
+  h1 { max-width: 420px; font-size: 38px; }
+  .games { grid-template-columns: 1fr; gap: 20px; }
+  .game { min-height: 500px; padding: 24px; }
+  .card-content { padding-top: 124px; }
+  .tactical .cover { object-position: center 35%; }
+  .features { font-size: 10px; }
+  footer { flex-direction: column; gap: 12px; padding: 24px 0; }
+}
+@media (max-width: 380px) { .shell { padding: 0 16px; } .game { padding: 20px; } h1 { font-size: 34px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }

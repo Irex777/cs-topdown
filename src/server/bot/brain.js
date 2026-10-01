@@ -13,11 +13,13 @@ export const BOT_NAMES = [
   'Cobra', 'Drift', 'Ember', 'Fable', 'Gizmo', 'Havoc', 'Iron', 'Joker',
 ];
 
+// sigma = aim wander (rad), lag = how far behind a moving target the aim trails (s), kick = aim disturbance per shot (rad),
+// turn = peak turn rate (rad/s). Bots are meant to miss, lose track of crossing targets and hesitate like people do.
 const DIFF = {
-  easy:   { sight: 520, react: 0.55, turn: 6,  sigma: 0.065, burst: 0.55, aggr: 0.25, hold: 0.45 },
-  normal: { sight: 700, react: 0.28, turn: 10, sigma: 0.032, burst: 0.75, aggr: 0.45, hold: 0.7 },
-  hard:   { sight: 840, react: 0.18, turn: 14, sigma: 0.018, burst: 0.9,  aggr: 0.6,  hold: 0.85 },
-  expert: { sight: 980, react: 0.10, turn: 20, sigma: 0.009, burst: 1.0,  aggr: 0.75, hold: 1.0 },
+  easy:   { sight: 520, react: 0.55, turn: 4.5, sigma: 0.070, burst: 0.55, aggr: 0.25, hold: 0.45, lag: 0.16, kick: 0.028 },
+  normal: { sight: 700, react: 0.34, turn: 7,   sigma: 0.042, burst: 0.75, aggr: 0.45, hold: 0.7,  lag: 0.10, kick: 0.020 },
+  hard:   { sight: 840, react: 0.24, turn: 10,  sigma: 0.032, burst: 0.9,  aggr: 0.6,  hold: 0.85, lag: 0.07, kick: 0.015 },
+  expert: { sight: 980, react: 0.17, turn: 13,  sigma: 0.026, burst: 1.0,  aggr: 0.75, hold: 1.0,  lag: 0.05, kick: 0.012 },
 };
 
 const rnd = Math.random;
@@ -132,6 +134,7 @@ export class BotBrain {
   constructor(game, p, difficulty = 'normal') {
     this.g = game; this.p = p;
     this.setDifficulty(difficulty);
+    this.sloppy = 0.75 + rnd() * 0.55;        // this bot's own steadiness: some are sharper than others, for good
     this.reset();
   }
 
@@ -144,7 +147,7 @@ export class BotBrain {
     this.target = null; this.targetSince = 0; this.visible = false; this.lastSeen = null;
     this.heard = null;
     this.strafeDir = rnd() < 0.5 ? -1 : 1; this.strafeT = 0; this.strafeMove = false;
-    this.errA = 0; this.errT = 0;
+    this.errA = 0; this.errT = 0; this.av = 0; this.kickA = 0; this.kickP = 0; this.reactJ = 1;
     this.noFireT = 0; this.stuckT = 0; this.travel = 0; this.moveWant = 0; this.lastTX = p.x; this.lastTY = p.y; this.nudgeT = 0; this.nudgeDir = 1;
     this.burstLeft = 4; this.burstPause = 0; this.pulse = false; this.lastClip = 99;
     this.flashedUntil = 0; this.hitBy = null; this.danger = null;
@@ -284,13 +287,13 @@ export class BotBrain {
         if (!q.alive || q.veh || q.team === p.team || q.team === SPEC) continue;
         const d = Math.hypot(q.x - v.x, q.y - v.y);
         if (d >= bd) continue;
-        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, view, q.x, q.y, 0)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: PLAYER_RADIUS, soft: 1 }; bd = d; }
+        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, view, q.x, q.y, 0, PLAYER_RADIUS, v.z + 26, q.eyeZ)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: PLAYER_RADIUS, soft: 1, z: q.z + 18 }; bd = d; }
       }
       for (const q of g.vehicles) {
         if (q.dead || q.team === p.team || q.team < 0 || !q.occupants().length) continue;
         const d = Math.hypot(q.x - v.x, q.y - v.y);
         if (d >= bd) continue;
-        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, { ...view, air: q.def.kind === 'air' }, q.x, q.y, 0, q.def.r)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.def.r, soft: q.def.resist.bullet }; bd = d; }
+        if (canSee(g.map, g.smokes, v.x, v.y, this.aim, { ...view, air: q.def.kind === 'air' }, q.x, q.y, 0, q.def.r, v.z + 26, q.z + (q.def.zr[0] + q.def.zr[1]) / 2)) { best = { x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.def.r, soft: q.def.resist.bullet, z: q.z + (q.def.zr[0] + q.def.zr[1]) / 2 }; bd = d; }
       }
       this.vTarget = best;
       if (best) g.mind.report(p.team, best.x, best.y);
@@ -301,6 +304,7 @@ export class BotBrain {
       const want = tq ? Math.atan2(tq.y + tq.vy * 0.3 - v.y, tq.x + tq.vx * 0.3 - v.x) : (seat === 1 ? v.a : this.aim);
       this.aim = norm(this.aim + clamp(norm(want - this.aim), -6 * dt, 6 * dt));
       cmd.angle = this.aim;
+      if (tq) { cmd.aimHeight = tq.z; cmd.aimDist = Math.hypot(tq.x - v.x, tq.y - v.y); }
       const cur = sd.aim === 'turret' ? v.ta : sd.aim === 'body' ? v.a : v.seatAim[seat];
       const armed = !tq || tq.soft > 0.2 || sd.weapon === 'cannon' || sd.weapon === 'pod' || sd.weapon === 'autocannon';
       if (wantFire && armed && Math.abs(norm(want - cur)) < 0.14 && Math.hypot(tq.x - v.x, tq.y - v.y) < 1000) cmd.keys |= KEY.FIRE;
@@ -316,6 +320,11 @@ export class BotBrain {
       return cmd;
     }
     // ---- driver
+    if (v.def.kind === 'air') {
+      const cruise = g.map.landingHeight(v.x, v.y, v.def.r) + v.def.alt;
+      if (v.z < cruise - 10) cmd.keys |= KEY.SPRINT;
+      else if (v.z > cruise + 20) cmd.keys |= KEY.CROUCH;
+    }
     this.vehWait += dt;
     const tgt = g.mind.targetFor(p);
     const inside = Math.hypot(tgt.x - v.x, tgt.y - v.y) < tgt.r;
@@ -449,20 +458,36 @@ export class BotBrain {
     // ---- aiming
     let desired;
     if (aimAt) {
-      desired = Math.atan2(aimAt.y - p.y, aimAt.x - p.x);
+      let tx = aimAt.x, ty = aimAt.y;
+      if (engaged && tq && aimAt.x === tq.x && aimAt.y === tq.y) {           // a person aims where the target was a moment ago, not where it is now
+        const lag = this.d.lag * this.sloppy;
+        tx -= tq.vx * lag; ty -= tq.vy * lag;
+      }
+      desired = Math.atan2(ty - p.y, tx - p.x);
       if (engaged) {
-        this.errT -= dt;
-        if (this.errT <= 0) { this.errT = 0.18 + rnd() * 0.2; this.errA = gauss() * this.d.sigma * (1 + Math.min(1, Math.hypot(aimAt.x - p.x, aimAt.y - p.y) / 900)); }
-        desired += this.errA;
+        // wandering aim error: bigger at range and while the target crosses the view, plus the pull of recent recoil
+        const range = Math.hypot(tx - p.x, ty - p.y);
+        const across = tq ? Math.abs(-tq.vx * Math.sin(desired) + tq.vy * Math.cos(desired)) : 0;
+        const sig = this.d.sigma * this.sloppy * (1 + 0.6 * Math.min(1, range / 900)) * (1 + Math.min(1, across / 220));
+        const th = 3.5;                                                        // error correlation, 1/s
+        this.errA += -this.errA * th * dt + sig * Math.sqrt(2 * th * dt) * gauss() * 1.74;
+        desired += this.errA + this.kickA;
       }
     } else if (look !== undefined && look !== null && !(mx || my)) desired = look;
     else if (mx || my) desired = Math.atan2(my, mx);
     else desired = this.aim;
     const turn = this.d.turn * (engaged ? 1 : 0.55) * (flashed ? 0.15 : 1);
-    this.aim = norm(this.aim + clamp(norm(desired - this.aim), -turn * dt, turn * dt));
+    // the aim has momentum: it accelerates toward the target, overshoots a little and settles, instead of snapping on
+    const err = norm(desired - this.aim);
+    const wantV = clamp(err * 16, -turn, turn);
+    const acc = turn * 7;
+    this.av += clamp(wantV - this.av, -acc * dt, acc * dt);
+    this.aim = norm(this.aim + this.av * dt);
+    const decay = Math.exp(-5 * dt);
+    this.kickA *= decay; this.kickP *= decay;
     // vertical aim: at the height clearShot() picked when engaged, level otherwise
     let wantPitch = 0;
-    if (engaged && aimAt && this.aimZ !== undefined) wantPitch = Math.atan2(this.aimZ - p.eyeZ, Math.max(30, Math.hypot(aimAt.x - p.x, aimAt.y - p.y)));
+    if (engaged && aimAt && this.aimZ !== undefined) wantPitch = Math.atan2(this.aimZ - p.eyeZ, Math.max(30, Math.hypot(aimAt.x - p.x, aimAt.y - p.y))) + this.kickP + this.errA * 0.4;
     this.pitch = (this.pitch || 0) + clamp(wantPitch - (this.pitch || 0), -turn * dt, turn * dt);
 
     // ---- output
@@ -502,7 +527,7 @@ export class BotBrain {
     if (t.kind === 'p') { const q = g.players.get(t.id); return q && q.alive && !q.veh ? { x: q.x, y: q.y, vx: q.vx, vy: q.vy, speed: q.speed, veh: null, soft: 1, z: q.z, h: q.bodyH } : null; }
     const v = g.vehicleById(t.id);
     const zr = v && v.def.zr ? v.def.zr : [0, 26];
-    return v && !v.dead ? { x: v.x, y: v.y, vx: v.vx, vy: v.vy, speed: v.speed, veh: v, soft: v.def.resist.bullet, z: zr[0], h: zr[1] - zr[0] } : null;
+    return v && !v.dead ? { x: v.x, y: v.y, vx: v.vx, vy: v.vy, speed: v.speed, veh: v, soft: v.def.resist.bullet, z: v.z + zr[0], h: zr[1] - zr[0] } : null;
   }
 
   // ---------------------------------------------------------------- jobs (class abilities)
@@ -636,23 +661,27 @@ export class BotBrain {
     const maxEff = (RANGE[kind] || 700) * (w && w.scope && p.scoped ? 1.15 : 1);
     const tooFarForMoving = kind !== 'sniper' && dist > 480 && tq.speed > 90;
     const outOfRange = dist >= maxEff;
-    const reacted = now - this.targetSince >= this.d.react;
+    const reacted = now - this.targetSince >= this.d.react * this.reactJ * this.sloppy;
     const ammo = w ? p.ammoOf(w) : { clip: 0, reserve: 0 };
     // aim down the sights whenever the fight is beyond hip-fire range (a scoped weapon only when it is really far)
     const scope = !!(w && kind !== 'knife' && kind !== 'shotgun' && this.d.hold > 0.4 && dist > (w.scope > 0 ? 380 : 170));
     if (ammo.clip < this.lastClip) {
       this.burstLeft--;
-      if (this.burstLeft <= 0) { this.burstPause = 0.18 + rnd() * 0.3 * (1.6 - this.d.burst); this.burstLeft = 3 + Math.floor(rnd() * 4); }
+      // every shot disturbs the aim (recoil); the bot has to pull it back down
+      const k = this.d.kick * this.sloppy * (kind === 'sniper' ? 2.2 : kind === 'shotgun' ? 1.6 : kind === 'pistol' ? 0.8 : 1);
+      this.kickP = Math.min(0.2, this.kickP + k * (0.6 + rnd() * 0.8));
+      this.kickA = clamp(this.kickA + (rnd() - 0.5) * k * 1.8, -0.12, 0.12);
+      if (this.burstLeft <= 0) { this.burstPause = 0.25 + rnd() * 0.55 * (1.7 - this.d.burst); this.burstLeft = 2 + Math.floor(rnd() * (2 + this.d.burst * 3)); }
     }
     this.lastClip = ammo.clip;
     if (this.burstPause > 0) this.burstPause -= dt;
     const angErr = Math.abs(angleDiff(toEnemy, this.aim));
-    const tol = Math.atan2(10 * (tq.veh ? tq.veh.def.r / 12 : 1), Math.max(60, dist)) + 0.03;
+    const tol = Math.atan2(16 * (tq.veh ? tq.veh.def.r / 12 : 1), Math.max(60, dist)) + 0.045;      // people squeeze the trigger before the aim is perfect
     let fire = false;
-    this.why = !reacted ? 'react' : !w ? 'noweapon' : angErr >= tol ? 'aim' : p.drawT > 0 ? 'draw' : p.reloadT > 0 ? 'reload' : p.spawnProt > 0 ? 'prot' : ammo.clip <= 0 ? 'empty' : dist >= maxEff ? 'range' : tooFarForMoving ? 'moving' : (w.auto && dist > 340 && this.burstPause > 0) ? 'burst' : 'fire';
+    this.why = !reacted ? 'react' : !w ? 'noweapon' : angErr >= tol ? 'aim' : p.drawT > 0 ? 'draw' : p.reloadT > 0 ? 'reload' : p.spawnProt > 0 ? 'prot' : ammo.clip <= 0 ? 'empty' : dist >= maxEff ? 'range' : tooFarForMoving ? 'moving' : (w.auto && dist > 120 && this.burstPause > 0) ? 'burst' : 'fire';
     if (reacted && w && angErr < tol && p.drawT <= 0 && p.reloadT <= 0 && p.spawnProt <= 0) {
       if (kind === 'knife') fire = dist < 56;
-      else if (ammo.clip > 0 && dist < maxEff && !tooFarForMoving) fire = !(w.auto && dist > 340 && this.burstPause > 0);
+      else if (ammo.clip > 0 && dist < maxEff && !tooFarForMoving) fire = !(w.auto && dist > 120 && this.burstPause > 0);
     }
     if (w && kind !== 'knife' && ammo.clip <= 0) {
       if (ammo.reserve > 0) { if (dist > 200 || p.sel !== 'primary') startReload(g, p); }
@@ -708,7 +737,7 @@ export class BotBrain {
     if (cc && g.time - cc.t < 0.7 && Math.hypot(cc.fx - from.x, cc.fy - from.y) < 60) return cc.spot;
     const curD = Math.hypot(p.x - from.x, p.y - from.y);
     let best = null, bs = 1e9;
-    const eye = 26, zt = 12;
+    const eye = (from.z || map.heightAt(from.x, from.y)) + 26;
     for (const r of [45, 80, 120, 165, 210]) {
       if (r > maxR) break;
       const a0 = rnd() * 0.4;
@@ -720,7 +749,7 @@ export class BotBrain {
         const dth = Math.hypot(x - from.x, y - from.y);
         if (dth < 60) continue;
         const c = Math.cos(Math.atan2(y - from.y, x - from.x)), sn = Math.sin(Math.atan2(y - from.y, x - from.x));
-        const hit = map.castBullet(from.x, from.y, eye, c, sn, (zt - eye) / Math.max(1, dth), dth);
+        const hit = map.castBullet(from.x, from.y, eye, c, sn, (map.heightAt(x, y) + 12 - eye) / Math.max(1, dth), dth);
         if (hit.d >= dth - 12) continue;                       // the enemy can still see this spot
         const sc = r + Math.max(0, curD - dth) * 0.9 + (this.wantSpot ? Math.hypot(x - this.wantSpot.x, y - this.wantSpot.y) * 0.05 : 0);
         if (sc < bs) { bs = sc; best = { x, y }; }
@@ -812,7 +841,7 @@ export class BotBrain {
       if (!q.alive || q.veh || q.team === p.team || q.team === SPEC) continue;
       const d = Math.hypot(q.x - p.x, q.y - p.y);
       if (!(d < bd || q.id === keep)) continue;
-      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0)) {
+      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, view, q.x, q.y, 0, PLAYER_RADIUS, p.eyeZ, q.eyeZ)) {
         const c = { kind: 'p', id: q.id, x: q.x, y: q.y, vx: q.vx, vy: q.vy };
         if (q.id === keep) { cur = c; curD = d; }
         if (d < bd) { best = c; bd = d; }
@@ -833,7 +862,7 @@ export class BotBrain {
       if (v.dead || v.team === p.team || v.team < 0 || !v.occupants().length) continue;
       const d = Math.hypot(v.x - p.x, v.y - p.y);
       if (d >= bd + 80) continue;
-      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, { ...view, air: v.def.kind === 'air' }, v.x, v.y, 0, v.def.r)) {
+      if (canSee(g.map, g.smokes, p.x, p.y, this.aim, { ...view, air: v.def.kind === 'air' }, v.x, v.y, 0, v.def.r, p.eyeZ, v.z + (v.def.zr[0] + v.def.zr[1]) / 2)) {
         if (v.def.kind === 'air' && v.def.resist.bullet < 0.2) continue;
         best = { kind: 'v', id: v.id, x: v.x, y: v.y, vx: v.vx, vy: v.vy }; bd = d;
       }
@@ -841,7 +870,7 @@ export class BotBrain {
     if (best) {
       const id = best.kind + best.id;
       if (!this.target || this.target.kind + this.target.id !== id || !this.visible) {
-        if (!this.target || this.target.kind + this.target.id !== id) this.targetSince = this.visible ? g.time - this.d.react * 0.7 : g.time;   // switching between visible enemies is quick
+        if (!this.target || this.target.kind + this.target.id !== id) { this.targetSince = this.visible ? g.time - this.d.react * 0.7 : g.time; this.reactJ = 0.8 + rnd() * 0.8; }   // switching between visible enemies is quick
         else if (!this.visible && this.lastSeen && g.time - this.lastSeen.t > 0.6) this.targetSince = g.time;
       }
       this.target = best;

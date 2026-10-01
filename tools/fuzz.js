@@ -58,9 +58,11 @@ function run(map, mode, humans, teamSize, seconds) {
     if (tick % 30 === 0) {
       for (const p of g.players.values()) {
         if (!Number.isFinite(p.x) || !Number.isFinite(p.y) || !Number.isFinite(p.z) || !Number.isFinite(p.pitch)) fail(`NaN pos ${p.name}`);
-        if (p.z < -0.01 || p.z > 80 || p.cf < 0 || p.cf > 1) fail(`bad body state z=${p.z} cf=${p.cf} ${p.name}`);
+        const floor = g.map.heightAt(p.x, p.y), bodyAltitude = p.z - floor;
+        if (bodyAltitude > 1000 || (p.alive && bodyAltitude < -.02) || p.cf < 0 || p.cf > 1) fail(`bad body state z=${p.z} cf=${p.cf} ${p.name}`);
         if (p.alive && (p.x < 0 || p.y < 0 || p.x > g.map.width || p.y > g.map.height)) fail(`out of map ${p.name} ${p.x},${p.y}`);
-        if (p.alive && !p.veh && g.map.isBlockedAt(p.x, p.y)) fail(`${p.name} inside an obstacle at ${p.x.toFixed(1)},${p.y.toFixed(1)}`);
+        const tile = Math.floor(p.y / 32) * g.map.w + Math.floor(p.x / 32);
+        if (p.alive && !p.veh && g.map.blockFoot[tile] && p.z < g.map.top[tile] + g.map.tileBase(Math.floor(p.x / 32), Math.floor(p.y / 32)) - .01) fail(`${p.name} inside an obstacle at ${p.x.toFixed(1)},${p.y.toFixed(1)}`);
         if (p.hp > 100.01 || (p.alive && p.hp <= 0)) fail(`hp ${p.hp} alive=${p.alive}`);
         for (const slot of ['primary', 'secondary', 'alt']) { const a = p.am[slot]; if (a.clip < 0 || a.reserve < 0 || a.clip > 300) fail(`ammo ${slot} ${a.clip}/${a.reserve}`); }
         if (p.alive) for (const gd of p.gadgets) if (gd && (gd.charges < 0 || gd.charges > 10)) fail(`gadget charges ${gd.charges}`);

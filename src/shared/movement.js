@@ -1,5 +1,5 @@
 // Deterministic player movement step, shared by the server and by client-side prediction.
-import { DT, ACCEL, FRICTION, PLAYER_R, KEY, GRAVITY, JUMP_V, CROUCH_SPEED, AIR_CONTROL } from './constants.js';
+import { DT, ACCEL, FRICTION, PLAYER_R, KEY, GRAVITY, JUMP_V, CROUCH_SPEED, AIR_CONTROL, STEP_H, BODY_H, BODY_H_CROUCH } from './constants.js';
 
 /**
  * Movement keys are relative to where the player is looking: W walks toward the aim direction, A/D strafe.
@@ -19,7 +19,7 @@ export function relativeDir(keys, angle) {
  * Vertical: gravity, jumping (only from the ground, not while crouched) and standing on low tiles (sandbags, fences...).
  */
 export function stepMovement(map, s, keys, maxSpeed, frozen, ax, ay) {
-  if (s.z === undefined) { s.z = 0; s.vz = 0; s.cf = 0; }
+  if (s.z === undefined) { s.z = map.heightAt(s.x, s.y); s.vz = 0; s.cf = 0; }
   let ix, iy;
   if (ax !== undefined) { ix = ax; iy = ay; }
   else {
@@ -55,7 +55,11 @@ export function stepMovement(map, s, keys, maxSpeed, frozen, ax, ay) {
   // vertical motion
   const floor = map.groundAt(s.x, s.y, PLAYER_R, s.z);
   s.vz -= GRAVITY * DT;
+  s.landingSpeed = 0;
   let nz = s.z + s.vz * DT;
-  if (nz <= floor) { nz = floor; s.vz = 0; }
+  if (grounded && s.vz <= 0 && Math.abs(floor - floor0) <= STEP_H) { nz = floor; s.vz = 0; }
+  const body = BODY_H + (BODY_H_CROUCH - BODY_H) * s.cf, ceiling = map.ceilingAt(s.x, s.y, s.z);
+  if (s.vz > 0 && s.z + body <= ceiling && nz + body > ceiling) { nz = ceiling - body; s.vz = 0; }
+  if (nz <= floor) { if (!grounded) s.landingSpeed = Math.max(0, -s.vz); nz = floor; s.vz = 0; }
   s.z = nz;
 }

@@ -6,6 +6,7 @@ import { Player, newStats } from './player.js';
 import { Game } from './game.js';
 import { cycleSpectate } from './snapshot.js';
 import { selectSlot, startReload, toggleAlt } from './combat.js';
+import { deployFlares } from './air-defense.js';
 import { SQUAD_NAMES } from '../shared/constants.js';
 
 export const DEFAULT_SETTINGS = {
@@ -263,7 +264,7 @@ export class Room {
           p.qSeq = seq;
           const ang = Number(c[2]);
           if (!Number.isFinite(ang)) continue;
-          p.cmdQ.push([seq, c[1] & 4095, ang, Number(c[3]) || 0, Math.max(0, Math.min(1000, Number(c[4]) || 0)), Math.max(-1.5, Math.min(1.5, Number(c[5]) || 0))]);
+          p.cmdQ.push([seq, c[1] & 4095, ang, Number(c[3]) || 0, Math.max(0, Math.min(2000, Number(c[4]) || 0)), Math.max(-1.5, Math.min(1.5, Number(c[5]) || 0)), Number.isFinite(c[6]) ? Math.max(0, Math.min(4096, c[6])) : null, Number.isFinite(c[7]) ? Math.max(-4096, Math.min(16384, c[7])) : null, Number.isFinite(c[8]) ? Math.max(-4096, Math.min(16384, c[8])) : null]);
         }
         if (p.cmdQ.length > 24) p.cmdQ.splice(0, p.cmdQ.length - 24);
         return;
@@ -318,13 +319,17 @@ export class Room {
     const g = this.game;
     if (!g) return;
     if (m.cmd === 'kill') { p.hp = 0; import('./combat.js').then((c) => c.killPlayer(g, p, null, 'world')); }
-    else if (m.cmd === 'tp') { p.x = Number(m.x); p.y = Number(m.y); }
+    else if (m.cmd === 'tp') { p.x = Number(m.x); p.y = Number(m.y); p.z = g.map.heightAt(p.x, p.y); p.vz = 0; p.vx = p.vy = 0; }
     else if (m.cmd === 'god') p.spawnProt = 9999;
     else if (m.cmd === 'tix') { g.tix = [Number(m.a), Number(m.b)]; }
     else if (m.cmd === 'flag' && g.flags[m.i | 0]) { const f = g.flags[m.i | 0]; f.owner = m.owner | 0; f.cap = f.owner === 0 ? -1 : 1; }
     else if (m.cmd === 'enter') {
       const v = g.vehicles.find((q) => q.type === m.type && !q.dead && !q.occupants().length);
       if (v && p.alive) { p.x = v.x; p.y = v.y; import('./vehicles.js').then((vm) => vm.enterVehicle(g, p, v, m.seat | 0)); }
+    }
+    else if (m.cmd === 'vehiclePose' && p.veh) {
+      const v = g.vehicleById(p.veh);
+      if (v && Number.isFinite(m.x) && Number.isFinite(m.y)) { v.x = m.x; v.y = m.y; v.a = v.ta = Number(m.angle) || 0; v.seatAim.fill(v.a); v.vx = v.vy = v.vz = v.steer = v.yawRate = v.throttle = 0; v.chassisZ = g.map.heightAt(v.x, v.y); if (v.def.kind === 'air') v.flightZ = Number.isFinite(m.z) ? m.z : v.chassisZ + v.def.alt; p.x = v.x; p.y = v.y; p.z = v.z; p.vz = v.vz || 0; }
     }
     else if (m.cmd === 'boom') { import('./world.js').then((w) => w.explode(g, { x: Number(m.x), y: Number(m.y), radius: Number(m.r) || 160, dmg: 100, veh: 400, tile: Number(m.tile) || 700, owner: p, wid: 'c4', kind: m.kind || 'c4' })); }
     else if (m.cmd === 'give') { p.loadout = { ...p.loadout, cls: m.cls || p.loadout.cls }; }
@@ -343,9 +348,10 @@ export class Room {
         if (p.team === SPEC || p.alive) break;
         if (g.time < p.respawnAt) { this.send(p, { t: 'toast', text: 'Wait for the respawn timer' }); break; }
         const ok = g.deploy(p, { k: String(m.k || ''), id: m.id, loadout: m.lo });
-        if (!ok) this.send(p, { t: 'toast', text: 'That spawn point is not available' });
+        if (!ok) { p._needSp = true; const reason = g.spawnOptions(p).find((o) => o.k === m.k && o.id === m.id)?.why; this.send(p, { t: 'toast', text: `${reason || 'That spawn point is unavailable'}. Choose another spawn point.` }); }
         break;
       }
+      case 'flares': deployFlares(g, p); break;
       case 'seat': if (p.alive) g.seatRequest(p, m.n | 0); break;
       case 'spot': if (p.alive) { const x = Number(m.x), y = Number(m.y); if (Number.isFinite(x) && Number.isFinite(y)) g.spot(p, x, y); } break;
       case 'squad': {
