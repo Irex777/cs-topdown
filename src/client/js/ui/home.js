@@ -76,7 +76,7 @@ export class Home {
     const name = $('nameInput');
     name.addEventListener('input', () => store.set('cs.name', name.value));
     $('mmNav').onclick = (e) => { const b = e.target.closest('[data-go]'); if (b) this.go(b.dataset.go); };
-    $('fmPlay').onclick = () => { if (this.requireName()) this.app.quickPlay(this.name); };
+    $('fmPlay').onclick = () => { if (this.requireName()) this.app.quickPlay(this.name, 'riverside'); };
     const th = $('fmThumb'); try { th.getContext('2d').drawImage(mapThumb(getMap('riverside'), 300, 170), 0, 0); } catch { /* no thumbnail */ }
     if (this.app.inviteCode) setTimeout(() => this.go('play'), 0);
     if (!savedName) setTimeout(() => name.focus(), 50);
@@ -114,7 +114,7 @@ export class Home {
     body.innerHTML = `<div class="play-grid">
       <div class="pl-col">
         ${invite ? `<div class="join-banner"><div><span class="label">You're invited to room</span><b>${esc(invite)}</b></div><button class="btn primary" id="joinInvite">Join</button></div>` : ''}
-        <button class="play-card primary" id="quickBtn"><span class="pc-ic" aria-hidden="true">▶</span><span class="pc-copy"><b>Quick play</b><small>Conquest on River Basin, 8 vs 8 with bots. Starts right away.</small></span></button>
+        <button class="play-card primary" id="quickBtn"><span class="pc-ic" aria-hidden="true">▶</span><span class="pc-copy"><b>Quick play</b><small>A random map with bots, picked for you. Starts right away.</small></span></button>
         <button class="play-card" id="createBtn"><span class="pc-ic" aria-hidden="true">＋</span><span class="pc-copy"><b>Create a room</b><small>Pick the map, mode and rules, then invite friends with a link.</small></span></button>
         <div class="join-code"><label class="label" for="codeInput">Have a room code?</label>
           <div class="row"><input class="input code-input" id="codeInput" maxlength="4" placeholder="ABCD" autocomplete="off" spellcheck="false"><button class="btn" id="joinBtn">Join room</button></div></div>

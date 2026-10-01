@@ -3,8 +3,9 @@
 // The library loads on demand, so Low-quality players never download it; until it arrives (or if it fails) the scene renders directly.
 import * as THREE from '../../vendor/three/three.module.js';
 
-/** the look, in one place: tuned so the difference from the plain render is obvious but the picture stays natural */
-export const LOOK = { bloom: 1.0, bloomThreshold: 0.62, saturation: 0.3, brightness: 0.015, contrast: 0.17, vignetteOffset: 0.2, vignetteDarkness: 0.72, grain: 0.07, fringe: 0.0011 };
+/** The look, in one place. The default keeps the game's own colours: no saturation/contrast push, no grain or fringing (set those above 0 to
+ * opt in). What stays is smoothing (MSAA/SMAA), a soft bloom on genuinely bright areas and a very light vignette. */
+export const LOOK = { bloom: 0.45, bloomThreshold: 0.9, saturation: 0, brightness: 0, contrast: 0, vignetteOffset: 0.42, vignetteDarkness: 0.22, grain: 0, fringe: 0 };
 
 let libPromise = null;
 const loadLib = () => libPromise || (libPromise = import('../../vendor/postprocessing/postprocessing.js'));
@@ -31,14 +32,17 @@ export class PostFX {
     composer.addPass(new RenderPass(this.scene, this.camera));
     // Bloom works on linear HDR values, so sun-lit haze, muzzle flashes, fire and glints glow while shaded surfaces stay crisp.
     this.bloom = new BloomEffect({ intensity: high ? L.bloom : L.bloom * 0.75, luminanceThreshold: L.bloomThreshold, luminanceSmoothing: 0.4, mipmapBlur: true, radius: 0.85, levels: high ? 8 : 6 });
-    const grade = [new HueSaturationEffect({ saturation: L.saturation }), new BrightnessContrastEffect({ brightness: L.brightness, contrast: L.contrast })];
-    this.vignette = new VignetteEffect({ offset: L.vignetteOffset, darkness: L.vignetteDarkness });
+    const effects = [this.bloom];
+    if (L.saturation) effects.push(new HueSaturationEffect({ saturation: L.saturation }));
+    if (L.brightness || L.contrast) effects.push(new BrightnessContrastEffect({ brightness: L.brightness, contrast: L.contrast }));
     this.tone = new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC });
-    const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN }); grain.blendMode.opacity.value = L.grain;
-    const lens = new ChromaticAberrationEffect({ offset: new THREE.Vector2(L.fringe, L.fringe), radialModulation: true, modulationOffset: 0.35 });
-    composer.addPass(new EffectPass(this.camera, this.bloom, ...grade, this.tone, this.vignette, grain));
-    composer.addPass(new EffectPass(this.camera, high ? lens : new SMAAEffect()));
-    if (!high) composer.addPass(new EffectPass(this.camera, lens));
+    effects.push(this.tone);
+    this.vignette = new VignetteEffect({ offset: L.vignetteOffset, darkness: L.vignetteDarkness });
+    effects.push(this.vignette);
+    if (L.grain) { const grain = new NoiseEffect({ premultiply: true, blendFunction: BlendFunction.SCREEN }); grain.blendMode.opacity.value = L.grain; effects.push(grain); }
+    composer.addPass(new EffectPass(this.camera, ...effects));
+    if (!high) composer.addPass(new EffectPass(this.camera, new SMAAEffect()));
+    if (L.fringe) composer.addPass(new EffectPass(this.camera, new ChromaticAberrationEffect({ offset: new THREE.Vector2(L.fringe, L.fringe), radialModulation: true, modulationOffset: 0.35 })));
     if (this.size) composer.setSize(this.size[0], this.size[1], false);
     this.composer = composer;
   }

@@ -83,9 +83,26 @@ class App {
   }
 
   // ------------------------------------------------------------------ actions
-  quickPlay(name) {
+  /** a random map from the server's list (never the one just played), with a mode it supports and a team size that suits it */
+  pickQuickMatch(forceMap = null) {
+    const maps = this.maps || [];
+    let m = forceMap ? maps.find((x) => x.id === forceMap) : null;
+    if (!m && maps.length) {
+      let last = ''; try { last = sessionStorage.getItem('bf.lastQuickMap') || ''; } catch { /* ignore */ }
+      const pool = maps.length > 1 ? maps.filter((x) => x.id !== last) : maps;
+      m = pool[Math.floor(Math.random() * pool.length)];
+    }
+    if (!m) return { map: 'riverside', mode: 'conquest', teamSize: 8 };
+    try { sessionStorage.setItem('bf.lastQuickMap', m.id); } catch { /* ignore */ }
+    const sizes = String(m.best).match(/\d+/g)?.map(Number) || [8];                  // "8v8 - 16v16", "3v3 - 5v5", "1v1 - 3v3"
+    const teamSize = Math.max(Math.min(...sizes), Math.min(8, Math.max(...sizes)));       // 8 where it fits, else the map's own range
+    return { map: m.id, mode: m.modes.includes('conquest') ? 'conquest' : m.modes[0], teamSize };
+  }
+
+  quickPlay(name, forceMap = null) {
     audio.unlock();
-    this.net.send({ t: 'create', name, autostart: true, settings: { mode: 'conquest', map: 'riverside', teamSize: 8, bots: true, difficulty: 'normal', friendlyFire: false, public: false, vehicles: true, tickets: 250 } });
+    const pick = this.pickQuickMatch(forceMap);
+    this.net.send({ t: 'create', name, autostart: true, settings: { ...pick, bots: true, difficulty: 'normal', friendlyFire: false, public: false, vehicles: true, tickets: 250 } });
   }
 
   createRoom(name) {
